@@ -13,7 +13,7 @@ async test "atomic checkpoint interruption at every durable write boundary" {
   let next = Lsn::parse("0/20")
   for
     stage in [
-      "before_write", "after_file_sync", "after_rename", "after_directory_sync",
+      "before_write", "after_write", "after_file_sync", "after_rename", "after_directory_sync",
     ] {
     let path = dir + "/" + stage
     save_checkpoint(path, source, old)
@@ -29,7 +29,9 @@ async test "atomic checkpoint interruption at every durable write boundary" {
     } noraise {
       _ => fail("fault was not injected")
     }
-    let expected = if stage == "before_write" || stage == "after_file_sync" {
+    let expected = if stage == "before_write" ||
+      stage == "after_write" ||
+      stage == "after_file_sync" {
       old
     } else {
       next

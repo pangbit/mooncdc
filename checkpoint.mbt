@@ -53,7 +53,7 @@ async fn save_checkpoint(
   path : String,
   source : Source,
   lsn : Lsn,
-  boundary? : (String) -> Unit raise = _ => (),
+  boundary? : async (String) -> Unit = _ => (),
 ) -> Unit {
   let temp = path + ".tmp"
   boundary("before_write")
@@ -65,6 +65,7 @@ async fn save_checkpoint(
   )
   defer file.close()
   file.write(checkpoint_bytes(source, lsn))
+  boundary("after_write")
   file.sync()
   boundary("after_file_sync")
   @fs.rename(temp, path)

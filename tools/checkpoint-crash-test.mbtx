@@ -1,0 +1,78 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/process",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let built = @shell.Cmd("moon", [
+    "test", "checkpoint_process_wbtest.mbt", "--target", "native", "--build-only",
+  ]).output()
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("expected one native whitebox test executable")
+  }
+  let port = if @env.get_env_var("MOONCDC_EXAMPLE_SERVICE") == Some("pg17") {
+    "55417"
+  } else {
+    "55418"
+  }
+  let args = ["checkpoint_process_wbtest.mbt:0-1"]
+  for
+    stage in [
+      "before_write", "after_write", "after_file_sync", "after_rename", "after_directory_sync",
+    ] {
+    let dir = @fs.tmpdir(prefix="mooncdc-checkpoint-kill-")
+    defer @fs.rmdir(dir, recursive=true)
+    let vars = {
+      "MOONCDC_TEST_PORT": port,
+      "MOONCDC_CHECKPOINT_DIR": dir,
+      "MOONCDC_CHECKPOINT_STAGE": stage,
+      "MOONCDC_CHECKPOINT_PHASE": "init",
+    }
+    let initialized = @shell.Cmd(executable, args, env=vars).output()
+    initialized.check()
+    assert_true(
+      initialized.stdout().contains("CHECKPOINT worker completed init"),
+    )
+    defer {
+      vars["MOONCDC_CHECKPOINT_PHASE"] = "cleanup"
+      let cleaned = @shell.Cmd(executable, args, env=vars).output()
+      cleaned.check()
+      assert_true(
+        cleaned.stdout().contains("CHECKPOINT worker completed cleanup"),
+      )
+    }
+    vars["MOONCDC_CHECKPOINT_PHASE"] = "crash"
+    @async.with_task_group(group => {
+      let child = @process.spawn(
+        group,
+        executable,
+        args,
+        extra_env=vars,
+        cancel_handler=@process.hard_cancel(),
+      )
+      @async.with_timeout(20000, () => {
+        while !@fs.exists(dir + "/ready") {
+          if child.try_wait() is Some(code) {
+            fail("worker exited before boundary: \{code}")
+          }
+          @async.sleep(25)
+        }
+      })
+      @shell.Cmd("kill", ["-KILL", child.pid.to_string()]).run()
+      assert_true(child.wait() != 0)
+    })
+    vars["MOONCDC_CHECKPOINT_PHASE"] = "recover"
+    let recovered = @shell.Cmd(executable, args, env=vars).output()
+    recovered.check()
+    assert_true(recovered.stdout().contains("CHECKPOINT recovered " + stage))
+    println(recovered.stdout())
+  }
+}
