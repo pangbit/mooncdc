@@ -1,0 +1,27 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "pangbit/mooncdc/examples/support"
+
+import {
+  "pangbit/mooncdc",
+}
+
+// Values
+pub async fn cleanup(String) -> Unit
+
+pub fn config() -> @mooncdc.ConnectionConfig
+
+pub fn key(ReadOnlyArray[@mooncdc.Value]) -> String raise
+
+pub async fn prepare(String, seed? : String) -> @mooncdc.Lsn
+
+pub fn service() -> String
+
+pub async fn sql(String) -> String
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

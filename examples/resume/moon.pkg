@@ -1,0 +1,12 @@
+import {
+  "pangbit/mooncdc" @cdc,
+  "pangbit/mooncdc/examples/support",
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+pkgtype(kind: "executable")
+
+supported_targets = "native"

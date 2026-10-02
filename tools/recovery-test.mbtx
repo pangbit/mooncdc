@@ -1,0 +1,48 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/shell",
+  "moonbitlang/async/process",
+}
+
+///|
+async fn main {
+  @shell.Cmd("moon", ["build", "--target", "native", "--release"]).run()
+  let executable = "_build/native/release/build/examples/resume/resume.exe"
+  for stage in ["before_sink", "after_sink", "after_ack", "after_feedback"] {
+    let dir = @fs.tmpdir(prefix="mooncdc-crash-")
+    defer @fs.rmdir(dir, recursive=true)
+    @shell.Cmd(executable, ["init", dir]).run()
+    defer @shell.Cmd(executable, ["cleanup", dir]).run()
+    @async.with_task_group(group => {
+      let child = @process.spawn(
+        group,
+        executable,
+        ["crash", dir, stage],
+        cancel_handler=@process.hard_cancel(),
+      )
+      @async.with_timeout(20000, () => {
+        while !@fs.exists(dir + "/ready") {
+          if child.try_wait() is Some(code) {
+            fail("child exited before crash point: \{code}")
+          }
+          @async.sleep(25)
+        }
+      })
+      @shell.Cmd("kill", ["-KILL", child.pid.to_string()]).run()
+      let status = child.wait()
+      assert_true(status != 0)
+    })
+    let recovered = @shell.Cmd(executable, ["recover", dir]).output()
+    recovered.check()
+    let expected = if stage == "after_sink" {
+      "duplicates=1"
+    } else {
+      "duplicates=0"
+    }
+    assert_true(recovered.stdout().contains(expected))
+    println(recovered.stdout())
+    println("SIGKILL recovery passed at " + stage)
+  }
+}

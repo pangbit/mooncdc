@@ -1,0 +1,7 @@
+import {
+  "pangbit/mooncdc" @cdc,
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+}
+
+supported_targets = "native"
