@@ -50,7 +50,8 @@ fn assert_typed_row(
     ),
   )
   assert_true(values["u"] is Uuid(bytes) && bytes.length() == 16)
-  assert_eq(values["j"], Cell::Json(Json::null()))
+  guard values["j"] is Json(document) else { fail("expected JSON") }
+  assert_eq(document.stringify(), "[1e-400,18446744073709551616,0.0]")
   assert_eq(values["jb"], Cell::Json(Json::null()))
   assert_eq(values["ints"], Cell::Array([I64(9223372036854775807L), SqlNull]))
   assert_eq(
@@ -71,6 +72,12 @@ fn assert_typed_row(
   assert_eq(values["mood"], Cell::String("happy"))
   assert_eq(values["moods"], Cell::Array([String("happy"), SqlNull]))
   assert_eq(values["nothing"], Cell::SqlNull)
+  assert_eq(
+    values["intervals"],
+    Cell::Array([String("1 day 02:03:04"), SqlNull]),
+  )
+  assert_eq(values["networks"], Cell::Array([String("192.0.2.1/24"), SqlNull]))
+  assert_eq(values["ranges"], Cell::Array([String("[1,10)"), SqlNull]))
 }
 
 ///|
@@ -84,7 +91,7 @@ async test "live typed cells agree between snapshot and WAL with stable session 
       assert_eq(cell(sql.query("SHOW bytea_output"), 0, 0), "hex")
       ignore(
         sql.query(
-          "CREATE SCHEMA cdc_cells; CREATE TYPE cdc_cells.mood AS ENUM('happy','sad'); CREATE TABLE cdc_cells.items(id int PRIMARY KEY,b bool,i2 int2,i4 int4,i8 int8,o oid,f4 float4,f8 float8,n numeric,bytes bytea,d date,t time,tz timetz,ts timestamp,tstz timestamptz,u uuid,j json,jb jsonb,ints int8[],texts text[],numerics numeric[],byte_arrays bytea[],mood cdc_cells.mood,moods cdc_cells.mood[],nothing text); CREATE PUBLICATION cdc_cells FOR TABLE cdc_cells.items",
+          "CREATE SCHEMA cdc_cells; CREATE TYPE cdc_cells.mood AS ENUM('happy','sad'); CREATE TABLE cdc_cells.items(id int PRIMARY KEY,b bool,i2 int2,i4 int4,i8 int8,o oid,f4 float4,f8 float8,n numeric,bytes bytea,d date,t time,tz timetz,ts timestamp,tstz timestamptz,u uuid,j json,jb jsonb,ints int8[],texts text[],numerics numeric[],byte_arrays bytea[],mood cdc_cells.mood,moods cdc_cells.mood[],nothing text,intervals interval[],networks inet[],ranges int4range[]); CREATE PUBLICATION cdc_cells FOR TABLE cdc_cells.items",
         ),
       )
       defer {
@@ -97,8 +104,9 @@ async test "live typed cells agree between snapshot and WAL with stable session 
         #|INSERT INTO cdc_cells.items VALUES(
         #|1,true,-32768,2147483647,9223372036854775807,4294967295,1.25,'Infinity',12345678901234567890.000000000001,decode('00ff','hex'),
         #|'0001-01-01 BC','24:00:00','24:00:00-15:59:59','12000-02-29 00:00:00','2024-02-29 23:59:59.123456-01:30',
-        #|'550e8400-e29b-41d4-a716-446655440000','null','null',ARRAY[9223372036854775807,NULL]::int8[],ARRAY['NULL',NULL,'a,b','汉字',E'\\'],
-        #|ARRAY['NaN','-Infinity','1.00']::numeric[],ARRAY[decode('00ff','hex'),NULL], 'happy',ARRAY['happy',NULL]::cdc_cells.mood[],NULL)
+        #|'550e8400-e29b-41d4-a716-446655440000','[1e-400,18446744073709551616,0.0]','null',ARRAY[9223372036854775807,NULL]::int8[],ARRAY['NULL',NULL,'a,b','汉字',E'\\'],
+        #|ARRAY['NaN','-Infinity','1.00']::numeric[],ARRAY[decode('00ff','hex'),NULL], 'happy',ARRAY['happy',NULL]::cdc_cells.mood[],NULL,
+        #|ARRAY['1 day 02:03:04',NULL]::interval[], ARRAY['192.0.2.1/24',NULL]::inet[], ARRAY['[1,10)',NULL]::int4range[])
       ignore(sql.query(insert))
       let types = sql.query(
         "SELECT oid::text,typarray::text FROM pg_type WHERE oid='cdc_cells.mood'::regtype",

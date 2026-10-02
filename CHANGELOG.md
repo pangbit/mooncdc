@@ -2,6 +2,10 @@
 
 ## 0.1.0 — Unreleased
 
+- Preserve arbitrary-precision JSON numbers and equality, including underflow values,
+  decimal scale and exponents; recognize generic built-in PostgreSQL arrays.
+  Expand official ETL codec differential coverage to 558 vectors.
+
 - Add schema projection/identity masks, typed row decoding, canonical schema JSON
   roundtrips and ordered column DDL plans with rename-cycle handling. Verify plans
   against 77 vectors evaluated by the pinned official ETL planner.

@@ -77,6 +77,13 @@ test "typed cells preserve scalar widths exact numeric and null semantics" {
 
 ///|
 test "typed arrays preserve quoted null escapes and reject nested dimensions" {
+  for oid in [1187U, 1041U, 3905U, 6151U, 791U] {
+    assert_eq(
+      Value::Text("{\"text,with,commas\",NULL}").decode_text(oid),
+      Cell::Array([String("text,with,commas"), SqlNull]),
+    )
+  }
+  assert_eq(Value::Text("1 2").decode_text(30U), Cell::String("1 2"))
   assert_eq(
     Value::Text("[0:2]={7,NULL,-8}").decode_text(1016U),
     Cell::Array([I64(7), SqlNull, I64(-8)]),

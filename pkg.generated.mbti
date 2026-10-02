@@ -62,10 +62,11 @@ pub(all) enum Cell {
   Json(Json)
   Bytes(Bytes)
   Array(ReadOnlyArray[Cell])
-} derive(Eq, @debug.Debug)
+} derive(@debug.Debug)
 pub fn Cell::equal(Self, Self) -> Bool
 pub fn Cell::not_equal(Self, Self) -> Bool
 pub fn Cell::to_repr(Self) -> @debug.Repr
+pub impl Eq for Cell
 
 pub(all) enum Change {
   RelationChanged(Relation)

@@ -46,7 +46,7 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 | StateStore / SchemaStore | 源绑定 checkpoint、逐表文件状态、公开 SchemaStore、schema 原子文件版本及显式清理已实现；外部 StateStore、自动清理协调、目标端创建状态待实现 |
 | Destination accepted/durable | 单实例有序写入、累计屏障、空闲刷新、正常停止和批次 ID 已实测；并发表复制、目标端持久元数据及具体后端隔离待实现 |
 | 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`；公开投影/identity masks、有序列 DDL 规划已差分验证；连接内完整 decoding-state 恢复、目标端 DDL 执行待实现 |
-| 类型转换 | 已有类型化文本 Cell、精确 numeric、日期/时间/JSON/UUID/bytea/可空一维数组；未知标量保留文本；PG17/18 快照及 WAL 矩阵已实测，固定上游 codec 320 向量进程差分通过；不是全部输入的等价证明 |
+| 类型转换 | 已有类型化文本 Cell、精确 numeric/JSON、日期/时间/UUID/bytea/可空一维数组；通用内置数组采用文本元素；PG17/18 快照及 WAL 矩阵已实测，固定上游 codec 558 向量进程差分通过；不是全部输入的等价证明 |
 | 独立 replicator | 当前为嵌入式库及示例；配置、持久运行状态、健康/指标、优雅退出待实现 |
 | ClickHouse | 上游 private alpha；本地优先实现 ReplacingMergeTree / MergeTree、主键变化墓碑、truncate 与 schema 契约 |
 | BigQuery | 上游 stable；Storage Write API、CDC、目标端持久偏移、布局配置及真云验证待实现 |
@@ -141,3 +141,9 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   普通 native 68/68；PG17/18 原始上游 DDL 消息产生的 add/not-null/publication-remove
   计划逐项通过；规范 JSON、投影及规划 API 有外部消费者测试。
   此阶段提供规划 API，不代表各目标端已经能执行或恢复这些 DDL。
+- P4 类型目录与 JSON：由固定 rust-postgres 目录枚举通用内置数组，补齐 interval/network/range
+  等文本元素数组。上游启用 serde_json arbitrary_precision；修复 JSON 极小值下溢和小数/指数
+  表示丢失，保留 Number.repr 精确文本，并使 Cell 比较递归使用精确数字表示。
+  增加字符串标签碰撞、转义/重复键、非法数字、Unicode surrogate 与 127/128 层嵌套向量；
+  codec 558 向量和 schema 77 向量进程差分通过。普通 native 70/70，PG17/18 的快照/WAL
+  验证极小 JSON、大整数及通用数组；release 与独立源码包消费者通过。

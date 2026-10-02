@@ -281,6 +281,14 @@ element OID for custom arrays. Nested arrays are rejected; explicit lower bounds
 validated and discarded, matching the reference's one-dimensional value representation.
 Quoted `"NULL"` stays a string while unquoted NULL becomes SqlNull. ToastUnchanged is
 distinct from SqlNull and JSON null. Binary transfer is rejected by this text-only API.
+Built-in arrays of interval, network, ranges and other generic types use String elements,
+following the pinned rust-postgres type catalog.
+
+JSON numbers retain exact decimal/exponent text in `Json::Number.repr`. The accompanying
+Double is only an approximation; use the representation or `stringify()` for lossless
+transfer. `Cell` equality compares JSON numbers by that exact representation recursively,
+matching ETL's arbitrary-precision JSON configuration (including decimal scale).
+JSON nesting is limited to 127 containers, matching serde_json's default budget.
 
 Numeric expands exponents to canonical decimal text, preserving exact scale and
 normalizing negative zero without floating-point conversion. Float parsing uses the

@@ -31,6 +31,26 @@ fn normalize_timestamp(value : PgTimestamp) -> Json {
 }
 
 ///|
+// Json equality can compare rounded Doubles even when their retained decimal
+// representations differ. The reference enables arbitrary_precision: preserve
+// the exact number representation instead of passing it through Double equality.
+fn normalize_json(value : Json) -> Json {
+  match value {
+    Number(number, repr~) =>
+      ["number", repr.unwrap_or(number.to_string()).to_json()]
+    Object(fields) => {
+      let normalized : Map[String, Json] = Map([])
+      for key, value in fields {
+        normalized[key] = normalize_json(value)
+      }
+      ["object", Json::object(normalized)]
+    }
+    Array(items) => ["array", items.map(normalize_json).to_json()]
+    _ => value
+  }
+}
+
+///|
 fn normalize_cell(value : Cell) -> Json {
   match value {
     SqlNull => Json::null()
@@ -62,7 +82,7 @@ fn normalize_cell(value : Cell) -> Json {
     Numeric(v) => ["numeric", v.to_json()]
     Bytes(v) => ["bytes", @crypto.bytes_to_hex_string(v).to_json()]
     Uuid(v) => ["uuid", @crypto.bytes_to_hex_string(v).to_json()]
-    Json(v) => ["json", v]
+    Json(v) => ["json", normalize_json(v)]
     Date(v) => ["date", normalize_date(v)]
     Time(v) => ["time", normalize_time(v)]
     TimeTz(v, offset_seconds~) =>
@@ -151,7 +171,44 @@ fn codec_vectors() -> Array[CodecVector] {
         "bad",
       ],
     ),
-    (114U, 199U, ["null", "{\"n\":9007199254740993,\"s\":\"汉字\"}", "{bad}"]),
+    (
+      114U,
+      199U,
+      [
+        "null",
+        "{\"n\":9007199254740993,\"s\":\"汉字\"}",
+        "{bad}",
+        "18446744073709551615",
+        "18446744073709551616",
+        "-9223372036854775809",
+        "-0",
+        "0.0",
+        "1e0",
+        "1e400",
+        "1e-400",
+        "{\"x\":1,\"x\":2}",
+        "-0.0",
+        "1.2300E001",
+        "0e-000",
+        "1e9999999999999999999999",
+        "{\"n1\":\"n1e400\",\"s\":\"s\",\"\":\"\",\"\\u0061\":1e-400,\"a\":2.00}",
+        "{1:2}",
+        "{01:2}",
+        "1e",
+        "1+2",
+        "01",
+        "-01",
+        "+1",
+        ".1",
+        "1.",
+        "{\"a\":1true}",
+        "\"\\ud800\"",
+        "\"\\udc00\"",
+        "\"\\ud800\\udc00\"",
+        "[".repeat(127) + "0" + "]".repeat(127),
+        "[".repeat(128) + "0" + "]".repeat(128),
+      ],
+    ),
     (3802U, 3807U, ["null", "[1,true,\"x\"]", "{bad}"]),
     (26U, 1028U, ["4294967295", "4294967296", "-1", "+42"]),
     (25U, 1015U, ["NULL", "汉字", ""]),

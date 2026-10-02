@@ -22,6 +22,18 @@ fn hex(value: &[u8]) -> String {
     value.iter().map(|v| format!("{v:02x}")).collect()
 }
 
+fn normalize_json(value: Value) -> Value {
+    match value {
+        Value::Number(n) => json!(["number", n.to_string()]),
+        Value::Object(fields) => {
+            let normalized: serde_json::Map<_, _> = fields.into_iter().map(|(k, v)| (k, normalize_json(v))).collect();
+            json!(["object", normalized])
+        },
+        Value::Array(items) => json!(["array", items.into_iter().map(normalize_json).collect::<Vec<_>>()]),
+        _ => value,
+    }
+}
+
 fn normalize(cell: Cell) -> Value {
     match cell {
         Cell::Null => Value::Null,
@@ -36,7 +48,7 @@ fn normalize(cell: Cell) -> Value {
         Cell::Numeric(v) => json!(["numeric", v.to_string()]),
         Cell::Bytes(v) => json!(["bytes", hex(&v)]),
         Cell::Uuid(v) => json!(["uuid", hex(v.as_bytes())]),
-        Cell::Json(v) => json!(["json", v]),
+        Cell::Json(v) => json!(["json", normalize_json(v)]),
         Cell::Date(v) => json!(["date", date(v)]),
         Cell::Time(v) => json!(["time", time(v)]),
         Cell::TimeTz(v) => json!(["timetz", time(v.time()), v.offset().local_minus_utc()]),
@@ -82,7 +94,18 @@ fn normalize(cell: Cell) -> Value {
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
-    let inputs: Vec<Value> = serde_json::from_slice(&std::fs::read(&args[1]).unwrap()).unwrap();
+    let mut inputs: Vec<Value> = serde_json::from_slice(&std::fs::read(&args[1]).unwrap()).unwrap();
+    // Enumerate the actual pinned catalog, not MoonCDC's OID list. ETL sends
+    // every non-specialized array through its generic String-array codec (35).
+    for oid in 0..20000 {
+        let Some(typ) = etl::schema::Type::from_oid(oid) else { continue; };
+        if !etl::schema::is_array_type(&typ) { continue; }
+        let tokio_postgres::types::Kind::Array(element) = typ.kind() else { continue; };
+        if [16,17,20,21,23,26,700,701,1700,1082,1083,1266,1114,1184,2950,114,3802].contains(&element.oid()) { continue; }
+        for input in ["{}", "{\"value,quoted\",NULL}", "{{a}}"] {
+            inputs.push(json!({"selector":35,"oid":oid,"input":input}));
+        }
+    }
     let outputs: Vec<_> = inputs.into_iter().map(|mut input| {
         let selector = input["selector"].as_u64().unwrap() as u8;
         input["result"] = match etl::fuzzing::parse_text_cell(selector, input["input"].as_str().unwrap()) {

@@ -1,6 +1,8 @@
 ///|
 /// Typed PostgreSQL text values. Numeric uses exact canonical decimal text and scale.
 /// Unknown scalar types retain text; TOAST is distinct from both SQL and JSON null.
+/// JSON numbers retain exact text in Number.repr; its Double is approximate.
+/// Cell equality compares that text recursively, including decimal scale.
 pub(all) enum Cell {
   SqlNull
   ToastUnchanged
@@ -22,7 +24,31 @@ pub(all) enum Cell {
   Json(Json)
   Bytes(Bytes)
   Array(ReadOnlyArray[Cell])
-} derive(Eq, Debug)
+} derive(Debug)
+
+///|
+pub impl Eq for Cell with fn equal(left, right) {
+  match (left, right) {
+    (SqlNull, SqlNull) | (ToastUnchanged, ToastUnchanged) => true
+    (Bool(a), Bool(b)) => a == b
+    (String(a), String(b)) | (Numeric(a), Numeric(b)) => a == b
+    (I16(a), I16(b)) => a == b
+    (I32(a), I32(b)) => a == b
+    (I64(a), I64(b)) => a == b
+    (U32(a), U32(b)) => a == b
+    (F32(a), F32(b)) => a == b
+    (F64(a), F64(b)) => a == b
+    (Date(a), Date(b)) => a == b
+    (Time(a), Time(b)) => a == b
+    (TimeTz(a, offset_seconds=ao), TimeTz(b, offset_seconds=bo)) =>
+      a == b && ao == bo
+    (Timestamp(a), Timestamp(b)) | (TimestampTz(a), TimestampTz(b)) => a == b
+    (Uuid(a), Uuid(b)) | (Bytes(a), Bytes(b)) => a == b
+    (Json(a), Json(b)) => pg_json_equal(a, b)
+    (Array(a), Array(b)) => a == b
+    _ => false
+  }
+}
 
 ///|
 pub(all) enum PgDate {
@@ -73,6 +99,64 @@ fn array_element(oid : UInt) -> UInt? {
     199U => Some(114U)
     2951U => Some(2950U)
     3807U => Some(3802U)
+    // Other built-in arrays recognized by the pinned rust-postgres type catalog
+    // use ETL's String element fallback (including ranges, network and interval).
+    143U
+    | 271U
+    | 629U
+    | 651U
+    | 719U
+    | 775U
+    | 791U
+    | 1006U
+    | 1008U
+    | 1010U
+    | 1011U
+    | 1012U
+    | 1013U
+    | 1017U
+    | 1018U
+    | 1019U
+    | 1020U
+    | 1027U
+    | 1034U
+    | 1040U
+    | 1041U
+    | 1187U
+    | 1263U
+    | 1561U
+    | 1563U
+    | 2201U
+    | 2207U
+    | 2208U
+    | 2209U
+    | 2210U
+    | 2211U
+    | 2287U
+    | 2949U
+    | 3221U
+    | 3643U
+    | 3644U
+    | 3645U
+    | 3735U
+    | 3770U
+    | 3905U
+    | 3907U
+    | 3909U
+    | 3911U
+    | 3913U
+    | 3927U
+    | 4073U
+    | 4090U
+    | 4097U
+    | 4192U
+    | 5039U
+    | 6150U
+    | 6151U
+    | 6152U
+    | 6153U
+    | 6155U
+    | 6157U => Some(25U)
     _ => None
   }
 }
@@ -252,7 +336,7 @@ fn scalar_cell(oid : UInt, text : String) -> Cell raise {
       Bytes(cell_hex(text[2:]))
     }
     2950U => Uuid(cell_uuid(text))
-    114U | 3802U => Json(@json.parse(text))
+    114U | 3802U => Json(pg_json(text))
     1082U => Date(pg_date(text))
     1083U => Time(pg_time(text))
     1266U => {
