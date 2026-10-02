@@ -81,8 +81,8 @@ let config : @cdc.ConnectionConfig = {
 - `StateStore` 支持文件目录及 PostgreSQL 持久后端，接入流水线/订阅 checkpoint 和
   目标端元数据；逐表复制错误可持久化并定时或人工重试。详见 [API](docs/API.md)。
 - `ClickHouseDestination` 支持 ReplacingMergeTree 当前值视图和 MergeTree 操作历史，
-  接入全量/增量及持久恢复；目标端 DDL 执行仍待实现。见 [API](docs/API.md#clickhouse-destination)。
-- 不提供自动切主、两阶段事务或完整目标端 DDL 规划。
+  接入全量/增量、列 DDL 及持久恢复。支持范围见 [API](docs/API.md#clickhouse-destination)。
+- 不提供自动切主或两阶段事务；各目标端的 schema 支持范围单独列明。
   不承诺跨系统恰好一次。
 
 `replica identity` 决定旧值是否存在。`FULL` 能提供较完整旧行；默认主键身份可能仅有

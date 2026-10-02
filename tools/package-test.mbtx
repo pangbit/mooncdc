@@ -27,7 +27,7 @@ async fn main {
       "postgres_state_store.mbt", "schema_store.mbt", "schema_projection.mbt", "schema_plan.mbt",
       "cell.mbt", "cell_float.c", "clickhouse_destination.mbt", "clickhouse_metadata.mbt",
       "clickhouse_defaults.mbt", "clickhouse_rows.mbt", "clickhouse_http.mbt", "clickhouse_encoding.mbt",
-      "clickhouse_schema.mbt", "examples/resume/main.mbt",
+      "clickhouse_schema.mbt", "clickhouse_ddl.mbt", "examples/resume/main.mbt",
     ] {
     assert_true(contents.split("\n").any(path => path == required))
   }

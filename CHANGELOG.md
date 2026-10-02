@@ -5,7 +5,9 @@
 - Add ClickHouseDestination with RowBinary snapshot/CDC writes, primary-key tombstones,
   FULL TOAST reconstruction, persistent schema bindings and restart layout validation.
   Verify both engines on PostgreSQL 17/18 and ClickHouse 26.4, plus 3,800 upstream
-  default-expression vectors. Structural DDL execution remains unsupported.
+  default-expression vectors. Execute supported ordered column DDL with durable
+  Creating/Applying/Applied recovery, reject ambiguous partial states and schema rewinds,
+  and preserve historical defaults and physical table names after source renames.
 
 - Integrate pluggable StateStore ownership and durable records into pipelines and
   subscriptions, with file/PostgreSQL backends and destination metadata sessions.

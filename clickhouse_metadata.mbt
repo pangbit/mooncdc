@@ -8,6 +8,9 @@ priv struct ChStoredTable {
   schema : Json
   replicated : Array[Bool]
   identity : Array[Bool]
+  table_name : String?
+  previous : Json?
+  creating : Bool?
 } derive(ToJson, @json.FromJson)
 
 ///|
@@ -19,10 +22,10 @@ fn ch_engine_name(engine : ClickHouseEngine) -> String {
 }
 
 ///|
-async fn ClickHouseDestination::stored_schema(
+async fn ClickHouseDestination::stored_record(
   self : ClickHouseDestination,
   oid : UInt,
-) -> ReplicatedSchema? {
+) -> ChStoredTable? {
   guard self.state().get_metadata(oid) is Some(json) else { return None }
   let record : ChStoredTable = @json.from_json(json) catch {
     _ => raise UnsafeResume("invalid ClickHouse metadata")
@@ -38,13 +41,45 @@ async fn ClickHouseDestination::stored_schema(
   if schema.oid != oid {
     raise UnsafeResume("ClickHouse metadata table identity changed")
   }
-  Some(
-    ReplicatedSchema::new(
-      schema,
-      replicated=ReadOnlyArray::from_array(record.replicated),
-      identity=ReadOnlyArray::from_array(record.identity),
-    ),
+  Some(record)
+}
+
+///|
+fn ChStoredTable::projected(self : ChStoredTable) -> ReplicatedSchema raise {
+  ReplicatedSchema::new(
+    SchemaSnapshot::from_json(self.schema),
+    replicated=ReadOnlyArray::from_array(self.replicated),
+    identity=ReadOnlyArray::from_array(self.identity),
   )
+}
+
+///|
+fn ClickHouseDestination::table_record(
+  self : ClickHouseDestination,
+  table : ChTable,
+) -> ChStoredTable {
+  self.schema_record(table.schema, table.name)
+}
+
+///|
+fn ClickHouseDestination::schema_record(
+  self : ClickHouseDestination,
+  schema : ReplicatedSchema,
+  name : String,
+) -> ChStoredTable {
+  {
+    version: 1,
+    endpoint: self.http.endpoint,
+    database: self.database,
+    publication: self.publication,
+    engine: ch_engine_name(self.engine),
+    schema: schema.schema.to_json(),
+    replicated: schema.replicated.iter().collect(),
+    identity: schema.identity.iter().collect(),
+    table_name: Some(name),
+    previous: None,
+    creating: None,
+  }
 }
 
 ///|
@@ -52,27 +87,16 @@ async fn ClickHouseDestination::save_table(
   self : ClickHouseDestination,
   table : ChTable,
 ) -> Unit {
-  let record : ChStoredTable = {
-    version: 1,
-    endpoint: self.http.endpoint,
-    database: self.database,
-    publication: self.publication,
-    engine: ch_engine_name(self.engine),
-    schema: table.schema.schema.to_json(),
-    replicated: table.schema.replicated.iter().collect(),
-    identity: table.schema.identity.iter().collect(),
-  }
+  let record = self.table_record(table)
   self.state().put_metadata(table.schema.schema.oid, ToJson::to_json(record))
   self.tables[table.schema.schema.oid] = table
 }
 
 ///|
-async fn ClickHouseDestination::load_layout(
+async fn ClickHouseDestination::read_columns(
   self : ClickHouseDestination,
-  schema : ReplicatedSchema,
   name : String,
-) -> ChTable {
-  ch_validate_schema(schema, self.engine)
+) -> Array[(String, String)] {
   let query = "SELECT name,type FROM system.columns WHERE database=" +
     ch_quote(self.database, '\'') +
     " AND table=" +
@@ -89,6 +113,17 @@ async fn ClickHouseDestination::load_layout(
     }
     actual.push((name, typ))
   }
+  actual
+}
+
+///|
+async fn ClickHouseDestination::load_layout(
+  self : ClickHouseDestination,
+  schema : ReplicatedSchema,
+  name : String,
+) -> ChTable {
+  ch_validate_schema(schema, self.engine)
+  let actual = self.read_columns(name)
   let expected = schema
     .columns()
     .iter()
@@ -129,6 +164,7 @@ async fn ClickHouseDestination::create_table(
   self : ClickHouseDestination,
   schema : ReplicatedSchema,
   name : String,
+  if_missing? : Bool = false,
 ) -> Unit {
   ch_validate_schema(schema, self.engine)
   let columns = schema.columns()
@@ -160,7 +196,7 @@ async fn ClickHouseDestination::create_table(
   }
   ignore(
     self.http.query(
-      "CREATE TABLE " +
+      (if if_missing { "CREATE TABLE IF NOT EXISTS " } else { "CREATE TABLE " }) +
       self.qualified(name) +
       " (" +
       definitions.join(", ") +
@@ -229,32 +265,5 @@ async fn ClickHouseDestination::resolve_table(
       )
     }
   }
-  let name = ch_table_name(source.namespace_, source.name, self.engine)
-  let previous = match self.tables.get(relation.oid) {
-    Some(table) => table
-    None => {
-      guard self.stored_schema(relation.oid) is Some(stored) else {
-        raise UnsafeResume("ClickHouse table has no durable copy metadata")
-      }
-      let table = self.load_layout(
-        stored,
-        ch_table_name(stored.schema.namespace_, stored.schema.name, self.engine),
-      )
-      self.tables[relation.oid] = table
-      table
-    }
-  }
-  if previous.name != name {
-    raise Manual("ClickHouse source table rename requires resynchronization")
-  }
-  let plan = previous.schema.plan_change(projected)
-  if !plan.operations.is_empty() || plan.primary_key_changed {
-    raise Manual("ClickHouse schema transition requires DDL support")
-  }
-  // Identity changes need no physical DDL but must govern old-key validation.
-  let table = { ..previous, schema: projected, }
-  if previous.schema != projected {
-    self.save_table(table)
-  }
-  table
+  self.prepare_schema(projected)
 }

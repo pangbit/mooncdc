@@ -385,9 +385,22 @@ rejected. Portable literal defaults are translated conservatively.
 
 Restart preserves completed tables and validates persisted target identity and
 physical column names, order, types and engine before writing. Snapshot retries reset
-incomplete tables. Structural source DDL currently fails closed when observed by a
-row event; automatic DDL execution/recovery is still pending. There is no cross-table
-transactional commit guarantee. Copy batches use stable deduplication tokens; stream
+incomplete tables. With the upstream DDL triggers installed, relation events (or the
+first row using pending schema metadata) execute ordered column additions, drops,
+renames and nullability relaxation. Tightening nullability keeps the physical column
+nullable; changing a source default preserves the add-time destination default.
+Publication-added scalar columns use Nullable without a default so historical rows
+remain NULL; publication-added arrays require resynchronization. Mapped type changes,
+ReplacingMergeTree primary-key changes/renames, and nested-parent moves are rejected
+before DDL. Source table renames retain the persisted physical destination name.
+
+DDL intent is persisted before external changes. Restart recovers initial creation
+or an unambiguous previous/target schema endpoint; intermediate DDL prefixes and
+column-name reuse require manual recovery. Older schema versions and unordered
+equal-version publication-mask changes cannot drive reverse DDL. Tests cover injected
+state-write failures and reconstructed interrupted states; these are not power-loss
+or process-kill evidence for destination DDL. There is no cross-table transactional
+commit guarantee. Copy batches use stable deduplication tokens; stream
 replay deduplication depends on ClickHouse engine and server window configuration.
 
 ## Limits and diagnostics

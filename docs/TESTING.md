@@ -133,6 +133,11 @@ The ClickHouse runner starts its own loopback-only Compose project. Without
 both engines through snapshot, CDC, primary-key updates, FULL TOAST, key-only deletes,
 rollback, truncate and restart; MergeTree additionally covers duplicate keyless rows.
 Injected destination column drift must retain the checkpoint and replay after repair.
+The DDL suite additionally exercises the pinned PostgreSQL event triggers, historical
+defaults, column addition/drop/rename, nullability, publication projection, source table
+renaming and restart. Direct ClickHouse tests inject failed intent/completion metadata
+writes and reconstruct previous/target/partial Applying endpoints, checking that only
+unambiguous endpoints recover. These do not simulate process death or power loss.
 Each run removes its own database/publication/slots and temporary state. The reference
 runner compares 558 codec, 77 schema-plan, 756 RowBinary and 3,800 default-expression
 vectors with the frozen upstream Rust source; this is finite coverage, not a proof

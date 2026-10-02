@@ -16,7 +16,21 @@ async fn main {
     ["test", "clickhouse_http_wbtest.mbt", "--target", "native"],
     env=Map([("MOONCDC_CLICKHOUSE_LIVE", "1")]),
   ).run()
+  @shell.Cmd(
+    "moon",
+    ["test", "clickhouse_ddl_wbtest.mbt", "--target", "native"],
+    env=Map([("MOONCDC_CLICKHOUSE_LIVE", "1")]),
+  ).run()
   if @env.get_env_var("MOONCDC_TEST_PORT") is Some(_) {
-    @shell.Cmd("moon", ["test", "clickhouse_destination_wbtest.mbt", "--target", "native"], env=Map([("MOONCDC_CLICKHOUSE_LIVE", "1")])).run()
+    @shell.Cmd(
+      "moon",
+      ["test", "clickhouse_destination_wbtest.mbt", "--target", "native"],
+      env=Map([("MOONCDC_CLICKHOUSE_LIVE", "1")]),
+    ).run()
+    @shell.Cmd(
+      "moon",
+      ["test", "clickhouse_ddl_live_wbtest.mbt", "--target", "native"],
+      env=Map([("MOONCDC_CLICKHOUSE_LIVE", "1")]),
+    ).run()
   }
 }

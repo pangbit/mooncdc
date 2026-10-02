@@ -104,7 +104,8 @@ async fn StateSession::save_checkpoint(
 
 ///|
 /// Destination-owned metadata is scoped by this store's pipeline and source OID.
-/// Persist it only after the corresponding destination operation is durable.
+/// Persist operation intent before external work and completion only after the
+/// corresponding destination operation is durable.
 pub async fn StateSession::put_metadata(
   self : StateSession,
   table : UInt,

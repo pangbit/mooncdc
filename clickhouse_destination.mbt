@@ -8,7 +8,7 @@ priv struct ChTable {
 ///|
 /// Synchronous ClickHouse destination. Requires run_pipeline with a StateStore
 /// and the same SchemaStore supplied here. ReplacingMergeTree is the default.
-/// Source schema changes currently fail closed; restart preserves completed tables.
+/// Supported schema transitions retain durable endpoints for interrupted DDL.
 pub struct ClickHouseDestination {
   priv http : ChHttp
   priv database : String
@@ -178,10 +178,9 @@ pub impl Destination for ClickHouseDestination with fn reset_table(
     schema.schema.name,
     self.engine,
   )
-  let previous = self.stored_schema(relation.oid)
+  let previous = self.stored_record(relation.oid)
   let drop_name = match previous {
-    Some(stored) =>
-      ch_table_name(stored.schema.namespace_, stored.schema.name, self.engine)
+    Some(stored) => self.record_name(stored)
     None => name
   }
   if self.engine == ReplacingMergeTree {
@@ -194,6 +193,17 @@ pub impl Destination for ClickHouseDestination with fn reset_table(
   ignore(self.http.query("DROP TABLE IF EXISTS " + self.qualified(drop_name)))
   self.tables.remove(relation.oid)
   self.attempts.remove(relation.oid)
+  // Persist the new physical name before creation. A reset interrupted after a
+  // source rename must subsequently drop this new table, not only the old one.
+  self
+  .state()
+  .put_metadata(
+    relation.oid,
+    ToJson::to_json({
+      ..self.schema_record(schema, name),
+      creating: Some(true),
+    }),
+  )
   self.create_table(schema, name)
   let table = self.load_layout(schema, name)
   self.save_table(table)
@@ -268,6 +278,8 @@ pub impl Destination for ClickHouseDestination with fn write_transaction(
       continue
     }
     match change {
+      RelationChanged(relation) =>
+        ignore(self.resolve_table(relation, tx.commit_lsn, current))
       Insert(relation, values) | Update(relation, _, values) => {
         let table = self.resolve_table(relation, tx.commit_lsn, current)
         let rows = match change {
@@ -311,6 +323,7 @@ async fn ClickHouseDestination::insert_events(
   lsn : UInt64,
   ordinal : UInt64,
 ) -> Unit {
+  errdefer self.tables.remove(table.schema.schema.oid)
   let encoded = rows.map(row => {
     table.layout.row(row.1, self.engine, row.0, lsn, ordinal)
   })
