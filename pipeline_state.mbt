@@ -135,7 +135,8 @@ async fn PipelineStore::set_phase(
 }
 
 ///|
-/// Persisted table progress. Catchup/Ready retain the initial snapshot cutoff.
+/// Persisted table progress. Copying includes private-slot replay; Catchup/Ready
+/// retain the durable handover cutoff (initial snapshot or last private commit end).
 pub(all) enum TableSyncPhase {
   Pending
   Copying

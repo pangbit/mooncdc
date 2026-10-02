@@ -2,6 +2,10 @@
 
 ## 0.1.0 — Unreleased
 
+- Apply ready tables while bounded table workers copy and replay private WAL;
+  persist handover cutoffs only after durability and recover unfinished copies even
+  when the main checkpoint has advanced. Scope split truncate IDs by table.
+
 - Add a reproducible 320-vector differential check against the pinned official ETL
   codec; align numeric normalization, float4 rounding/overflow, OID signs and leap seconds.
 

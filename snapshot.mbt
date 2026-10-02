@@ -82,6 +82,7 @@ async fn copy_snapshot_impl(
   temporary~ : Bool,
   table~ : UInt?,
   schema_store? : &SchemaStore,
+  after_copy? : async (Connection, SnapshotPosition) -> Unit,
 ) -> SnapshotPosition {
   identifier(slot)
   identifier(publication)
@@ -241,5 +242,9 @@ async fn copy_snapshot_impl(
   ignore(
     reader.snapshot_query("COMMIT", connection.timeout_ms, max_batch_bytes),
   )
-  { lsn, source, }
+  let position : SnapshotPosition = { lsn, source, }
+  if after_copy is Some(finish) {
+    finish(exporter, position)
+  }
+  position
 }

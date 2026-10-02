@@ -72,13 +72,12 @@ async test "live pipeline holds three independent snapshot exporters concurrentl
         schema="pipeline_parallel",
         parallel_state=path,
       )
-      run_pipeline(
+      run_probe_pipeline(
         config,
         probe,
         publication="pipeline_parallel",
         destination_id="parallel",
         state_path=path,
-        control~,
         copy_concurrency=3,
         batch_rows=1,
       )
@@ -153,14 +152,24 @@ test "table cutoff projection preserves original event ids and splits truncate" 
   let projected = store.project(tx)
   assert_eq(projected.changes.length(), 2)
   assert_eq(projected.event_id(0), tx.event_id(0))
-  assert_eq(projected.event_id(1), tx.event_id(2))
+  assert_eq(projected.event_id(1), Some(tx.event_id(2).unwrap() + "/table/1"))
   assert_true(
     projected.changes[1] is Truncate([r], cascade=false, restart_identity=true) &&
     r.oid == 1U,
   )
   let boundary = store.project({ ..tx, commit_lsn: Lsn::parse("0/70"), })
-  assert_eq(boundary.changes.length(), 3)
+  assert_eq(boundary.changes.length(), 4)
   assert_eq(boundary.event_id(1), tx.event_id(1))
+  assert_eq(boundary.event_id(2), Some("tx/2/table/1"))
+  assert_eq(boundary.event_id(3), Some("tx/2/table/2"))
+  let private_b = project_tables(
+    tx,
+    Map([(2U, Lsn::parse("0/1"))]),
+    "pub",
+    table_only=true,
+  )
+  assert_eq(private_b.event_id(0), tx.event_id(1))
+  assert_eq(private_b.event_id(1), Some("tx/2/table/2"))
 }
 
 ///|
@@ -188,6 +197,7 @@ priv struct PipelineProbe {
   schema : String
   parallel_state : String?
   crash_signal : String?
+  mut stop_requested : Bool
 }
 
 ///|
@@ -220,6 +230,7 @@ async fn PipelineProbe::new(
     schema,
     parallel_state,
     crash_signal,
+    stop_requested: false,
   }
 }
 
@@ -312,7 +323,7 @@ impl Destination for PipelineProbe with fn write_transaction(self, tx) {
         | Update(relation, _, [Text(id), value]) => {
           self.data.rows[relation.name][id] = probe_value(value)
           if id == self.stop_id {
-            self.control.stop()
+            self.stop_requested = true
           }
         }
         Delete(relation, Key([Text(id), ..]))
@@ -335,6 +346,45 @@ impl Destination for PipelineProbe with fn write_transaction(self, tx) {
 ///|
 impl Destination for PipelineProbe with fn flush(self) {
   self.persist()
+}
+
+///|
+// A sentinel on A may now arrive while B is still copying. Tests request stop
+// only once all table workers have handed over their durable state.
+async fn run_probe_pipeline(
+  config : ConnectionConfig,
+  probe : PipelineProbe,
+  publication~ : String,
+  destination_id~ : String,
+  state_path~ : String,
+  copy_concurrency? : Int = 2,
+  batch_rows? : Int = 256,
+) -> Unit {
+  @async.with_task_group(group => {
+    group.spawn_bg(() => {
+      for ;; {
+        @async.sleep(10)
+        if probe.stop_requested &&
+          pipeline_status(state_path).tables.all(table => {
+            table.phase is (Catchup(_) | Ready(_))
+          }) {
+          probe.control.stop()
+          break
+        }
+      }
+    })
+    run_pipeline(
+      config,
+      probe,
+      publication~,
+      destination_id~,
+      state_path~,
+      control=probe.control,
+      copy_concurrency~,
+      batch_rows~,
+    )
+    group.return_immediately(())
+  })
 }
 
 ///|
@@ -373,13 +423,12 @@ async test "live pipeline resumes only unfinished tables and copies newly publis
         None,
       )
       try
-        run_pipeline(
+        run_probe_pipeline(
           config,
           first,
           publication="pipeline_fixture",
           destination_id="probe",
           state_path=path,
-          control~,
           copy_concurrency=1,
           batch_rows=1,
         )
@@ -390,11 +439,11 @@ async test "live pipeline resumes only unfinished tables and copies newly publis
         _ => fail("copy failure swallowed")
       }
       let interrupted = read_pipeline_state(path)
-      assert_true(interrupted.tables[0].phase is Catchup(_))
+      assert_true(interrupted.tables[0].phase is (Catchup(_) | Ready(_)))
       assert_true(interrupted.tables[1].phase is Copying)
-      assert_eq(
-        load_checkpoint(path + ".checkpoint", interrupted.source).to_string(),
-        interrupted.initial_lsn.unwrap(),
+      assert_true(
+        load_checkpoint(path + ".checkpoint", interrupted.source) >=
+        Lsn::parse(interrupted.initial_lsn.unwrap()),
       )
       ignore(
         sql.query(
@@ -411,13 +460,12 @@ async test "live pipeline resumes only unfinished tables and copies newly publis
         false,
         None,
       )
-      run_pipeline(
+      run_probe_pipeline(
         config,
         second,
         publication="pipeline_fixture",
         destination_id="probe",
         state_path=path,
-        control~,
         copy_concurrency=2,
         batch_rows=1,
       )
@@ -437,13 +485,12 @@ async test "live pipeline resumes only unfinished tables and copies newly publis
           "CREATE TABLE pipeline_fixture.c(id int PRIMARY KEY,value text); INSERT INTO pipeline_fixture.c VALUES(1,'initial'); ALTER PUBLICATION pipeline_fixture ADD TABLE pipeline_fixture.c; BEGIN; INSERT INTO pipeline_fixture.c VALUES(2,'streamed'); INSERT INTO pipeline_fixture.a VALUES(100,'stop'); COMMIT",
         ),
       )
-      run_pipeline(
+      run_probe_pipeline(
         config,
         third,
         publication="pipeline_fixture",
         destination_id="probe",
         state_path=path,
-        control~,
       )
       assert_eq(third.data.resets.get("a"), Some(1))
       assert_eq(third.data.resets.get("b"), Some(2))

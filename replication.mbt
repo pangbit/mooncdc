@@ -81,6 +81,19 @@ async fn start_replication(
   if start > Lsn::parse(cell(current, 0, 2)) {
     raise UnsafeResume("start position is ahead of server WAL")
   }
+  begin_replication(conn, source, start, binary~, messages~)
+}
+
+///|
+// Also used on the connection that owns a newly created temporary snapshot slot.
+// Its active=true status is expected; no unrelated connection may bypass preflight.
+async fn begin_replication(
+  conn : Connection,
+  source : Source,
+  start : Lsn,
+  binary~ : Bool,
+  messages~ : Bool,
+) -> Unit {
   let out = @buffer.Buffer()
   let transfer = if binary { ", binary 'true'" } else { "" }
   let logical = if messages { ", messages 'true'" } else { "" }

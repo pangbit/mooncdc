@@ -24,7 +24,7 @@
 |---|---|---|---|
 | P0 | 固化已有协议、恢复和槽安全证据 | native 普通套件、PG17/18 槽推进/失效/低流量 WAL 实测；提交可追溯 | 已提交 `5089e3a` |
 | P1 | 字段 binary 传输、逻辑消息；v2 单列协议补充 | 原始字节不损坏；NULL/TOAST 保留；重连维持协商；逻辑消息提交/回滚及异常边界；PG17/18 实测与参照差分 | binary 与逻辑消息本地验证；差分待执行 |
-| P2 | 一致性快照与增量衔接 | 导出快照、并发写入期间全量复制与增量追赶后最终状态相同；中断重建不静默遗漏；批次内存有界 | 逐表持久恢复、并行复制及 WAL 追赶本地验证；完整 worker handover 待执行 |
+| P2 | 一致性快照与增量衔接 | 导出快照、并发写入期间全量复制与增量追赶后最终状态相同；中断重建不静默遗漏；批次内存有界 | 主 worker 并发 apply、逐表独立 WAL 追赶及持久交接本地验证；逐表错误隔离/重试待执行 |
 | P3 | 持久状态与目标端契约 | 区分接收和持久完成；失败不推进 checkpoint；启动恢复、优雅退出、旧任务隔离和幂等批次可测 | 目标端契约、按表文件状态本地验证；schema store 和外部 state store 待执行 |
 | P4 | 类型与 schema 演进 | 类型矩阵、Relation 版本、列增删改、publication 过滤/投影/分区变更逐项对照；未知类型明确处理 | 待执行 |
 | P5 | 目标端及运行方式 | 自定义目标端、独立运行程序及上游内置目标端逐项映射；本地可测逐一验证，需要外部服务的能力单列验证条件 | 待执行，内置目标端先核查稳定性 |
@@ -42,7 +42,7 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 
 | ETL 能力 | MoonCDC 状态 / 下一项 |
 |---|---|
-| 初始复制与 WAL 追赶 | 独立逐表快照、持久 cutoff、并行复制、重启只重建失败表已实测；完整 SyncDone worker handover 待实现 |
+| 初始复制与 WAL 追赶 | 独立逐表快照、主 worker 并发 apply、临时槽追赶及持久 cutoff 交接已实测；逐表错误隔离/重试和存储 decoding masks 待实现 |
 | StateStore / SchemaStore | 源绑定 checkpoint、逐表文件状态、公开 SchemaStore、schema 原子文件版本及显式清理已实现；外部 StateStore、自动清理协调、目标端创建状态待实现 |
 | Destination accepted/durable | 单实例有序写入、累计屏障、空闲刷新、正常停止和批次 ID 已实测；并发表复制、目标端持久元数据及具体后端隔离待实现 |
 | 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`、版本顺序/作用域/原始上游触发器已实测；完整 decoding masks、目标端列演进待实现 |
@@ -122,3 +122,13 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   CI 新增同一检查；不把有限向量测试提升为完整 codec 等价证明。
   普通 native 63/63，PG17/18 类型专项、release 与源码包消费者通过；macOS ASan
   63/63（系统编译器无 LSan，保留运行时 mimalloc，因此不声称完整分配器/泄漏检查）。
+- P2 worker 交接：主流不再等待全量复制完成；固定数量的逐表 worker 共享初始/动态任务队列，
+  在原临时快照槽上追赶，目标写入及累计 flush 成功后持久化交接 cutoff。
+  cutoff 写入和主流投影由同一互斥锁串行化，避免交接空隙。复制中的表允许主 checkpoint 前进，
+  崩溃后仍通过新快照 reset/re-copy；完成表保留目标数据和 cutoff。
+  私有回放的 transaction ID 区分 worker 投影，row/message ID 保留主槽来源；多表 truncate
+  按表拆分并给 event ID 附加 OID，避免同一逻辑事件的片段被全局幂等键吞掉。
+  PG17/18 完整 live 各 16/16，覆盖 B 复制期间 A 的业务数据/checkpoint 前进、B 私有追赶、
+  flush 失败时拒绝交接，以及 checkpoint 已前进情况下只重建 B 后与 SQL 源状态一致。
+  新行为下 PG17/18 的 SIGKILL 新进程恢复也通过；普通 native 64/64，release 和独立源码包消费者通过。
+  逐表错误隔离/重试、外部 StateStore、完整 schema 演进和目标端仍未对齐。

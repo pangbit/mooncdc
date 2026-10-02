@@ -40,11 +40,11 @@ async test "pipeline process crash worker" {
       }
       "recover" => {
         let before = read_pipeline_state(path)
-        assert_true(before.tables[0].phase is Catchup(_))
+        assert_true(before.tables[0].phase is (Catchup(_) | Ready(_)))
         assert_true(before.tables[1].phase is Copying)
-        assert_eq(
-          load_checkpoint(path + ".checkpoint", before.source).to_string(),
-          before.initial_lsn.unwrap(),
+        assert_true(
+          load_checkpoint(path + ".checkpoint", before.source) >=
+          Lsn::parse(before.initial_lsn.unwrap()),
         )
         ignore(
           sql.query(
@@ -63,13 +63,12 @@ async test "pipeline process crash worker" {
           schema="pipeline_crash",
         )
         @async.with_timeout(30000, () => {
-          run_pipeline(
+          run_probe_pipeline(
             config,
             probe,
             publication="pipeline_crash",
             destination_id="process-probe",
             state_path=path,
-            control~,
             batch_rows=1,
           )
         })

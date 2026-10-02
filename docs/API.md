@@ -188,20 +188,28 @@ Source, destination and slot-prefix mismatches fail before target startup.
 
 `pipeline_status(path)` reads Pending, Copying, Catchup(cutoff) and Ready(cutoff) per OID.
 After restart, only Pending/Copying tables receive a fresh snapshot and reset; completed
-snapshots retain their cutoff. Main-stream events before each table's cutoff are filtered,
-including individual members of a multi-table truncate. Projected events retain their
-original `event_id`. Destination durability precedes Ready and source checkpoint advancement.
+tables retain their handover cutoff. Main-stream events before each table's cutoff are filtered.
+Row/message events retain their original `event_id`; pipeline truncates split into one event
+per table, with `/table/<oid>` appended so fragments from different workers cannot collide.
+Destination durability precedes handover. The main checkpoint may advance while another table
+is Copying: that table retains its own slot and is reset from a fresh snapshot after a crash.
 Failures propagate; restarting the same state path performs recovery. Missing checkpoints
 after initialization fail instead of resetting progress. Creation-intent recovery may replace
 only its own randomly named slot, before any destination writes.
 
 Copy concurrency is 1–16 and destination calls are serialized with a cumulative barrier.
-The initial copy wave completes before incremental application starts. The receiver uses
-bounded backpressure with independent heartbeats. Newly published tables are copied on their
-first WAL relation/row event; empty new tables are discovered on the next pipeline startup.
+The main worker applies ready tables while bounded table workers copy and privately replay WAL.
+Copying includes this private replay. Once a table has durably caught up to the main worker,
+its cutoff is saved under the same mutex used by main projection; the temporary slot then closes.
+Private replay transaction IDs include `/copy/<temporary-slot>` to distinguish table projections;
+event IDs remain tied to the main source lineage. Transactions spanning tables can be delivered
+as separate projections during synchronization; cross-table atomicity is not promised by pipeline.
+The receiver uses bounded backpressure with independent heartbeats. Newly published tables join
+the same worker queue on their first WAL relation/row or applicable upstream DDL message;
+empty new tables without those messages are discovered on the next pipeline startup.
 Publication removal is reconciled at startup and does not delete destination data.
-This is not yet ETL's complete worker handover/schema-store implementation. Schema changes
-during a table copy remain unsupported. Cancellation leaves conservative replay positions;
+Per-table error isolation/retry and stored decoding-mask recovery remain separate work.
+Schema changes during a table copy remain unsupported. Cancellation leaves conservative replay positions;
 `control.stop()` drains accepted writes. Owned persistent slots retain WAL after exit and
 require explicit operator cleanup when the pipeline is permanently retired.
 

@@ -44,6 +44,9 @@ priv struct PipelineDestination {
   batch_rows : Int
   schema_store : &SchemaStore?
   mut frontier : Lsn?
+  mut main_lsn : Lsn
+  copy_jobs : Array[UInt]
+  copy_ready : @async.CondVar
 }
 
 ///|
@@ -110,26 +113,21 @@ async fn PipelineDestination::copy_table(
   }
   self.store.set_phase(oid, Copying)
   let slot = copy_slot_prefix(self.store.state.source.slot) + pipeline_nonce()
-  let point = copy_snapshot_to_impl(
-    self.connection,
-    self,
-    slot~,
-    publication=self.store.state.source.publication,
-    batch_rows=self.batch_rows,
-    max_frame_bytes=16777216,
-    max_batch_bytes=67108864,
-    temporary=true,
-    table=Some(oid),
-    schema_store?=self.schema_store,
+  ignore(
+    copy_snapshot_to_impl(
+      self.connection,
+      self,
+      slot~,
+      publication=self.store.state.source.publication,
+      batch_rows=self.batch_rows,
+      max_frame_bytes=16777216,
+      max_batch_bytes=67108864,
+      temporary=true,
+      table=Some(oid),
+      schema_store?=self.schema_store,
+      after_copy=(exporter, point) => self.catch_up_table(exporter, point, oid),
+    ),
   )
-  let source = self.store.state.source
-  if { ..point.source, slot: source.slot, } != source {
-    raise UnsafeResume("source changed during table copy")
-  }
-  if point.lsn < Lsn::parse(self.store.state.initial_lsn.unwrap()) {
-    raise UnsafeResume("table snapshot precedes pipeline slot")
-  }
-  self.store.set_phase(oid, Catchup(point.lsn.to_string()))
 }
 
 ///|
@@ -150,14 +148,21 @@ fn PipelineStore::project(
   for table in self.state.tables {
     match table.phase {
       Catchup(lsn) | Ready(lsn) => cutoffs[table.oid] = Lsn::parse(lsn)
-      _ => raise UnsafeResume("table copy is incomplete")
+      _ => ()
     }
   }
-  let keep = fn(oid : UInt) -> Bool raise {
-    guard cutoffs.get(oid) is Some(cutoff) else {
-      raise UnsafeResume("unknown published table")
-    }
-    tx.commit_lsn >= cutoff
+  project_tables(tx, cutoffs, self.state.source.publication)
+}
+
+///|
+fn project_tables(
+  tx : Transaction,
+  cutoffs : Map[UInt, Lsn],
+  publication : String,
+  table_only? : Bool = false,
+) -> Transaction raise {
+  let keep = fn(oid : UInt) -> Bool {
+    cutoffs.get(oid) is Some(cutoff) && tx.commit_lsn >= cutoff
   }
   let changes : Array[Change] = []
   let ids : Array[String?] = []
@@ -176,6 +181,26 @@ fn PipelineStore::project(
         _ => None
       }
     }
+    // A multi-table truncate may be delivered by different workers. Scope each
+    // fragment's replay ID to its table so destination dedup cannot erase one.
+    if change is Truncate(relations, cascade~, restart_identity~) {
+      for relation in relations {
+        if keep(relation.oid) {
+          changes.push(Truncate([relation], cascade~, restart_identity~))
+          let suffix = "/table/" + relation.oid.to_string()
+          ids.push(
+            original_id.map(id => {
+              if id.has_suffix(suffix) {
+                id
+              } else {
+                id + suffix
+              }
+            }),
+          )
+        }
+      }
+      continue
+    }
     let selected = match change {
       RelationChanged(r) | Insert(r, _) | Update(r, _, _) | Delete(r, _) =>
         if keep(r.oid) {
@@ -183,25 +208,13 @@ fn PipelineStore::project(
         } else {
           None
         }
-      Truncate(rs, cascade~, restart_identity~) => {
-        let kept = rs.filter(r => keep(r.oid))
-        if kept.is_empty() {
-          None
-        } else {
-          Some(Truncate(kept, cascade~, restart_identity~))
-        }
-      }
       Message(message) if message.prefix == "supabase_etl_ddl" =>
-        match
-          message.schema_snapshot(
-            commit_lsn=tx.commit_lsn,
-            publication=self.state.source.publication,
-          ) {
+        match message.schema_snapshot(commit_lsn=tx.commit_lsn, publication~) {
           Some(schema) if cutoffs.contains(schema.oid) && keep(schema.oid) =>
             Some(change)
           _ => None
         }
-      _ => Some(change)
+      _ => if table_only { None } else { Some(change) }
     }
     if selected is Some(value) {
       changes.push(value)
@@ -217,8 +230,8 @@ fn PipelineStore::project(
 
 ///|
 impl Destination for PipelineDestination with fn write_transaction(self, tx) {
-  // A table added while running gets a fresh snapshot before its first streamed
-  // row is applied. The main slot retains all WAL while this copy is in progress.
+  // A table added while running joins the same bounded copy-worker queue.
+  // Its private snapshot/slot covers changes skipped by the main worker.
   let missing : Map[UInt, Bool] = Map([])
   let known : Map[UInt, Bool] = Map([])
   for table in self.store.state.tables {
@@ -264,9 +277,12 @@ impl Destination for PipelineDestination with fn write_transaction(self, tx) {
         ..state,
         tables: state.tables + [{ oid, phase: Pending, }],
       })
-      self.copy_table(oid)
+      self.copy_jobs.push(oid)
+      self.copy_ready.broadcast()
     }
   }
+  self.mutex.acquire()
+  defer self.mutex.release()
   let projected = self.store.project(tx)
   if self.schema_store is Some(store) {
     for change in projected.changes {
@@ -280,9 +296,8 @@ impl Destination for PipelineDestination with fn write_transaction(self, tx) {
       }
     }
   }
-  self.mutex.acquire()
-  defer self.mutex.release()
   let status = self.destination.write_transaction(projected)
+  self.main_lsn = tx.end_lsn
   self.frontier = Some(tx.end_lsn)
   if status == Durable {
     self.store.advance_tables(tx.end_lsn)
@@ -491,17 +506,25 @@ pub async fn run_pipeline(
         batch_rows,
         schema_store,
         frontier: None,
+        main_lsn: load_checkpoint(checkpoint_path, store.state.source),
+        copy_jobs: store.state.tables.filter_map(table => {
+          match table.phase {
+            Pending | Copying => Some(table.oid)
+            _ => None
+          }
+        }),
+        copy_ready: @async.CondVar::Cond(),
       }
       with_destination(destination, () => {
         try {
-          let jobs : Array[async () -> Unit] = store.state.tables.filter_map(table => {
-            match table.phase {
-              Pending | Copying => Some(() => sink.copy_table(table.oid))
-              _ => None
+          @async.with_task_group(group => {
+            for _ in 0..<copy_concurrency {
+              group.spawn_bg(() => sink.copy_worker())
             }
+            sub.apply_to(sink, control~)
+            group.return_immediately(())
           })
-          ignore(@async.all(jobs, max_concurrent=copy_concurrency))
-          sub.apply_to(sink, control~)
+          Destination::flush(sink)
         } catch {
           PipelineStopped => Destination::flush(sink)
           e => raise e
