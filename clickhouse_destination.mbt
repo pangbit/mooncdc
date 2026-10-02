@@ -49,13 +49,28 @@ pub fn ClickHouseDestination::new(
   engine? : ClickHouseEngine = ReplacingMergeTree,
   max_insert_bytes? : Int = 67108864,
   timeout_ms? : Int = 260000,
+  connectivity_timeout_ms? : Int = 8000,
+  schema_timeout_ms? : Int = 16000,
+  ddl_timeout_ms? : Int = 128000,
+  insert_timeout_ms? : Int = 256000,
+  client_timeout_epsilon_ms? : Int = 4000,
 ) -> ClickHouseDestination raise {
   if database.is_empty() || database.contains("\u0000") || max_insert_bytes <= 0 {
     raise InvalidConfig("invalid ClickHouse database or insert limit")
   }
   identifier(publication)
   {
-    http: ChHttp::new(endpoint, user, password, timeout_ms),
+    http: ChHttp::new(
+      endpoint,
+      user,
+      password,
+      timeout_ms,
+      connectivity_ms=connectivity_timeout_ms,
+      schema_ms=schema_timeout_ms,
+      ddl_ms=ddl_timeout_ms,
+      insert_ms=insert_timeout_ms,
+      epsilon_ms=client_timeout_epsilon_ms,
+    ),
     database,
     publication,
     schemas: schema_store,
@@ -108,7 +123,11 @@ pub impl Destination for ClickHouseDestination with fn startup(self) {
   self.mutex.acquire()
   defer self.mutex.release()
   ignore(self.state())
-  let version = self.http.query("SELECT version()").trim().split(".").to_array()
+  let version = self.http
+    .query("SELECT version()", operation=Connectivity)
+    .trim()
+    .split(".")
+    .to_array()
   if version.length() < 2 {
     raise Protocol("invalid ClickHouse server version")
   }
@@ -118,7 +137,12 @@ pub impl Destination for ClickHouseDestination with fn startup(self) {
     (major < 23 || (major == 23 && minor < 5)) {
     raise InvalidConfig("ReplacingMergeTree requires ClickHouse 23.5 or later")
   }
-  if self.http.query("EXISTS DATABASE " + ch_quote(self.database, '"')).trim() !=
+  if self.http
+    .query(
+      "EXISTS DATABASE " + ch_quote(self.database, '"'),
+      operation=Connectivity,
+    )
+    .trim() !=
     "1" {
     raise InvalidConfig("ClickHouse database does not exist")
   }

@@ -102,7 +102,7 @@ pub struct ClickHouseDestination {
 pub async fn ClickHouseDestination::bind_snapshot_schema(Self, Relation, SchemaSnapshot) -> Unit
 pub async fn ClickHouseDestination::bind_state(Self, StateSession) -> Unit
 pub async fn ClickHouseDestination::flush(Self) -> Unit
-pub fn ClickHouseDestination::new(endpoint~ : String, user~ : String, password~ : String, database~ : String, publication~ : String, schema_store~ : &SchemaStore, engine? : ClickHouseEngine, max_insert_bytes? : Int, timeout_ms? : Int) -> Self raise
+pub fn ClickHouseDestination::new(endpoint~ : String, user~ : String, password~ : String, database~ : String, publication~ : String, schema_store~ : &SchemaStore, engine? : ClickHouseEngine, max_insert_bytes? : Int, timeout_ms? : Int, connectivity_timeout_ms? : Int, schema_timeout_ms? : Int, ddl_timeout_ms? : Int, insert_timeout_ms? : Int, client_timeout_epsilon_ms? : Int) -> Self raise
 pub async fn ClickHouseDestination::reset_table(Self, Relation, attempt~ : String) -> Unit
 pub async fn ClickHouseDestination::shutdown(Self) -> Unit
 pub async fn ClickHouseDestination::startup(Self) -> Unit

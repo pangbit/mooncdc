@@ -1,4 +1,109 @@
 ///|
+test "ClickHouse operation budgets floor server limits and reject overflow" {
+  assert_eq(ch_timeout_seconds(0), "1")
+  assert_eq(ch_timeout_seconds(999), "1")
+  assert_eq(ch_timeout_seconds(1999), "1")
+  assert_eq(ch_timeout_seconds(2000), "2")
+  let http = ChHttp::new("http://127.0.0.1:1", "cdc", "secret", 260000)
+  assert_eq(http.server_budget(Connectivity), 8000)
+  assert_eq(http.server_budget(SchemaQuery), 16000)
+  assert_eq(http.server_budget(Ddl), 128000)
+  assert_eq(http.server_budget(InsertRequest), 256000)
+  assert_true(http.query_settings(Ddl).contains("lock_acquire_timeout=128"))
+  assert_false(
+    http.query_settings(InsertRequest).contains("max_execution_time"),
+  )
+  for budget in [-1, 2147483647] {
+    assert_true(
+      try {
+        ignore(
+          ChHttp::new(
+            "http://127.0.0.1:1",
+            "cdc",
+            "secret",
+            260000,
+            ddl_ms=budget,
+          ),
+        )
+        false
+      } catch {
+        InvalidConfig(_) => true
+        _ => false
+      },
+    )
+  }
+}
+
+///|
+async test "ClickHouse live server budgets and client deadline" {
+  if @env.get_env_var("MOONCDC_CLICKHOUSE_LIVE") != Some("1") {
+    return
+  }
+  let http = ChHttp::new(
+    "http://127.0.0.1:18123", "cdc", "mooncdc-test-only", 260000,
+  )
+  for
+    (operation, expected) in [
+      (ChOperation::Connectivity, "8"),
+      (SchemaQuery, "16"),
+      (Ddl, "128"),
+    ] {
+    assert_eq(
+      http
+      .query("SELECT getSetting('max_execution_time')", operation~)
+      .trim()
+      .to_owned(),
+      expected,
+    )
+  }
+  assert_eq(
+    http.query("SELECT getSetting('lock_acquire_timeout')").trim().to_owned(),
+    "128",
+  )
+  assert_eq(
+    http
+    .query(
+      "SELECT getSetting('http_send_timeout'),getSetting('http_receive_timeout'),getSetting('async_insert')",
+      insert=true,
+    )
+    .trim()
+    .to_owned(),
+    "256\t256\tfalse",
+  )
+  let short = ChHttp::new(
+    "http://127.0.0.1:18123",
+    "cdc",
+    "mooncdc-test-only",
+    10000,
+    schema_ms=500,
+    epsilon_ms=4000,
+  )
+  assert_eq(
+    short
+    .query("SELECT getSetting('max_execution_time')", operation=SchemaQuery)
+    .trim()
+    .to_owned(),
+    "1",
+  )
+  let deadline = ChHttp::new(
+    "http://127.0.0.1:18123", "cdc", "mooncdc-test-only", 20,
+  )
+  assert_true(
+    try {
+      ignore(deadline.query("SELECT sleep(0.2)", operation=SchemaQuery))
+      false
+    } catch {
+      @async.TimeoutError => true
+      e => raise e
+    },
+  )
+  assert_eq(
+    http.query("SELECT 1", operation=Connectivity).trim().to_owned(),
+    "1",
+  )
+}
+
+///|
 async test "ClickHouse live RowBinary names types and both engines" {
   if @env.get_env_var("MOONCDC_CLICKHOUSE_LIVE") != Some("1") {
     return

@@ -369,8 +369,16 @@ StateStore namespace per target. Credentials go in HTTP headers; HTTPS validates
 the server using system trust.
 
 The default engine is `ReplacingMergeTree`; `MergeTree` keeps an append-only CDC
-history. Optional `max_insert_bytes` defaults to 64 MiB and `timeout_ms` to 260000.
-The byte limit splits encoded batches, allowing an oversized single row. HTTP writes
+history. Optional `max_insert_bytes` defaults to 64 MiB. The byte limit splits encoded
+batches, allowing an oversized single row. Operation server budgets are configurable
+through `connectivity_timeout_ms` (8000), `schema_timeout_ms` (16000), `ddl_timeout_ms`
+(128000) and `insert_timeout_ms` (256000). `client_timeout_epsilon_ms` (4000) is added
+to each budget; the existing `timeout_ms` (260000) remains a global client cap.
+Increase that cap as well when configuring longer operations. Server settings use
+whole seconds floored at one to avoid disabling a limit. Connectivity/schema/DDL
+queries set `max_execution_time`; DDL also sets `lock_acquire_timeout`. INSERT uses
+the HTTP send/receive budgets and per-statement client deadline, matching the reference.
+A client deadline does not prove the server has stopped the request. HTTP writes
 are synchronous and return Durable only after server acknowledgement. StateStore
 ownership does not fence a previously running remote HTTP request.
 

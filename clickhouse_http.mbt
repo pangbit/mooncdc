@@ -4,7 +4,20 @@ priv struct ChHttp {
   user : String
   password : String
   timeout_ms : Int
+  connectivity_ms : Int
+  schema_ms : Int
+  ddl_ms : Int
+  insert_ms : Int
+  epsilon_ms : Int
 }
+
+///|
+priv enum ChOperation {
+  Connectivity
+  SchemaQuery
+  Ddl
+  InsertRequest
+} derive(Eq)
 
 ///|
 fn ChHttp::new(
@@ -12,6 +25,11 @@ fn ChHttp::new(
   user : String,
   password : String,
   timeout_ms : Int,
+  connectivity_ms? : Int = 8000,
+  schema_ms? : Int = 16000,
+  ddl_ms? : Int = 128000,
+  insert_ms? : Int = 256000,
+  epsilon_ms? : Int = 4000,
 ) -> ChHttp raise {
   if !(endpoint.has_prefix("http://") || endpoint.has_prefix("https://")) ||
     endpoint.contains("?") ||
@@ -28,12 +46,61 @@ fn ChHttp::new(
       raise InvalidConfig("invalid ClickHouse credential header")
     }
   }
+  if epsilon_ms < 0 ||
+    [connectivity_ms, schema_ms, ddl_ms, insert_ms].any(budget => {
+      budget < 0 || budget > 2147483647 - epsilon_ms
+    }) {
+    raise InvalidConfig("invalid ClickHouse operation timeout budget")
+  }
   {
     endpoint: endpoint + (if endpoint.has_suffix("/") { "" } else { "/" }),
     user,
     password,
     timeout_ms,
+    connectivity_ms,
+    schema_ms,
+    ddl_ms,
+    insert_ms,
+    epsilon_ms,
   }
+}
+
+///|
+fn ChHttp::server_budget(self : ChHttp, operation : ChOperation) -> Int {
+  match operation {
+    Connectivity => self.connectivity_ms
+    SchemaQuery => self.schema_ms
+    Ddl => self.ddl_ms
+    InsertRequest => self.insert_ms
+  }
+}
+
+///|
+fn ch_timeout_seconds(milliseconds : Int) -> String {
+  // Zero disables several ClickHouse server limits, so floor at one second.
+  (milliseconds / 1000).max(1).to_string()
+}
+
+///|
+fn ChHttp::query_settings(self : ChHttp, operation : ChOperation) -> String {
+  let connection = ch_timeout_seconds(self.connectivity_ms)
+  let insert = ch_timeout_seconds(self.insert_ms)
+  let server = ch_timeout_seconds(self.server_budget(operation))
+  "?wait_end_of_query=1&async_insert=0&input_format_with_types_use_header=1" +
+  "&connect_timeout=" +
+  connection +
+  "&http_connection_timeout=" +
+  connection +
+  "&http_send_timeout=" +
+  insert +
+  "&http_receive_timeout=" +
+  insert +
+  (if operation == InsertRequest {
+    ""
+  } else {
+    "&max_execution_time=" + server
+  }) +
+  (if operation == Ddl { "&lock_acquire_timeout=" + server } else { "" })
 }
 
 ///|
@@ -42,13 +109,17 @@ async fn ChHttp::query(
   sql : String,
   body? : Bytes = b"",
   insert? : Bool = false,
+  operation? : ChOperation = Ddl,
 ) -> String {
-  @async.with_timeout(self.timeout_ms, () => {
+  let operation = if insert { InsertRequest } else { operation }
+  let timeout = (self.server_budget(operation) + self.epsilon_ms).min(
+    self.timeout_ms,
+  )
+  @async.with_timeout(timeout, () => {
     // Waiting for completion prevents a successful HTTP status preceding a
     // server-side execution error. Synchronous inserts acknowledge server work.
     let client = @http.post_stream(
-      self.endpoint +
-      "?wait_end_of_query=1&async_insert=0&input_format_with_types_use_header=1",
+      self.endpoint + self.query_settings(operation),
       headers=Map([
         (@http.CaseInsensitiveString("X-ClickHouse-User"), self.user),
         (@http.CaseInsensitiveString("X-ClickHouse-Key"), self.password),

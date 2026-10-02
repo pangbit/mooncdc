@@ -8,6 +8,8 @@
   default-expression vectors. Execute supported ordered column DDL with durable
   Creating/Applying/Applied recovery, reject ambiguous partial states and schema rewinds,
   and preserve historical defaults and physical table names after source renames.
+  Configure separate connectivity, schema, DDL and insert deadlines with bounded
+  server settings; verify new-process recovery across eight real SIGKILL cases.
 
 - Integrate pluggable StateStore ownership and durable records into pipelines and
   subscriptions, with file/PostgreSQL backends and destination metadata sessions.

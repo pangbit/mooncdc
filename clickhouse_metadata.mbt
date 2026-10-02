@@ -102,7 +102,7 @@ async fn ClickHouseDestination::read_columns(
     " AND table=" +
     ch_quote(name, '\'') +
     " AND default_kind IN ('','DEFAULT') ORDER BY position FORMAT JSONCompactEachRow"
-  let response = self.http.query(query)
+  let response = self.http.query(query, operation=SchemaQuery)
   let actual : Array[(String, String)] = []
   for line in response.split("\n") {
     if line.is_empty() {
@@ -152,6 +152,7 @@ async fn ClickHouseDestination::load_layout(
     ch_quote(self.database, '\'') +
     " AND name=" +
     ch_quote(name, '\''),
+    operation=SchemaQuery,
   )
   if engine.trim() != ch_engine_name(self.engine) {
     raise Manual("ClickHouse table engine differs from configuration")
