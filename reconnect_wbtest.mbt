@@ -18,7 +18,11 @@ async fn mock_row(tcp : @socket.Tcp, fields : Array[String?]) -> Unit {
 ///|
 // A wire peer, not a PostgreSQL fixture. Each connection has a specific failure
 // point so recovery has to complete authentication, identification and COPY BOTH.
-async fn mock_replication(tcp : @socket.Tcp, mode : String) -> Unit {
+async fn mock_replication(
+  tcp : @socket.Tcp,
+  mode : String,
+  stream? : async (@socket.Tcp) -> Unit,
+) -> Unit {
   let size = Cursor::new(tcp.read_exactly(4)).i32()
   ignore(tcp.read_exactly(size - 4))
   if mode == "startup" {
@@ -73,6 +77,10 @@ async fn mock_replication(tcp : @socket.Tcp, mode : String) -> Unit {
         return
       }
       tcp.write(packet(b'W', b"\x00\x00\x00"))
+      if stream is Some(send) {
+        send(tcp)
+        return
+      }
       if mode == "initial" {
         return
       }

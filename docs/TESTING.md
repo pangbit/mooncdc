@@ -67,6 +67,10 @@ this fixture; private keys must never be committed or packaged.
 - Local TCP protocol peers independently inject reconnect failures during startup,
   IDENTIFY_SYSTEM and START_REPLICATION, including timeout, exhaustion and source mismatch.
   These are deterministic protocol fault tests, not PostgreSQL compatibility evidence.
+- The feedback TCP peer inspects all three wire positions before ack, across an ack gap,
+  after a failed checkpoint write, after a successful retry, and on a requested keepalive
+  reply. See the [cross-language reference review](reports/REFERENCE_REVIEW.md) for the
+  protocol comparison and remaining scenario gaps.
 
 Without `MOONCDC_TEST_PORT`, live test bodies are skipped. Without `MOONCDC_TEST_CA`,
 the TLS test body is skipped. Record environment variables along with test totals;
