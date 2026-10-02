@@ -3,6 +3,7 @@ package "pangbit/mooncdc"
 
 import {
   "moonbitlang/core/debug",
+  "moonbitlang/core/json",
 }
 
 // Values
@@ -12,7 +13,7 @@ pub async fn copy_snapshot_to(ConnectionConfig, &Destination, slot~ : String, pu
 
 pub async fn pipeline_status(String) -> PipelineStatus
 
-pub async fn run_pipeline(ConnectionConfig, &Destination, publication~ : String, destination_id~ : String, state_path~ : String, control~ : ApplyControl, slot_prefix? : String, copy_concurrency? : Int, batch_rows? : Int, schema_store? : &SchemaStore) -> Unit
+pub async fn run_pipeline(ConnectionConfig, &Destination, publication~ : String, destination_id~ : String, state_path~ : String, control~ : ApplyControl, slot_prefix? : String, copy_concurrency? : Int, batch_rows? : Int, schema_store? : &SchemaStore, table_retry_delay_ms? : Int, max_table_retries? : Int) -> Unit
 
 pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, checkpoint_path~ : String, async (Subscription) -> T, max_frame_bytes? : Int, max_transaction_bytes? : Int, max_transaction_events? : Int, max_pending_transactions? : Int, max_metadata_entries? : Int, heartbeat_ms? : Int, max_reconnects? : Int, reconnect_delay_ms? : Int, binary? : Bool, messages? : Bool, nontransactional_message? : async (LogicalMessage) -> Unit, backpressure? : Bool) -> T
 
@@ -34,11 +35,19 @@ pub suberror CdcError {
 } derive(@debug.Debug)
 pub fn CdcError::to_repr(Self) -> @debug.Repr
 
+pub(all) suberror TableReplicationError {
+  Retryable(String)
+  Manual(String)
+  Permanent(String)
+} derive(@debug.Debug)
+pub fn TableReplicationError::to_repr(Self) -> @debug.Repr
+
 // Types and methods
 pub struct ApplyControl {
   // private fields
 }
 pub fn ApplyControl::ApplyControl() -> Self
+pub async fn ApplyControl::retry_table(Self, UInt) -> Bool
 pub fn ApplyControl::stop(Self) -> Unit
 
 pub(all) enum Cell {
@@ -351,11 +360,23 @@ pub fn TableCopyBatchId::not_equal(Self, Self) -> Bool
 pub fn TableCopyBatchId::to_json(Self) -> Json
 pub fn TableCopyBatchId::to_repr(Self) -> @debug.Repr
 
+pub(all) enum TableRetryPolicy {
+  NoRetry
+  ManualRetry
+  TimedRetry(UInt64)
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+pub fn TableRetryPolicy::equal(Self, Self) -> Bool
+pub fn TableRetryPolicy::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn TableRetryPolicy::not_equal(Self, Self) -> Bool
+pub fn TableRetryPolicy::to_json(Self) -> Json
+pub fn TableRetryPolicy::to_repr(Self) -> @debug.Repr
+
 pub(all) enum TableSyncPhase {
   Pending
   Copying
   Catchup(Lsn)
   Ready(Lsn)
+  Errored(reason~ : String, retry~ : TableRetryPolicy, attempts~ : Int)
 } derive(Eq, @debug.Debug)
 pub fn TableSyncPhase::equal(Self, Self) -> Bool
 pub fn TableSyncPhase::not_equal(Self, Self) -> Bool

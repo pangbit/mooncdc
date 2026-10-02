@@ -4,6 +4,7 @@ priv enum StoredPhase {
   Copying
   Catchup(String)
   Ready(String)
+  Errored(String, TableRetryPolicy, Int)
 } derive(ToJson, @json.FromJson)
 
 ///|
@@ -60,6 +61,12 @@ fn parse_pipeline_state(bytes : Bytes) -> PipelineState raise {
       }
       seen[table.oid] = true
       match table.phase {
+        Errored(reason, policy, attempts) =>
+          if reason.is_empty() ||
+            attempts < 0 ||
+            (policy is TimedRetry(at) && at == 0UL) {
+            raise CheckpointError("invalid table error state")
+          }
         Catchup(lsn) | Ready(lsn) =>
           if Lsn::parse(lsn).value == 0 ||
             (
@@ -142,6 +149,7 @@ pub(all) enum TableSyncPhase {
   Copying
   Catchup(Lsn)
   Ready(Lsn)
+  Errored(reason~ : String, retry~ : TableRetryPolicy, attempts~ : Int)
 } derive(Eq, Debug)
 
 ///|
@@ -172,6 +180,8 @@ pub async fn pipeline_status(path : String) -> PipelineStatus {
           Copying => Copying
           Catchup(lsn) => Catchup(Lsn::parse(lsn))
           Ready(lsn) => Ready(Lsn::parse(lsn))
+          Errored(reason, retry, attempts) =>
+            Errored(reason~, retry~, attempts~)
         },
       }),
     ),

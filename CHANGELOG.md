@@ -2,6 +2,10 @@
 
 ## 0.1.0 — Unreleased
 
+- Persist table-copy failures with bounded timed, manual and disabled retry policies;
+  keep healthy tables applying while failed tables await a fresh snapshot/reset.
+  Expose live manual retry through ApplyControl and retain global durability failures.
+
 - Preserve arbitrary-precision JSON numbers and equality, including underflow values,
   decimal scale and exponents; recognize generic built-in PostgreSQL arrays.
   Expand official ETL codec differential coverage to 558 vectors.

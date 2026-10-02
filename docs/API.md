@@ -179,21 +179,23 @@ of truth for transaction recovery; the destination persists its own business/rep
 ## Persistent table pipeline
 
 `run_pipeline(config, destination, publication~, destination_id~, state_path~, control~,
-slot_prefix?="mooncdc", copy_concurrency?=2, batch_rows?=256)` owns a randomly named main
+slot_prefix?="mooncdc", copy_concurrency?=2, batch_rows?=256,
+table_retry_delay_ms?=10000, max_table_retries?=5)` owns a randomly named main
 replication slot and temporary slots for independent table snapshots. It manages destination
 startup/shutdown and keeps a checksummed, atomically replaced state file plus a sibling
 `.checkpoint` file. Keep both files, their locks, and the destination's durable data together.
 The destination identity is caller supplied and must uniquely identify the target dataset.
 Source, destination and slot-prefix mismatches fail before target startup.
 
-`pipeline_status(path)` reads Pending, Copying, Catchup(cutoff) and Ready(cutoff) per OID.
+`pipeline_status(path)` reads Pending, Copying, Catchup(cutoff), Ready(cutoff) and
+Errored(reason, retry, attempts) per OID.
 After restart, only Pending/Copying tables receive a fresh snapshot and reset; completed
 tables retain their handover cutoff. Main-stream events before each table's cutoff are filtered.
 Row/message events retain their original `event_id`; pipeline truncates split into one event
 per table, with `/table/<oid>` appended so fragments from different workers cannot collide.
 Destination durability precedes handover. The main checkpoint may advance while another table
 is Copying: that table retains its own slot and is reset from a fresh snapshot after a crash.
-Failures propagate; restarting the same state path performs recovery. Missing checkpoints
+Unfinished copies recover on restart; errored tables retain their retry policy. Missing checkpoints
 after initialization fail instead of resetting progress. Creation-intent recovery may replace
 only its own randomly named slot, before any destination writes.
 
@@ -208,7 +210,19 @@ The receiver uses bounded backpressure with independent heartbeats. Newly publis
 the same worker queue on their first WAL relation/row or applicable upstream DDL message;
 empty new tables without those messages are discovered on the next pipeline startup.
 Publication removal is reconciled at startup and does not delete destination data.
-Per-table error isolation/retry and stored decoding-mask recovery remain separate work.
+Copy/private-replay failures are persisted per table while healthy tables continue. Known
+transient timeouts, closed connections, connection refusal, shutdown/recovery, connection SQLSTATEs
+and lock timeouts use bounded timed retries. Protocol, authentication, schema/value and unclassified
+errors require manual retry. Destinations can raise `TableReplicationError::Retryable`, `Manual`
+or `Permanent` to classify table-local failures. `Permanent` records NoRetry; exhaustion records
+ManualRetry. TimedRetry persists its Unix-millisecond deadline; waiting releases the copy worker.
+`control.retry_table(oid)` on an active pipeline resets the budget and queues a fresh snapshot,
+returning false for unknown, healthy or NoRetry tables. Restarting alone does not retry ManualRetry.
+Every retry fences/reset the unfinished table; it does not replay an old partial snapshot.
+State/checkpoint, unsafe source identity and shared cumulative-flush failures still stop the pipeline.
+Main-stream destination errors still fail the whole transaction/pipeline; attributing and isolating
+those errors per table, additional OS transport classifications and stored decoding-mask recovery
+remain separate work. Operators must inspect Errored statuses even while the pipeline is running.
 Schema changes during a table copy remain unsupported. Cancellation leaves conservative replay positions;
 `control.stop()` drains accepted writes. Owned persistent slots retain WAL after exit and
 require explicit operator cleanup when the pipeline is permanently retired.

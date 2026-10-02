@@ -47,6 +47,9 @@ priv struct PipelineDestination {
   mut main_lsn : Lsn
   copy_jobs : Array[UInt]
   copy_ready : @async.CondVar
+  retry_delay_ms : Int
+  max_table_retries : Int
+  retry_attempts : Map[UInt, Int]
 }
 
 ///|
@@ -111,7 +114,6 @@ async fn PipelineDestination::copy_table(
   if self.control.stopped {
     raise PipelineStopped
   }
-  self.store.set_phase(oid, Copying)
   let slot = copy_slot_prefix(self.store.state.source.slot) + pipeline_nonce()
   ignore(
     copy_snapshot_to_impl(
@@ -310,9 +312,13 @@ impl Destination for PipelineDestination with fn write_transaction(self, tx) {
 impl Destination for PipelineDestination with fn flush(self) {
   self.mutex.acquire()
   defer self.mutex.release()
-  self.destination.flush()
+  self.destination.flush() catch {
+    e => raise PipelineCritical(e)
+  }
   if self.frontier is Some(lsn) {
-    self.store.advance_tables(lsn)
+    self.store.advance_tables(lsn) catch {
+      error => raise PipelineCritical(error)
+    }
     self.frontier = None
   }
 }
@@ -332,6 +338,8 @@ pub async fn run_pipeline(
   copy_concurrency? : Int = 2,
   batch_rows? : Int = 256,
   schema_store? : &SchemaStore,
+  table_retry_delay_ms? : Int = 10000,
+  max_table_retries? : Int = 5,
 ) -> Unit {
   identifier(publication)
   identifier(slot_prefix)
@@ -341,11 +349,16 @@ pub async fn run_pipeline(
     copy_concurrency <= 0 ||
     copy_concurrency > 16 ||
     batch_rows <= 0 ||
-    batch_rows > 1024 {
+    batch_rows > 1024 ||
+    table_retry_delay_ms <= 0 ||
+    max_table_retries <= 0 {
     raise InvalidConfig("pipeline identity or copy limits")
   }
   if control.stopped {
     return
+  }
+  if control.table_retry is Some(_) {
+    raise InvalidConfig("control already belongs to a running pipeline")
   }
   let lock = @fs.open(
     state_path + ".lock",
@@ -514,6 +527,16 @@ pub async fn run_pipeline(
           }
         }),
         copy_ready: @async.CondVar::Cond(),
+        retry_delay_ms: table_retry_delay_ms,
+        max_table_retries,
+        retry_attempts: Map([]),
+      }
+      if control.table_retry is Some(_) {
+        raise InvalidConfig("control already belongs to a running pipeline")
+      }
+      control.table_retry = Some(oid => sink.retry_table(oid))
+      defer {
+        control.table_retry = None
       }
       with_destination(destination, () => {
         try {
@@ -521,12 +544,18 @@ pub async fn run_pipeline(
             for _ in 0..<copy_concurrency {
               group.spawn_bg(() => sink.copy_worker())
             }
+            group.spawn_bg(() => sink.schedule_retries())
             sub.apply_to(sink, control~)
             group.return_immediately(())
           })
           Destination::flush(sink)
         } catch {
-          PipelineStopped => Destination::flush(sink)
+          PipelineStopped =>
+            Destination::flush(sink) catch {
+              PipelineCritical(error) => raise error
+              error => raise error
+            }
+          PipelineCritical(error) => raise error
           e => raise e
         }
       })

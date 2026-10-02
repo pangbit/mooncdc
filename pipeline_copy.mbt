@@ -5,7 +5,29 @@ async fn PipelineDestination::copy_worker(self : PipelineDestination) -> Unit {
       self.copy_ready.wait()
     }
     let oid = self.copy_jobs.remove(0)
-    self.copy_table(oid)
+    self.store.set_phase(oid, Copying)
+    self.copy_table(oid) catch {
+      PipelineStopped => raise PipelineStopped
+      PipelineCritical(error) => raise PipelineCritical(error)
+      CheckpointError(reason) => raise CheckpointError(reason)
+      UnsafeResume(reason) => raise UnsafeResume(reason)
+      error => {
+        if @async.is_being_cancelled() || self.control.stopped {
+          raise error
+        }
+        let attempts = self.retry_attempts.get(oid).unwrap_or(0)
+        let retry = table_retry_policy(
+          error,
+          attempts,
+          self.max_table_retries,
+          self.retry_delay_ms,
+        )
+        self.mutex.acquire()
+        defer self.mutex.release()
+        self.store.set_phase(oid, Errored(error.to_string(), retry, attempts))
+        self.copy_ready.broadcast()
+      }
+    }
   }
 }
 
@@ -29,7 +51,10 @@ async fn PipelineDestination::handover(
     } else {
       Catchup(position.to_string())
     },
-  )
+  ) catch {
+    error => raise PipelineCritical(error)
+  }
+  self.retry_attempts.remove(oid)
   true
 }
 
@@ -164,7 +189,9 @@ async fn PipelineDestination::catch_up_table(
               }
               if !projected.changes.is_empty() {
                 if self.destination.write_transaction(projected) == Accepted {
-                  self.destination.flush()
+                  self.destination.flush() catch {
+                    error => raise PipelineCritical(error)
+                  }
                 }
               }
               self.handover(oid, end_lsn)

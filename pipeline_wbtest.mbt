@@ -359,11 +359,26 @@ async fn run_probe_pipeline(
   state_path~ : String,
   copy_concurrency? : Int = 2,
   batch_rows? : Int = 256,
+  stop_on_error? : Bool = false,
+  retry_oid? : UInt,
 ) -> Unit {
   @async.with_task_group(group => {
     group.spawn_bg(() => {
+      let mut retry = retry_oid
       for ;; {
         @async.sleep(10)
+        if probe.control.table_retry is Some(_) && retry is Some(oid) {
+          assert_true(probe.control.retry_table(oid))
+          retry = None
+        }
+        if stop_on_error &&
+          @fs.exists(state_path) &&
+          pipeline_status(state_path).tables.any(table => {
+            table.phase is Errored(..)
+          }) {
+          probe.control.stop()
+          break
+        }
         if probe.stop_requested &&
           pipeline_status(state_path).tables.all(table => {
             table.phase is (Catchup(_) | Ready(_))
@@ -422,25 +437,19 @@ async test "live pipeline resumes only unfinished tables and copies newly publis
         true,
         None,
       )
-      try
-        run_probe_pipeline(
-          config,
-          first,
-          publication="pipeline_fixture",
-          destination_id="probe",
-          state_path=path,
-          copy_concurrency=1,
-          batch_rows=1,
-        )
-      catch {
-        PipelineProbeFailure => ()
-        e => raise e
-      } noraise {
-        _ => fail("copy failure swallowed")
-      }
+      run_probe_pipeline(
+        config,
+        first,
+        publication="pipeline_fixture",
+        destination_id="probe",
+        state_path=path,
+        copy_concurrency=1,
+        batch_rows=1,
+        stop_on_error=true,
+      )
       let interrupted = read_pipeline_state(path)
       assert_true(interrupted.tables[0].phase is (Catchup(_) | Ready(_)))
-      assert_true(interrupted.tables[1].phase is Copying)
+      assert_true(interrupted.tables[1].phase is Errored(_, ManualRetry, 0))
       assert_true(
         load_checkpoint(path + ".checkpoint", interrupted.source) >=
         Lsn::parse(interrupted.initial_lsn.unwrap()),
@@ -468,6 +477,7 @@ async test "live pipeline resumes only unfinished tables and copies newly publis
         state_path=path,
         copy_concurrency=2,
         batch_rows=1,
+        retry_oid=interrupted.tables[1].oid,
       )
       assert_eq(second.data.resets.get("a"), Some(1))
       assert_eq(second.data.resets.get("b"), Some(2))

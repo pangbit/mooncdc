@@ -24,7 +24,7 @@
 |---|---|---|---|
 | P0 | 固化已有协议、恢复和槽安全证据 | native 普通套件、PG17/18 槽推进/失效/低流量 WAL 实测；提交可追溯 | 已提交 `5089e3a` |
 | P1 | 字段 binary 传输、逻辑消息；v2 单列协议补充 | 原始字节不损坏；NULL/TOAST 保留；重连维持协商；逻辑消息提交/回滚及异常边界；PG17/18 实测与参照差分 | binary 与逻辑消息本地验证；差分待执行 |
-| P2 | 一致性快照与增量衔接 | 导出快照、并发写入期间全量复制与增量追赶后最终状态相同；中断重建不静默遗漏；批次内存有界 | 主 worker 并发 apply、逐表独立 WAL 追赶及持久交接本地验证；逐表错误隔离/重试待执行 |
+| P2 | 一致性快照与增量衔接 | 导出快照、并发写入期间全量复制与增量追赶后最终状态相同；中断重建不静默遗漏；批次内存有界 | 主 worker 并发 apply、逐表独立 WAL 追赶、持久交接和复制错误隔离/重试本地验证；主流按表错误归属待实现 |
 | P3 | 持久状态与目标端契约 | 区分接收和持久完成；失败不推进 checkpoint；启动恢复、优雅退出、旧任务隔离和幂等批次可测 | 目标端契约、按表文件状态及 schema store 本地验证；外部 state store 待执行 |
 | P4 | 类型与 schema 演进 | 类型矩阵、Relation 版本、列增删改、publication 过滤/投影/分区变更逐项对照；未知类型明确处理 | codec 和有序 DDL 规划差分验证；目标端执行/恢复待执行 |
 | P5 | 目标端及运行方式 | 自定义目标端、独立运行程序及上游内置目标端逐项映射；本地可测逐一验证，需要外部服务的能力单列验证条件 | 待执行，内置目标端先核查稳定性 |
@@ -42,7 +42,7 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 
 | ETL 能力 | MoonCDC 状态 / 下一项 |
 |---|---|
-| 初始复制与 WAL 追赶 | 独立逐表快照、主 worker 并发 apply、临时槽追赶及持久 cutoff 交接已实测；逐表错误隔离/重试和存储 decoding masks 待实现 |
+| 初始复制与 WAL 追赶 | 独立逐表快照、主 worker 并发 apply、临时槽追赶及持久 cutoff 交接已实测；复制错误隔离/定时及人工重试已实现；主流按表错误归属和存储 decoding masks 待实现 |
 | StateStore / SchemaStore | 源绑定 checkpoint、逐表文件状态、公开 SchemaStore、schema 原子文件版本及显式清理已实现；外部 StateStore、自动清理协调、目标端创建状态待实现 |
 | Destination accepted/durable | 单实例有序写入、累计屏障、空闲刷新、正常停止和批次 ID 已实测；并发表复制、目标端持久元数据及具体后端隔离待实现 |
 | 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`；公开投影/identity masks、有序列 DDL 规划已差分验证；连接内完整 decoding-state 恢复、目标端 DDL 执行待实现 |
@@ -147,3 +147,10 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   增加字符串标签碰撞、转义/重复键、非法数字、Unicode surrogate 与 127/128 层嵌套向量；
   codec 558 向量和 schema 77 向量进程差分通过。普通 native 70/70，PG17/18 的快照/WAL
   验证极小 JSON、大整数及通用数组；release 与独立源码包消费者通过。
+- P2 复制错误隔离：Errored 持久化原因、TimedRetry/ManualRetry/NoRetry 和尝试计数；
+  定时等待不占用复制 worker，自动重试耗尽后改为人工重试，运行中可通过
+  ApplyControl.retry_table 重建失败表。每次采用新的快照/槽/attempt 并 reset 部分数据。
+  PG17/18 完整 live 各 17/17，覆盖健康表继续 apply/checkpoint、自动恢复、重试耗尽、
+  人工恢复、禁止重试、错误状态重启后保留、累计 flush 失败仍终止，以及临时槽释放。
+  普通 native 74/74；持久计时恢复和调度写盘失败有回归，PG17/18 SIGKILL 恢复通过。
+  主流跨表事务的错误归属、更多 OS 传输分类及完整 decoding-state 仍需实现。

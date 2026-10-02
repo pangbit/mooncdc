@@ -149,11 +149,12 @@ async fn copy_snapshot_to_impl(
 pub struct ApplyControl {
   priv mut stopped : Bool
   priv changed : @async.CondVar
+  priv mut table_retry : (async (UInt) -> Bool)?
 }
 
 ///|
 pub fn ApplyControl::ApplyControl() -> ApplyControl {
-  { stopped: false, changed: @async.CondVar::Cond(), }
+  { stopped: false, changed: @async.CondVar::Cond(), table_retry: None, }
 }
 
 ///|

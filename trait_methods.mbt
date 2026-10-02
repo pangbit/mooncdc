@@ -80,6 +80,21 @@ pub extend Diagnostics with ToJson::{to_json}
 pub extend CdcError with Debug::{to_repr}
 
 ///|
+pub extend TableRetryPolicy with Eq::{equal, not_equal}
+
+///|
+pub extend TableRetryPolicy with Debug::{to_repr}
+
+///|
+pub extend TableRetryPolicy with ToJson::{to_json}
+
+///|
+pub extend TableRetryPolicy with @json.FromJson::{from_json}
+
+///|
+pub extend TableReplicationError with Debug::{to_repr}
+
+///|
 pub extend Security with Debug::{to_repr}
 
 ///|

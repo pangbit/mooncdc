@@ -25,6 +25,27 @@ test "binary values remain distinct from text null and unchanged TOAST" {
 }
 
 ///|
+async test "table error and manual retry APIs are available to consumers" {
+  let failure : Error = @mooncdc.TableReplicationError::Retryable("temporary")
+  assert_true(failure is @mooncdc.Retryable("temporary"))
+  let phase = @mooncdc.TableSyncPhase::Errored(
+    reason="blocked",
+    retry=ManualRetry,
+    attempts=2,
+  )
+  assert_true(phase is Errored(retry=ManualRetry, ..))
+  let control = @mooncdc.ApplyControl()
+  try control.retry_table(1U) catch {
+    @mooncdc.InvalidConfig(_) => ()
+    error => raise error
+  } noraise {
+    _ => fail("inactive pipeline accepted retry")
+  }
+  control.stop()
+  assert_false(control.retry_table(1U))
+}
+
+///|
 async test "snapshot validates limits before connecting" {
   let config : @mooncdc.ConnectionConfig = {
     host: "127.0.0.1",
