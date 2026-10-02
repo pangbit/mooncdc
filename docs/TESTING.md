@@ -21,6 +21,8 @@ moon run tools/recovery-test.mbtx
 MOONCDC_EXAMPLE_SERVICE=pg17 moon run tools/recovery-test.mbtx
 moon run tools/checkpoint-crash-test.mbtx
 MOONCDC_EXAMPLE_SERVICE=pg17 moon run tools/checkpoint-crash-test.mbtx
+moon run tools/pipeline-crash-test.mbtx
+MOONCDC_EXAMPLE_SERVICE=pg17 moon run tools/pipeline-crash-test.mbtx
 moon test tools/publish-check.mbtx
 moon build --target native --release
 moon info --target native
@@ -60,6 +62,10 @@ this fixture; private keys must never be committed or packaged.
   truncate, missing slot/mismatched recovery and oversize transaction replay.
 - Process tests SIGKILL a native consumer at four business/ack/feedback boundaries and
   verify exact IDs and duplicate bounds in a fresh process. Disk power loss is not claimed.
+- `pipeline-crash-test.mbtx` SIGKILLs its owned process after table A has persisted a
+  snapshot cutoff and table B has durably written only a partial copy. A fresh process
+  verifies that the main checkpoint stayed conservative, preserves A, resets B, and
+  catches up concurrent/post-crash WAL to the exact source contents. PG17/18 both run it.
 - `checkpoint-crash-test.mbtx` builds the native whitebox test worker, discovers its
   executable from `moon test --build-only`, and SIGKILLs that owned process at five internal
   checkpoint boundaries. It uses the real checkpoint writer with a live PostgreSQL stream,

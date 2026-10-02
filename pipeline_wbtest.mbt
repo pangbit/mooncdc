@@ -187,6 +187,7 @@ priv struct PipelineProbe {
   startup_sql : String?
   schema : String
   parallel_state : String?
+  crash_signal : String?
 }
 
 ///|
@@ -200,6 +201,7 @@ async fn PipelineProbe::new(
   startup_sql : String?,
   schema? : String = "pipeline_fixture",
   parallel_state? : String,
+  crash_signal? : String,
 ) -> PipelineProbe {
   let data : PipelineProbeData = if @fs.exists(path) {
     @json.from_json(@json.parse(@fs.read_file(path).text()))
@@ -217,6 +219,7 @@ async fn PipelineProbe::new(
     startup_sql,
     schema,
     parallel_state,
+    crash_signal,
   }
 }
 
@@ -273,11 +276,16 @@ impl Destination for PipelineProbe with fn write_rows(self, relation, rows, _id)
     self.inject_copy = false
     ignore(
       self.sql.query(
-        "BEGIN; UPDATE pipeline_fixture.a SET value='during' WHERE id=1; INSERT INTO pipeline_fixture.a VALUES(3,'during'); UPDATE pipeline_fixture.b SET value='during' WHERE id=1; COMMIT",
+        "BEGIN; UPDATE \{self.schema}.a SET value='during' WHERE id=1; INSERT INTO \{self.schema}.a VALUES(3,'during'); UPDATE \{self.schema}.b SET value='during' WHERE id=1; COMMIT",
       ),
     )
   }
   if !rows.is_empty() && relation.name == "b" {
+    if self.crash_signal is Some(path) {
+      @fs.write_file(path, "partial target batch persisted")
+      @async.sleep(60000)
+      fail("crash worker was not terminated")
+    }
     if self.fail_copy {
       self.fail_copy = false
       raise PipelineProbeFailure

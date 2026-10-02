@@ -66,6 +66,9 @@ jobs:
       - run: moon run tools/checkpoint-crash-test.mbtx
         env:
           MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
+      - run: moon run tools/pipeline-crash-test.mbtx
+        env:
+          MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
       - name: Start isolated WAL invalidation fixture
         run: docker compose -p mooncdc-slot-test -f integration/slot-safety.compose.yaml up -d --wait ${{ matrix.service }}
       - name: Check slot safety and quiet publication WAL

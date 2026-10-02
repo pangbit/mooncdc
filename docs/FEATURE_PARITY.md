@@ -104,3 +104,6 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   目标端仍需按消息顺序实现自己的列演进；这不是完整 schema 规划/worker handover 对等。
   native 56/56；schema 集成完整 live 套件 PG17/18 各 14/14。随后增加的调试字段裁剪与
   缺失 schema 恢复拒绝，重新通过普通套件和 PG17/18 的上游 DDL 专项；release/doc 通过。
+- P6 逐表进程恢复：PG17/18 均在 B 表首批业务数据持久化、状态仍为 Copying 时真实
+  SIGKILL worker。新进程验证 A 表不重置、B 表重置一次、主 checkpoint 未提前推进，
+  追赶崩溃前后跨表 WAL 后目标内容与 SQL 查询完全一致。工具已纳入 CI；不声称掉电验证。
