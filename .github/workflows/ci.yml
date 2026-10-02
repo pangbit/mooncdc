@@ -8,6 +8,7 @@ permissions:
 jobs:
   native:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -18,6 +19,7 @@ jobs:
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
       - run: moon version --all
+      - run: moon update
       - run: moon check --target native --deny-warn
       - run: moon test --target native
       - run: moon test tools/publish-check.mbtx
@@ -29,6 +31,7 @@ jobs:
   postgres:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - service: pg18
@@ -43,6 +46,7 @@ jobs:
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
       - run: docker compose -p mooncdc-test -f integration/compose.yaml up -d --wait ${{ matrix.service }}
       - run: moon version --all
+      - run: moon update
       - run: moon run tools/setup-db.mbtx ${{ matrix.service }}
       - run: moon run tools/setup-tls.mbtx ${{ matrix.service }}
       - run: moon test --target native

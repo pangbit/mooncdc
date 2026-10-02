@@ -5,6 +5,7 @@ is part of this workflow. Images are PostgreSQL 18.6 and 17.11; immutable image 
 and the source commit used for a run belong in the validation report.
 
 ```sh
+moon update
 docker compose -p mooncdc-test -f integration/compose.yaml up -d --wait
 moon run tools/setup-db.mbtx pg18
 moon run tools/setup-db.mbtx pg17
