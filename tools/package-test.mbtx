@@ -1,0 +1,68 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+}
+
+///|
+async fn main {
+  let root = @env.current_dir().unwrap()
+  @shell.Cmd("moon", ["package"]).run()
+  let archive = root + "/_build/publish/pangbit-mooncdc-0.1.0.zip"
+  let listing = @shell.Cmd("unzip", ["-Z1", archive]).output()
+  listing.check()
+  let contents = listing.stdout()
+  for
+    excluded in [
+      "_build/", ".test-artifacts/", ".mooncakes/", ".key", ".checkpoint",
+    ] {
+    assert_false(contents.contains(excluded))
+  }
+  for
+    required in [
+      "LICENSE", "README.mbt.md", "moon.mod", "moon.pkg", "subscription.mbt", "examples/resume/main.mbt",
+    ] {
+    assert_true(contents.split("\n").any(path => path == required))
+  }
+  let dir = @fs.tmpdir(prefix="mooncdc-package-")
+  defer @fs.rmdir(dir, recursive=true)
+  @fs.mkdir(dir + "/module")
+  @fs.mkdir(dir + "/consumer")
+  @shell.Cmd("unzip", ["-q", archive, "-d", dir + "/module"]).run()
+  @fs.write_file(dir + "/moon.work", "members = [\"module\", \"consumer\"]\n")
+  let manifest =
+    #|name = "validation/consumer"
+    #|preferred_target = "native"
+    #|supported_targets = "native"
+    #|import { "pangbit/mooncdc@0.1.0", "moonbitlang/async@0.22.4" }
+  @fs.write_file(dir + "/consumer/moon.mod", manifest)
+  let package_manifest =
+    #|import { "pangbit/mooncdc" @cdc, "moonbitlang/async" }
+    #|pkgtype(kind: "executable")
+    #|supported_targets = "native"
+  @fs.write_file(dir + "/consumer/moon.pkg", package_manifest)
+  let main_source =
+    #|async fn main {
+    #|  let lsn = @cdc.Lsn::parse("1/ABC")
+    #|  assert_eq(lsn.to_string(), "1/ABC")
+    #|  assert_true(@cdc.Null != @cdc.UnchangedToast)
+    #|  let config : @cdc.ConnectionConfig = {
+    #|    host: "127.0.0.1", port: 5432, user: "test", password: "test",
+    #|    database: "test", security: @cdc.LocalPlaintext, timeout_ms: 1000,
+    #|  }
+    #|  try @cdc.subscribe(config, slot="INVALID", publication="p", start=@cdc.At(lsn), checkpoint_path="unused", _ => ()) catch {
+    #|    @cdc.InvalidConfig(_) => ()
+    #|    e => raise e
+    #|  } noraise { _ => fail("invalid config accepted") }
+    #|  println("Extracted package consumer passed")
+    #|}
+  @fs.write_file(dir + "/consumer/main.mbt", main_source)
+  @shell.Cmd(
+    "moon",
+    ["check", "--target", "native", "--deny-warn"],
+    cwd=dir + "/consumer",
+  ).run()
+  @shell.Cmd("moon", ["run", ".", "--target", "native"], cwd=dir + "/consumer").run()
+}

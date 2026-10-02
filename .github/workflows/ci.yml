@@ -1,0 +1,60 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - run: moon version --all
+      - run: moon check --target native --deny-warn
+      - run: moon test --target native
+      - run: moon build --target native --release
+      - run: moon info --target native && moon fmt --check
+      - run: git diff --exit-code -- '*.mbti'
+      - run: moon doc && moon package --list
+      - run: moon run tools/package-test.mbtx
+  postgres:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - service: pg18
+            port: 55418
+          - service: pg17
+            port: 55417
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - run: docker compose -p mooncdc-test -f integration/compose.yaml up -d --wait ${{ matrix.service }}
+      - run: moon version --all
+      - run: moon run tools/setup-db.mbtx ${{ matrix.service }}
+      - run: moon run tools/setup-tls.mbtx ${{ matrix.service }}
+      - run: moon test --target native
+        env:
+          MOONCDC_TEST_PORT: ${{ matrix.port }}
+          MOONCDC_TEST_CA: .test-artifacts/tls-${{ matrix.service }}/server.crt
+      - run: moon run examples/index && moon run examples/cache
+        env:
+          MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
+      - run: moon run tools/recovery-test.mbtx
+        env:
+          MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
+      - if: always()
+        run: docker compose -p mooncdc-test -f integration/compose.yaml logs
+      - if: always()
+        run: docker compose -p mooncdc-test -f integration/compose.yaml down -v

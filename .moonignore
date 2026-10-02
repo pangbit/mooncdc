@@ -1,9 +1,7 @@
-.DS_Store
+/AGENTS.md
+/MoonCDC_REQUIREMENTS.md
 _build/
-target/
-target
 .mooncakes/
-.moonagent/
 .test-artifacts/
 *.checkpoint
 *.checkpoint.lock
