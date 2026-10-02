@@ -1,5 +1,8 @@
 # MoonCDC 0.1.0 candidate validation
 
+Historical baseline. See the [follow-up report](VALIDATION_FOLLOWUP.md) for reconnect
+corrections, internal checkpoint SIGKILL tests, dry-run compatibility and remote CI evidence.
+
 Date: 2026-10-02. Tested source: **`332083729f00999661d2869c10fca81b3df88642`**.
 This report is added in a documentation-only commit after that source revision.
 The final tests ran against the identical source bytes before commit; `moon info` and

@@ -3,8 +3,8 @@
 MoonBit 编写的 PostgreSQL 变更订阅库。使用原生 `pgoutput` 协议 v1，按完整的
 已提交事务交付数据，提供显式确认、持久检查点和有限次数断线重连。
 
-**0.1.0 发布候选，尚未发布到 Mooncakes。** Native 后端；本地实测版本及环境见
-[测试报告](docs/reports/VALIDATION.md)。采用至少一次投递，业务端必须处理重放。
+**0.1.0 发布候选，尚未发布到 Mooncakes。** Native 后端；实测版本及环境见
+[测试报告](docs/reports/VALIDATION_FOLLOWUP.md)。采用至少一次投递，业务端必须处理重放。
 
 ## 安装与使用
 
@@ -76,16 +76,18 @@ let config : @cdc.ConnectionConfig = {
 使用专用 Docker Compose 项目，数据库端口只绑定 `127.0.0.1`：
 
 ```sh
+moon update
 docker compose -p mooncdc-test -f integration/compose.yaml up -d --wait
 moon run tools/setup-db.mbtx pg18
 moon run tools/setup-db.mbtx pg17
 moon check --target native --deny-warn
 moon test --target native
-MOONCDC_TEST_PORT=55418 moon test --target native
-MOONCDC_TEST_PORT=55417 moon test --target native
+MOONCDC_TEST_PORT=55418 moon test --target native --filter 'live*'
+MOONCDC_TEST_PORT=55417 moon test --target native --filter 'live*'
 moon run examples/index
 moon run examples/cache
 moon run tools/recovery-test.mbtx
+moon run tools/checkpoint-crash-test.mbtx
 ```
 
 未设置 `MOONCDC_TEST_PORT` 时真实数据库测试体不会运行；普通测试通过不代表实测通过。
