@@ -84,3 +84,8 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   快照轮次/批次 ID、reset 隔离契约及 `SnapshotPosition.save_checkpoint`。
   故障注入覆盖 flush 失败/取消不确认，PG17/18 覆盖快照持久屏障、重复复制重置、
   保存 checkpoint 后 Resume 到目标端。自定义 trait 有外部调用方编译测试。
+- `7b1f4cf`：提交目标端基础契约与快照衔接 checkpoint。
+- `a883181`：修复 snapshot 对主键 INCLUDE 列的身份键误判；PG18 先复现，PG17/18 验证修复。
+- 首批累计验证：native 套件 43/43；PG17.11、18.6 的 `live*` 各 11/11；
+  release 构建、文档与打包后独立消费者通过。见 [阶段报告](reports/FEATURE_PARITY_BATCH1.md)。
+  下一项是 P2/P3 的逐表持久同步状态及失败重建，之后推进 schema/type 和目标端。

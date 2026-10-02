@@ -22,7 +22,7 @@ async fn main {
   }
   for
     required in [
-      "LICENSE", "README.mbt.md", "moon.mod", "moon.pkg", "subscription.mbt", "examples/resume/main.mbt",
+      "LICENSE", "README.mbt.md", "moon.mod", "moon.pkg", "subscription.mbt", "snapshot.mbt", "destination.mbt", "examples/resume/main.mbt",
     ] {
     assert_true(contents.split("\n").any(path => path == required))
   }
@@ -48,6 +48,10 @@ async fn main {
     #|  let lsn = @cdc.Lsn::parse("1/ABC")
     #|  assert_eq(lsn.to_string(), "1/ABC")
     #|  assert_true(@cdc.Null != @cdc.UnchangedToast)
+    #|  assert_true(@cdc.Binary(b"\x00\xff") != @cdc.Null)
+    #|  assert_true(@cdc.Accepted != @cdc.Durable)
+    #|  let control = @cdc.ApplyControl()
+    #|  control.stop()
     #|  let config : @cdc.ConnectionConfig = {
     #|    host: "127.0.0.1", port: 5432, user: "test", password: "test",
     #|    database: "test", security: @cdc.LocalPlaintext, timeout_ms: 1000,
@@ -56,6 +60,10 @@ async fn main {
     #|    @cdc.InvalidConfig(_) => ()
     #|    e => raise e
     #|  } noraise { _ => fail("invalid config accepted") }
+    #|  try @cdc.copy_snapshot(config, slot="snapshot", publication="p", batch_rows=0, _ => ()) catch {
+    #|    @cdc.InvalidConfig(_) => ()
+    #|    e => raise e
+    #|  } noraise { _ => fail("invalid snapshot limit accepted") }
     #|  println("Extracted package consumer passed")
     #|}
   @fs.write_file(dir + "/consumer/main.mbt", main_source)
