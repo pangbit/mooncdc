@@ -46,6 +46,10 @@ are decoded again. Replayed complete transactions already retained in memory are
 After process exit the durable checkpoint governs recovery, so unacknowledged transactions
 may replay. Fatal protocol, configuration, limit and checkpoint failures are never retried.
 Server shutdown SQLSTATEs 57P01/57P02/57P03 are retryable; other server errors are surfaced.
+One reconnect attempt covers connection/authentication, source identification and starting
+COPY BOTH. Transient errors or timeouts in any of these stages consume the same bounded
+retry budget; each failed connection is closed. Exhaustion surfaces the last attempt's
+error. A changed source fails immediately even when retry attempts remain.
 
 `Transaction.id` combines source system, database, slot and commit LSN. XIDs alone are not
 unique across wraparound. `event_id(index)` adds the ordinal of data changes only; relation,

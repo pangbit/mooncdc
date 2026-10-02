@@ -206,33 +206,38 @@ async fn Subscription::receive(
           raise e
         }
         self.connection.close()
+        let mut last_error = e
         for ;; {
           if self.reconnects >= max_reconnects {
-            raise e
+            raise last_error
           }
           self.reconnects += 1
           @async.sleep(delay_ms)
-          let next = connect(self.config, self.connection.limit, true) catch {
+          let next = try {
+            let next = connect(self.config, self.connection.limit, true)
+            errdefer next.close()
+            @async.with_timeout(self.config.timeout_ms, () => {
+              if identify(
+                  next,
+                  self.config,
+                  self.source.slot,
+                  self.source.publication,
+                ) !=
+                self.source {
+                raise UnsafeResume("source changed during reconnect")
+              }
+              start_replication(next, self.source, self.durable, self.received)
+            })
+            next
+          } catch {
             e => {
               if fatal(e) {
                 raise e
               }
+              last_error = e
               continue
             }
           }
-          errdefer next.close()
-          @async.with_timeout(self.config.timeout_ms, () => {
-            if identify(
-                next,
-                self.config,
-                self.source.slot,
-                self.source.publication,
-              ) !=
-              self.source {
-              raise UnsafeResume("source changed during reconnect")
-            }
-            start_replication(next, self.source, self.durable, self.received)
-          })
           self.connection = next
           break
         }
