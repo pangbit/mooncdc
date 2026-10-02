@@ -1,0 +1,47 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let root = @env.current_dir().unwrap()
+  let artifacts = root + "/.test-artifacts/codec-reference"
+  if !@fs.exists(artifacts) { @fs.mkdir(artifacts, recursive=true) }
+  let archive = artifacts + "/etl.tar.gz"
+  if !@fs.exists(archive) {
+    @shell.Cmd("curl", ["--fail", "--location", "--retry", "3", "https://codeload.github.com/supabase/etl/tar.gz/c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4", "--output", archive]).run()
+  }
+  let digest = @shell.Cmd("shasum", ["-a", "256", archive]).output()
+  digest.check()
+  assert_true(digest.stdout().has_prefix("b1a05f0cd6486e7954920dc756298fbba93fc6f39975e8895780d94d2a7c5536  "))
+  let checkout = @fs.tmpdir(prefix="mooncdc-etl-codec-")
+  defer @fs.rmdir(checkout, recursive=true)
+  @shell.Cmd("tar", ["xzf", archive, "--strip-components=1", "-C", checkout]).run()
+  if !@fs.exists(checkout + "/crates/etl/examples") { @fs.mkdir(checkout + "/crates/etl/examples", recursive=true) }
+  @fs.write_file(checkout + "/crates/etl/examples/mooncdc_codec.rs", @fs.read_file(root + "/integration/reference/codec_driver.rs"))
+  @shell.Cmd("cargo", ["+stable", "build", "--manifest-path", checkout + "/crates/etl/Cargo.toml", "--features", "fuzzing", "--example", "mooncdc_codec", "--locked", "--target-dir", artifacts + "/target"]).run()
+  let built = @shell.Cmd("moon", ["test", "codec_reference_wbtest.mbt", "--target", "native", "--build-only"]).output()
+  built.check()
+  guard @json.parse(built.stdout()) is { "artifacts_path": [String(executable)], .. } else { fail("expected one codec test executable") }
+  let run = async fn(phase : String, file : String) -> Unit {
+    let result = @shell.Cmd(executable, ["codec_reference_wbtest.mbt:0-1"], env={"MOONCDC_CODEC_PHASE": phase, "MOONCDC_CODEC_FILE": file}).output()
+    result.check()
+    let mut passed = 0
+    for line in result.stdout().split("\n") {
+      if line.has_prefix("{") && @json.parse(line) is { "type": "result", "message": String(message), .. } {
+        if message != "" { fail(result.stdout()) }
+        passed += 1
+      }
+      if line.has_prefix("CODEC") { println(line) }
+    }
+    assert_eq(passed, 1)
+  }
+  run("generate", artifacts + "/input.json")
+  @shell.Cmd(artifacts + "/target/debug/examples/mooncdc_codec", [artifacts + "/input.json", artifacts + "/output.json"]).run()
+  run("verify", artifacts + "/output.json")
+}

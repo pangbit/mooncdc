@@ -1,5 +1,5 @@
 ///|
-/// Typed PostgreSQL text values. Numeric retains exact decimal text, including scale.
+/// Typed PostgreSQL text values. Numeric uses exact canonical decimal text and scale.
 /// Unknown scalar types retain text; TOAST is distinct from both SQL and JSON null.
 pub(all) enum Cell {
   SqlNull
@@ -33,6 +33,7 @@ pub(all) enum PgDate {
 
 ///|
 /// seconds=86400 and nanoseconds=0 denotes the distinct 24:00:00 value.
+/// A leap second uses second 59 with nanoseconds in 1000000000..<2000000000.
 pub struct PgTime {
   seconds : Int
   nanoseconds : Int
@@ -126,15 +127,84 @@ fn cell_uuid(text : String) -> Bytes raise {
 
 ///|
 fn numeric_text(text : String) -> String raise {
-  match text {
-    "NaN" | "Infinity" | "-Infinity" => return text
-    "+Infinity" => return "Infinity"
+  let text = text.trim().to_owned().to_lower()
+  let negative = text.has_prefix("-")
+  let signed = negative || text.has_prefix("+")
+  let value = if signed { text[1:].to_owned() } else { text }
+  match value {
+    "nan" if !signed => return "NaN"
+    "inf" | "infinity" => return if negative { "-Infinity" } else { "Infinity" }
     _ => ()
   }
-  lexmatch text {
-    re"^(\+|-)?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE](\+|-)?[0-9]+)?$" => text
+  lexmatch value {
+    re"^([0-9](_?[0-9])*(\.([0-9](_?[0-9])*)?)?|\.[0-9](_?[0-9])*)(e(\+|-)?[0-9](_?[0-9])*)?$" =>
+      ()
     _ => raise Conversion("invalid numeric value")
   }
+  let parts = value.replace_all(old="_", new="").split("e").to_array()
+  let exponent = if parts.length() == 2 {
+    @string.parse_int64(parts[1])
+  } else {
+    0L
+  }
+  if exponent < -1073741823L || exponent > 1073741823L {
+    raise Conversion("numeric exponent range")
+  }
+  let mantissa = parts[0].split(".").to_array()
+  let fraction = if mantissa.length() == 2 {
+    mantissa[1].to_owned()
+  } else {
+    ""
+  }
+  let digits = mantissa[0].to_owned() + fraction
+  let scale = Int64::max(fraction.length().to_int64() - exponent, 0)
+  if scale > 16383L {
+    raise Conversion("numeric scale range")
+  }
+  let mut first = 0
+  while first < digits.length() && digits[first] == '0' {
+    first += 1
+  }
+  if first == digits.length() {
+    return "0" +
+      (if scale == 0 { "" } else { "." + "0".repeat(scale.to_int()) })
+  }
+  let position = mantissa[0].length().to_int64() + exponent
+  let weight = position - first.to_int64() - 1
+  // The first nonzero base-10000 group must fit PostgreSQL's signed i16 weight.
+  if weight < -131072L || weight > 131071L {
+    raise Conversion("numeric weight range")
+  }
+  let out = StringBuilder()
+  if negative {
+    out.write_string("-")
+  }
+  if position <= first.to_int64() {
+    out.write_string("0")
+  } else {
+    for index = first.to_int64(); index < position; index = index + 1 {
+      out.write_char(
+        if index < digits.length().to_int64() {
+          digits[index.to_int()].to_char().unwrap()
+        } else {
+          '0'
+        },
+      )
+    }
+  }
+  if scale > 0 {
+    out.write_string(".")
+    for index = position; index < position + scale; index = index + 1 {
+      out.write_char(
+        if index >= 0 && index < digits.length().to_int64() {
+          digits[index.to_int()].to_char().unwrap()
+        } else {
+          '0'
+        },
+      )
+    }
+  }
+  out.to_string()
 }
 
 ///|
@@ -161,9 +231,19 @@ fn scalar_cell(oid : UInt, text : String) -> Cell raise {
     }
     23U => I32(@string.parse_int(text, base=10))
     20U => I64(@string.parse_int64(text, base=10))
-    26U => U32(@string.parse_uint(text, base=10))
-    700U => F32(Float::from_double(@string.parse_double(text)))
-    701U => F64(@string.parse_double(text))
+    26U =>
+      U32(
+        @string.parse_uint(
+          if text.has_prefix("+") {
+            text[1:]
+          } else {
+            text[:]
+          },
+          base=10,
+        ),
+      )
+    700U => F32(Float::from_double(pg_float(text, single=true)))
+    701U => F64(pg_float(text, single=false))
     1700U => Numeric(numeric_text(text))
     17U => {
       if !text.has_prefix("\\x") {

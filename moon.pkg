@@ -12,3 +12,7 @@ import {
   "moonbitlang/x/crypto",
   "moonbitlang/core/env",
 }
+
+options(
+  "native-stub": [ "cell_float.c" ],
+)

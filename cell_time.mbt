@@ -54,12 +54,20 @@ fn pg_date(text : String) -> PgDate raise {
 
 ///|
 fn pg_time(text : String) -> PgTime raise {
+  if text == "24:00:00" ||
+    (
+      text.has_prefix("24:00:00.") &&
+      text.length() > 9 &&
+      text[9:].iter().all(ch => ch == '0')
+    ) {
+    return { seconds: 86400, nanoseconds: 0, }
+  }
   let parts = text.split(":").to_array()
-  if parts.length() != 3 || parts[0].length() != 2 || parts[1].length() != 2 {
+  if parts.length() != 3 || parts[0].length() > 2 || parts[1].length() > 2 {
     raise Conversion("time syntax")
   }
   let seconds = parts[2].split(".").to_array()
-  if seconds.length() > 2 || seconds[0].length() != 2 {
+  if seconds.length() > 2 || seconds[0].length() > 2 {
     raise Conversion("time seconds")
   }
   let hour = decimal_part(parts[0])
@@ -68,21 +76,21 @@ fn pg_time(text : String) -> PgTime raise {
   let mut nanoseconds = 0
   if seconds.length() == 2 {
     let fraction = seconds[1]
-    if fraction.is_empty() || fraction.length() > 9 {
+    if fraction.is_empty() || !fraction.iter().all(ch => ch >= '0' && ch <= '9') {
       raise Conversion("time fraction")
     }
-    nanoseconds = decimal_part(fraction)
+    nanoseconds = decimal_part(fraction[:Int::min(fraction.length(), 9)])
     for _ in fraction.length()..<9 {
       nanoseconds *= 10
     }
   }
-  if hour > 24 ||
-    minute > 59 ||
-    second > 59 ||
-    (hour == 24 && (minute != 0 || second != 0 || nanoseconds != 0)) {
+  if hour >= 24 || minute > 59 || second > 60 {
     raise Conversion("time range")
   }
-  { seconds: hour * 3600 + minute * 60 + second, nanoseconds, }
+  {
+    seconds: hour * 3600 + minute * 60 + Int::min(second, 59),
+    nanoseconds: nanoseconds + (if second == 60 { 1000000000 } else { 0 }),
+  }
 }
 
 ///|

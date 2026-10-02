@@ -16,6 +16,11 @@
 [Supabase ETL](https://github.com/supabase/etl/tree/c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4),
 Apache-2.0, with its license retained. They provide real upstream payloads in isolated tests.
 
+`tools/codec-reference-test.mbtx` downloads the same frozen ETL commit, verifies
+the source archive hash and builds its unmodified codec with the upstream lockfile.
+`integration/reference/codec_driver.rs` is our comparison fixture, not a copied codec.
+The production float converter uses the platform C runtime with a private C locale.
+
 Protocol references inform an independent MoonBit implementation. No PostgreSQL client
 implementation or other Mooncakes CDC package is copied or adapted. Official
 `moonbitlang/async` examples inform the executable example package layout.

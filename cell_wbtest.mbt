@@ -9,6 +9,8 @@ test "typed cells preserve scalar widths exact numeric and null semantics" {
     (20U, "-9223372036854775808", I64(-9223372036854775808L)),
     (26U, "4294967295", U32(4294967295U)),
     (700U, "1.25", F32(1.25)),
+    (700U, "1.0000000596046448", F32(1.0000001192092896)),
+    (700U, "7.006492321624086e-46", F32(1.401298464324817e-45)),
     (701U, "-2.5", F64(-2.5)),
     (
       1700U,
@@ -17,7 +19,11 @@ test "typed cells preserve scalar widths exact numeric and null semantics" {
     ),
     (1700U, "NaN", Numeric("NaN")),
     (1700U, "-Infinity", Numeric("-Infinity")),
-    (1700U, "+1.20e-3", Numeric("+1.20e-3")),
+    (1700U, "+1.20e-3", Numeric("0.00120")),
+    (1700U, "-0.00", Numeric("0.00")),
+    (1700U, ".5", Numeric("0.5")),
+    (1700U, " 1_234.50e+1 ", Numeric("12345.0")),
+    (26U, "+42", U32(42U)),
     (17U, "\\x00fF", Bytes(b"\x00\xff")),
     (
       2950U,
@@ -47,6 +53,11 @@ test "typed cells preserve scalar widths exact numeric and null semantics" {
       (23U, "2147483648"),
       (20U, "9223372036854775808"),
       (26U, "-1"),
+      (700U, "1_0"),
+      (701U, "1_0"),
+      (1700U, "1e131072"),
+      (1700U, "1e-16384"),
+      (1700U, "+NaN"),
       (1700U, "."),
       (1700U, "1e"),
       (1700U, "1x"),
@@ -109,6 +120,14 @@ test "typed arrays preserve quoted null escapes and reject nested dimensions" {
 
 ///|
 test "typed temporal values preserve BC infinity end of day and UTC offsets" {
+  assert_eq(
+    Value::Text("23:59:60.5").decode_text(1083U),
+    Cell::Time({ seconds: 86399, nanoseconds: 1500000000, }),
+  )
+  assert_eq(
+    Value::Text("24:00:00.0000000000").decode_text(1083U),
+    Cell::Time({ seconds: 86400, nanoseconds: 0, }),
+  )
   assert_eq(Value::Text("infinity").decode_text(1082U), Cell::Date(PosInfinity))
   assert_eq(
     Value::Text("-infinity").decode_text(1114U),

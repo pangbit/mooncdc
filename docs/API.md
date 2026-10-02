@@ -255,10 +255,14 @@ validated and discarded, matching the reference's one-dimensional value represen
 Quoted `"NULL"` stays a string while unquoted NULL becomes SqlNull. ToastUnchanged is
 distinct from SqlNull and JSON null. Binary transfer is rejected by this text-only API.
 
-Numeric retains exact decimal text and scale without floating-point conversion. UUIDs
+Numeric expands exponents to canonical decimal text, preserving exact scale and
+normalizing negative zero without floating-point conversion. Float parsing uses the
+platform C runtime in a private C locale, with direct binary32 rounding for float4. UUIDs
 are 16 bytes. Dates use astronomical years (1 BC = 0), with the reference's finite calendar
 range -262143 through 262142. Date/timestamp infinities remain explicit variants. Time
-uses seconds and nanoseconds; seconds=86400 distinguishes 24:00:00 from midnight. Timetz
+uses seconds and nanoseconds; seconds=86400 distinguishes 24:00:00 from midnight.
+Leap seconds use second 59 and nanoseconds >= 1000000000; fractions beyond nine digits
+are truncated, matching the reference. Timetz
 preserves local time and its offset; timestamptz normalizes to UTC across date/era changes.
 Conversion errors never silently substitute a null or rounded integer.
 

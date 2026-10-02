@@ -46,7 +46,7 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 | StateStore / SchemaStore | 源绑定 checkpoint、逐表文件状态、公开 SchemaStore、schema 原子文件版本及显式清理已实现；外部 StateStore、自动清理协调、目标端创建状态待实现 |
 | Destination accepted/durable | 单实例有序写入、累计屏障、空闲刷新、正常停止和批次 ID 已实测；并发表复制、目标端持久元数据及具体后端隔离待实现 |
 | 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`、版本顺序/作用域/原始上游触发器已实测；完整 decoding masks、目标端列演进待实现 |
-| 类型转换 | 已有类型化文本 Cell、精确 numeric、日期/时间/JSON/UUID/bytea/可空一维数组；未知标量保留文本；PG17/18 快照及 WAL 矩阵已实测，上游 codec 进程差分待执行 |
+| 类型转换 | 已有类型化文本 Cell、精确 numeric、日期/时间/JSON/UUID/bytea/可空一维数组；未知标量保留文本；PG17/18 快照及 WAL 矩阵已实测，固定上游 codec 320 向量进程差分通过；不是全部输入的等价证明 |
 | 独立 replicator | 当前为嵌入式库及示例；配置、持久运行状态、健康/指标、优雅退出待实现 |
 | ClickHouse | 上游 private alpha；本地优先实现 ReplacingMergeTree / MergeTree、主键变化墓碑、truncate 与 schema 契约 |
 | BigQuery | 上游 stable；Storage Write API、CDC、目标端持久偏移、布局配置及真云验证待实现 |
@@ -113,3 +113,12 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   不改变消费者值。未知标量保留文本，自定义数组可提供 element OID。二进制仍为独立原始 API。
   Rust 上游 codec 的逐向量进程差分和目标端类型映射尚未完成，不扩大本阶段结论。
   普通 native 62/62，PG17/18 完整 live 各 15/15；独立源码包消费者通过。
+- P4 codec 差分：直接编译固定上游公开 fuzzing 入口及 Cargo.lock，比较 320 个标量/数组向量的
+  接受/拒绝结果、浮点位模式、decimal 规范文本、时间分量和 NULL。修复 decimal 指数展开及
+  scale、负零、OID 正号、闰秒、时间精度截断、float4 二次舍入及浮点溢出语义。
+  浮点采用固定 C locale 的 strtof/strtod；不经 Double 再舍入 float4，输入仍严格检查。
+  `moon run tools/codec-reference-test.mbtx` 校验固定源码归档 SHA-256，构建官方库并执行
+  两个独立进程；原始输入/归一化输出保存在忽略的 `.test-artifacts/codec-reference/`。
+  CI 新增同一检查；不把有限向量测试提升为完整 codec 等价证明。
+  普通 native 63/63，PG17/18 类型专项、release 与源码包消费者通过；macOS ASan
+  63/63（系统编译器无 LSan，保留运行时 mimalloc，因此不声称完整分配器/泄漏检查）。

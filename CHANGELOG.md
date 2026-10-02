@@ -2,6 +2,9 @@
 
 ## 0.1.0 — Unreleased
 
+- Add a reproducible 320-vector differential check against the pinned official ETL
+  codec; align numeric normalization, float4 rounding/overflow, OID signs and leap seconds.
+
 - Add typed PostgreSQL text cells, exact numeric text, temporal infinities/BC/24h,
   nullable arrays and stable session output formats for snapshots and replication.
 
