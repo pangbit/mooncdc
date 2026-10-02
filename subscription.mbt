@@ -312,12 +312,21 @@ pub async fn[T] subscribe(
       }
       lsn
     }
+    AfterSnapshot(snapshot) => {
+      if snapshot.source != source {
+        raise UnsafeResume("snapshot source/slot/publication mismatch")
+      }
+      if @fs.exists(checkpoint_path) {
+        raise CheckpointError("checkpoint exists; use Resume")
+      }
+      snapshot.lsn
+    }
     Resume => load_checkpoint(checkpoint_path, source)
   }
   @async.with_timeout(connection.timeout_ms, () => {
     start_replication(conn, source, position, position, binary~)
   })
-  if start is At(_) {
+  if start is (At(_) | AfterSnapshot(_)) {
     save_checkpoint(checkpoint_path, source, position)
   }
   guard @env.rand(24) is Some(random) else {

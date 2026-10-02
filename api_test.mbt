@@ -23,3 +23,30 @@ test "binary values remain distinct from text null and unchanged TOAST" {
   assert_true(value != @mooncdc.UnchangedToast)
   assert_true(value != @mooncdc.Text(""))
 }
+
+///|
+async test "snapshot validates limits before connecting" {
+  let config : @mooncdc.ConnectionConfig = {
+    host: "127.0.0.1",
+    port: 1,
+    user: "unused",
+    password: "",
+    database: "unused",
+    security: @mooncdc.LocalPlaintext,
+    timeout_ms: 1,
+  }
+  try
+    @mooncdc.copy_snapshot(
+      config,
+      slot="snapshot",
+      publication="snapshot",
+      batch_rows=0,
+      _ => (),
+    )
+  catch {
+    @mooncdc.InvalidConfig(_) => ()
+    e => raise e
+  } noraise {
+    _ => fail("invalid batch limit accepted")
+  }
+}

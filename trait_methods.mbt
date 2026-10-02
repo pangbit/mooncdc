@@ -81,3 +81,6 @@ pub extend CdcError with Debug::{to_repr}
 
 ///|
 pub extend Security with Debug::{to_repr}
+
+///|
+pub extend SnapshotEvent with Debug::{to_repr}

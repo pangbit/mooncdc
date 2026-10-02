@@ -78,8 +78,46 @@ fall back to text for types without binary output, so handle both Text and Binar
 The transfer choice is retained during reconnect. Adding the Binary variant requires
 consumers with exhaustive Value matches to add a branch.
 Only committed transactions and UTF-8 text encoding are supported.
-Streaming large in-progress transactions and two-phase transactions,
-failover and initial snapshots are outside scope. Unknown messages fail explicitly.
+Streaming large in-progress transactions, two-phase transactions and automatic
+failover are not implemented. Unknown messages fail explicitly.
+
+## Initial snapshot
+
+`copy_snapshot(config, slot~, publication~, consume, ...)` creates a new persistent
+pgoutput slot with an exported snapshot, imports that view into a read-only repeatable
+read transaction, and copies publication tables sequentially. The callback receives
+`TableBegin(Relation)`, zero or more `TableRows(Relation, rows)`, then `TableEnd(Relation)`.
+Empty tables still receive begin/end. Rows contain Text or Null, with full TOAST values.
+The callback must finish its target writes durably before returning. It may clear the
+target table at TableBegin; only TableEnd marks that table's copy as complete.
+
+After all callbacks and the read transaction succeed, the function returns an opaque
+`SnapshotPosition` with a readable `lsn`. Pass it to `subscribe(...,
+start=AfterSnapshot(position))` with a new checkpoint path. The handoff checks the source
+system, timeline, database, slot and publication before creating the checkpoint. Writes
+committed during copying are then replayed from the slot's consistent point. Do not
+manually advance, recreate or consume that slot between snapshot and subscription.
+
+Publication column lists and row filters are applied to the initial copy. Partition
+root/leaf identities follow `publish_via_partition_root`; ordinary inheritance tables
+are copied separately without duplicating children. SELECT permissions are required.
+RLS is disabled for the reader so insufficient privileges fail instead of silently
+copying a subset. Do not change schema or publication membership during the copy;
+concurrent DDL reconciliation and automatic table synchronization are not implemented.
+
+`batch_rows` defaults to 256 (range 1–1024). `max_frame_bytes` defaults to 16 MiB and
+`max_batch_bytes` to 64 MiB; the latter caps accumulated DataRow wire bytes per query.
+Oversized rows/batches fail explicitly, without a partial batch callback. Metadata
+queries currently allow up to 1024 tables and 1024 published columns per table.
+Callbacks provide backpressure; each database operation uses `connection.timeout_ms`.
+Object/string overhead and data retained by the consumer are outside these wire limits.
+
+An existing slot is refused. On callback failure, timeout or cancellation both sockets
+close, the read transaction ends, and no SnapshotPosition or checkpoint is produced.
+The new persistent slot remains, retaining WAL: explicitly inspect/drop that owned slot
+and discard partial target state before starting a fresh copy. This API does not persist
+per-table progress or resume a partial snapshot. Losing the in-memory handoff position
+before the first subscription checkpoint also requires a deliberate fresh bootstrap.
 
 ## Limits and diagnostics
 

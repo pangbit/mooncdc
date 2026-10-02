@@ -206,15 +206,21 @@ async fn connect(
 async fn Connection::query(
   self : Connection,
   sql : String,
+  max_result_bytes? : Int = 67108864,
 ) -> Array[Array[String?]] {
   let out = @buffer.Buffer()
   cstring(out, sql)
   self.send(b'Q', out.to_bytes())
   let rows : Array[Array[String?]] = []
+  let mut bytes = 0
   for ;; {
     let (tag, body) = self.read()
     match tag {
       b'D' => {
+        if body.length() > max_result_bytes - bytes {
+          raise LimitExceeded("query result bytes")
+        }
+        bytes += body.length()
         let c = Cursor::new(body)
         let row : Array[String?] = []
         for _ in 0..<c.u16() {

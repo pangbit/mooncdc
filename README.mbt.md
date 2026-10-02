@@ -51,6 +51,8 @@ let config : @cdc.ConnectionConfig = {
 ```
 
 首次运行使用复制槽创建时返回的明确 LSN：`At(Lsn::parse("0/…"))`。
+需要全量初始化时，使用 `copy_snapshot` 创建槽并读取一致性快照；逐批持久化成功后，
+将返回值传给 `AfterSnapshot(position)` 衔接增量，详见 [快照接口](docs/API.md#initial-snapshot)。
 `Resume` 要求检查点已经存在；损坏、来源不符、槽失效或位置已不可恢复时明确失败。
 不存在自动从最新位置继续的降级。
 
@@ -66,7 +68,8 @@ let config : @cdc.ConnectionConfig = {
 - 后台处理心跳；帧、事务、元数据及未确认队列有上限。超限关闭连接并保留检查点。
 - SCRAM-SHA-256；远端连接使用验证证书和主机名的 TLS。明文仅允许数字回环地址。
   首版密码限定可打印 ASCII，明确拒绝需要 SASLprep 的非 ASCII 密码。
-- 不提供一致性全量快照、自动切主、两阶段事务、完整 DDL 或原生 SQL 类型解码。
+- 支持新槽的一致性全量快照与增量衔接；暂不提供按表并行同步、复制中断后的自动重建。
+- 不提供自动切主、两阶段事务、完整 DDL 或原生 SQL 类型解码。
   不承诺跨系统恰好一次。
 
 `replica identity` 决定旧值是否存在。`FULL` 能提供较完整旧行；默认主键身份可能仅有

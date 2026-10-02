@@ -2,6 +2,7 @@
 /// A fresh explicit WAL position, or strict recovery from an existing checkpoint.
 pub(all) enum Start {
   At(Lsn)
+  AfterSnapshot(SnapshotPosition)
   Resume
 }
 
