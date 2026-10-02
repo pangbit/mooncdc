@@ -93,6 +93,7 @@ async fn copy_snapshot_to_impl(
   max_batch_bytes~ : Int,
   temporary~ : Bool,
   table~ : UInt?,
+  schema_store? : &SchemaStore,
 ) -> SnapshotPosition {
   guard @env.rand(24) is Some(random) else {
     raise Authentication("secure entropy unavailable")
@@ -109,6 +110,7 @@ async fn copy_snapshot_to_impl(
     max_batch_bytes~,
     temporary~,
     table~,
+    schema_store?,
     event => {
       match event {
         TableBegin(relation) => {

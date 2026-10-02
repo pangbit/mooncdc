@@ -42,6 +42,7 @@ priv struct PipelineDestination {
   connection : ConnectionConfig
   control : ApplyControl
   batch_rows : Int
+  schema_store : &SchemaStore?
   mut frontier : Lsn?
 }
 
@@ -119,6 +120,7 @@ async fn PipelineDestination::copy_table(
     max_batch_bytes=67108864,
     temporary=true,
     table=Some(oid),
+    schema_store?=self.schema_store,
   )
   let source = self.store.state.source
   if { ..point.source, slot: source.slot, } != source {
@@ -189,6 +191,16 @@ fn PipelineStore::project(
           Some(Truncate(kept, cascade~, restart_identity~))
         }
       }
+      Message(message) if message.prefix == "supabase_etl_ddl" =>
+        match
+          message.schema_snapshot(
+            commit_lsn=tx.commit_lsn,
+            publication=self.state.source.publication,
+          ) {
+          Some(schema) if cutoffs.contains(schema.oid) && keep(schema.oid) =>
+            Some(change)
+          _ => None
+        }
       _ => Some(change)
     }
     if selected is Some(value) {
@@ -218,6 +230,23 @@ impl Destination for PipelineDestination with fn write_transaction(self, tx) {
         missing[relation.oid] = true
       }
     }
+    if change is Message(message) &&
+      message.schema_snapshot(
+        commit_lsn=tx.commit_lsn,
+        publication=self.store.state.source.publication,
+      )
+      is Some(schema) &&
+      !known.contains(schema.oid) {
+      let conn = connect(self.connection, 16777216, false)
+      defer conn.close()
+      if publication_tables(
+          conn,
+          self.store.state.source.publication,
+          self.connection.timeout_ms,
+        ).contains(schema.oid) {
+        missing[schema.oid] = true
+      }
+    }
   }
   if !missing.is_empty() {
     let conn = connect(self.connection, 16777216, false)
@@ -239,6 +268,18 @@ impl Destination for PipelineDestination with fn write_transaction(self, tx) {
     }
   }
   let projected = self.store.project(tx)
+  if self.schema_store is Some(store) {
+    for change in projected.changes {
+      if change is Message(message) &&
+        message.schema_snapshot(
+          commit_lsn=tx.commit_lsn,
+          publication=self.store.state.source.publication,
+        )
+        is Some(schema) {
+        store.put(schema)
+      }
+    }
+  }
   self.mutex.acquire()
   defer self.mutex.release()
   let status = self.destination.write_transaction(projected)
@@ -275,6 +316,7 @@ pub async fn run_pipeline(
   slot_prefix? : String = "mooncdc",
   copy_concurrency? : Int = 2,
   batch_rows? : Int = 256,
+  schema_store? : &SchemaStore,
 ) -> Unit {
   identifier(publication)
   identifier(slot_prefix)
@@ -406,6 +448,25 @@ pub async fn run_pipeline(
       }),
     }
   })
+  if schema_store is Some(schemas) {
+    let checkpoint = load_checkpoint(checkpoint_path, store.state.source)
+    for table in store.state.tables {
+      match table.phase {
+        Catchup(cutoff) | Ready(cutoff) => {
+          let cutoff = Lsn::parse(cutoff)
+          let bound : SchemaId = if checkpoint > cutoff {
+            SchemaId::before_lsn(checkpoint)
+          } else {
+            { commit_lsn: cutoff, message_lsn: { value: 0, }, }
+          }
+          if schemas.get(table.oid, bound) is None {
+            raise UnsafeResume("completed table has no retained schema")
+          }
+        }
+        _ => ()
+      }
+    }
+  }
   conn.close()
   subscribe(
     connection,
@@ -414,6 +475,12 @@ pub async fn run_pipeline(
     start=Resume,
     checkpoint_path~,
     backpressure=true,
+    messages=true,
+    nontransactional_message=message => {
+      if message.prefix == "supabase_etl_ddl" {
+        raise Protocol("DDL message must be transactional")
+      }
+    },
     sub => {
       let sink : PipelineDestination = {
         destination,
@@ -422,6 +489,7 @@ pub async fn run_pipeline(
         connection,
         control,
         batch_rows,
+        schema_store,
         frontier: None,
       }
       with_destination(destination, () => {

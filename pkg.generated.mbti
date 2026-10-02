@@ -12,11 +12,13 @@ pub async fn copy_snapshot_to(ConnectionConfig, &Destination, slot~ : String, pu
 
 pub async fn pipeline_status(String) -> PipelineStatus
 
-pub async fn run_pipeline(ConnectionConfig, &Destination, publication~ : String, destination_id~ : String, state_path~ : String, control~ : ApplyControl, slot_prefix? : String, copy_concurrency? : Int, batch_rows? : Int) -> Unit
+pub async fn run_pipeline(ConnectionConfig, &Destination, publication~ : String, destination_id~ : String, state_path~ : String, control~ : ApplyControl, slot_prefix? : String, copy_concurrency? : Int, batch_rows? : Int, schema_store? : &SchemaStore) -> Unit
 
 pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, checkpoint_path~ : String, async (Subscription) -> T, max_frame_bytes? : Int, max_transaction_bytes? : Int, max_transaction_events? : Int, max_pending_transactions? : Int, max_metadata_entries? : Int, heartbeat_ms? : Int, max_reconnects? : Int, reconnect_delay_ms? : Int, binary? : Bool, messages? : Bool, nontransactional_message? : async (LogicalMessage) -> Unit, backpressure? : Bool) -> T
 
 pub async fn[T] with_destination(&Destination, async () -> T) -> T
+
+pub async fn[T] with_file_schema_store(String, identity~ : String, async (&SchemaStore) -> T) -> T
 
 // Errors
 pub suberror CdcError {
@@ -94,6 +96,7 @@ pub struct LogicalMessage {
 } derive(Eq, ToJson, @debug.Debug)
 pub fn LogicalMessage::equal(Self, Self) -> Bool
 pub fn LogicalMessage::not_equal(Self, Self) -> Bool
+pub fn LogicalMessage::schema_snapshot(Self, commit_lsn~ : Lsn, publication~ : String) -> SchemaSnapshot? raise
 pub fn LogicalMessage::to_json(Self) -> Json
 pub fn LogicalMessage::to_repr(Self) -> @debug.Repr
 
@@ -139,6 +142,49 @@ pub fn Relation::equal(Self, Self) -> Bool
 pub fn Relation::not_equal(Self, Self) -> Bool
 pub fn Relation::to_json(Self) -> Json
 pub fn Relation::to_repr(Self) -> @debug.Repr
+
+pub struct SchemaColumn {
+  name : String
+  type_oid : UInt
+  type_modifier : Int
+  ordinal : Int
+  nullable : Bool
+  primary_key_ordinal : Int?
+  default_expression : String?
+} derive(Eq, ToJson, @debug.Debug)
+pub fn SchemaColumn::equal(Self, Self) -> Bool
+pub fn SchemaColumn::not_equal(Self, Self) -> Bool
+pub fn SchemaColumn::to_json(Self) -> Json
+pub fn SchemaColumn::to_repr(Self) -> @debug.Repr
+
+pub struct SchemaId {
+  commit_lsn : Lsn
+  message_lsn : Lsn
+} derive(Compare, Eq, @debug.Debug)
+pub fn SchemaId::before_lsn(Lsn) -> Self raise
+pub fn SchemaId::compare(Self, Self) -> Int
+pub fn SchemaId::equal(Self, Self) -> Bool
+pub fn SchemaId::not_equal(Self, Self) -> Bool
+pub fn SchemaId::op_ge(Self, Self) -> Bool
+pub fn SchemaId::op_gt(Self, Self) -> Bool
+pub fn SchemaId::op_le(Self, Self) -> Bool
+pub fn SchemaId::op_lt(Self, Self) -> Bool
+pub fn SchemaId::to_repr(Self) -> @debug.Repr
+
+pub struct SchemaSnapshot {
+  id : SchemaId
+  oid : UInt
+  namespace_ : String
+  name : String
+  replica_identity : Byte
+  columns : ReadOnlyArray[SchemaColumn]
+  // private fields
+} derive(@debug.Debug)
+pub fn SchemaSnapshot::equal(Self, Self) -> Bool
+pub fn SchemaSnapshot::not_equal(Self, Self) -> Bool
+pub fn SchemaSnapshot::relation(Self, ReadOnlyArray[String]) -> Relation raise
+pub fn SchemaSnapshot::to_repr(Self) -> @debug.Repr
+pub impl Eq for SchemaSnapshot
 
 pub(all) enum Security {
   LocalPlaintext
@@ -254,4 +300,11 @@ pub(open) trait Destination {
   async fn write_rows(Self, Relation, ReadOnlyArray[ReadOnlyArray[Value]], TableCopyBatchId?) -> WriteStatus
   async fn write_transaction(Self, Transaction) -> WriteStatus
   async fn flush(Self) -> Unit
+}
+
+pub(open) trait SchemaStore {
+  async fn get(Self, UInt, SchemaId) -> SchemaSnapshot?
+  async fn all(Self) -> ReadOnlyArray[SchemaSnapshot]
+  async fn put(Self, SchemaSnapshot) -> Unit
+  async fn prune(Self, ReadOnlyArray[(UInt, SchemaId)]) -> Int
 }

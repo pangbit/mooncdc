@@ -120,3 +120,27 @@ pub extend TableSyncStatus with Debug::{to_repr}
 
 ///|
 pub extend PipelineStatus with Debug::{to_repr}
+
+///|
+pub extend SchemaId with Eq::{equal, not_equal}
+
+///|
+pub extend SchemaId with Compare::{compare, op_lt, op_le, op_gt, op_ge}
+
+///|
+pub extend SchemaId with Debug::{to_repr}
+
+///|
+pub extend SchemaColumn with Eq::{equal, not_equal}
+
+///|
+pub extend SchemaColumn with Debug::{to_repr}
+
+///|
+pub extend SchemaColumn with ToJson::{to_json}
+
+///|
+pub extend SchemaSnapshot with Eq::{equal, not_equal}
+
+///|
+pub extend SchemaSnapshot with Debug::{to_repr}

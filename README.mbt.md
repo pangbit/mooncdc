@@ -67,7 +67,8 @@ let config : @cdc.ConnectionConfig = {
   才更新可反馈位置。接收位置不能代替业务持久位置。
 - `tx.id` 标识事务，`tx.event_id(index)` 标识数据变更；重复元数据不改变数据事件 ID。
 - 可用 `messages=true` 订阅逻辑消息：事务消息随提交交付，非事务消息需提供独立回调。
-  消息内容保留原始字节；尚不解释 Supabase ETL 的 DDL schema payload。
+  消息内容保留原始字节；`schema_snapshot` 可解释 Supabase ETL DDL payload。
+  `run_pipeline(..., schema_store=store)` 可持久保存初始 schema 与 DDL 版本，详见 API。
 - 自定义 `Destination` 可通过 `copy_snapshot_to` 和 `sub.apply_to` 接入复制流程；
   `Accepted` 不触发确认，持久化屏障成功才推进检查点，支持空闲刷新及正常停止。
 - 后台处理心跳；帧、事务、元数据及未确认队列有上限。超限关闭连接并保留检查点。

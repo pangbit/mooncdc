@@ -205,6 +205,45 @@ during a table copy remain unsupported. Cancellation leaves conservative replay 
 `control.stop()` drains accepted writes. Owned persistent slots retain WAL after exit and
 require explicit operator cleanup when the pipeline is permanently retired.
 
+## DDL schema versions
+
+`message.schema_snapshot(commit_lsn~, publication~)` decodes the fixed Supabase ETL
+`supabase_etl_ddl` JSON format. It returns None for another prefix/publication and rejects
+nontransactional DDL or malformed metadata. It preserves physical column order, primary-key
+order separately from replica identity, nullability, defaults and type modifiers. Unknown
+JSON fields are ignored. `schema.relation(published_columns)` intersects the publication
+mask with DEFAULT/FULL/INDEX/NOTHING identity semantics; a new wire Relation supersedes
+this fallback when publication membership changes.
+
+`SchemaId` sorts by commit LSN, then message LSN. Message LSN alone is not a transaction
+ordering key. `SchemaId.before_lsn(checkpoint)` converts an exclusive replication position
+to an inclusive lookup/retention bound and rejects zero.
+
+The public `SchemaStore` trait supports get/all/put/prune. `with_file_schema_store(path,
+identity~, run)` provides an exclusive, checksummed atomic file implementation with a
+16 MiB bound. Identity must bind the source/publication/destination. Same-version replay
+is idempotent; conflicting schema content fails. Cache publication follows successful
+file persistence. `prune([(oid, bound), ...])` preserves the newest version at/before each
+bound and every newer version. Choose bounds no newer than both the durable source
+checkpoint and any version still required by destination recovery. Automatic pruning is
+not implied. Access after the scope closes fails.
+
+Pass the scoped store as `run_pipeline(..., schema_store=store)`. The pipeline records a
+full-table bootstrap schema inside each imported snapshot before target reset, using the
+snapshot cutoff and message LSN zero. It persists applicable DDL versions before handing
+the transaction to the destination. DDL remains a Message in its original transaction
+order; destinations call schema_snapshot when applying it and must implement their own
+schema evolution policy. Filtered pre-copy/foreign-publication DDL is not applied.
+Resume rejects a completed table whose required retained schema is missing. Store files
+retain consumed metadata only; upstream debug fields such as current_query are discarded.
+
+The pipeline negotiates logical messages and rejects nontransactional DDL. Actual DDL
+production requires upstream source helpers/event triggers installed by the operator;
+the library never installs database-wide triggers. The pinned unmodified SQL in
+`integration/reference/etl` is exercised only in isolated tests. Full destination schema
+planning, stored decoding masks/worker handover and automatic schema-retention coordination
+remain separate work.
+
 ## Limits and diagnostics
 
 | Option | Default | Meaning |

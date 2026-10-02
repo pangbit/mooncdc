@@ -2,6 +2,9 @@
 
 ## 0.1.0 — Unreleased
 
+- Add Supabase ETL DDL parsing, ordered schema versions, publication-scoped handling,
+  full snapshot schemas and an atomic schema store with replay checks and retention bounds.
+
 - Add a persistent per-table pipeline with concurrent independent snapshots, failed-copy
   restart, table cutoffs, dynamic WAL-driven discovery and opt-in bounded backpressure.
 

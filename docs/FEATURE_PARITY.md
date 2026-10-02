@@ -43,9 +43,9 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 | ETL 能力 | MoonCDC 状态 / 下一项 |
 |---|---|
 | 初始复制与 WAL 追赶 | 独立逐表快照、持久 cutoff、并行复制、重启只重建失败表已实测；完整 SyncDone worker handover 待实现 |
-| StateStore / SchemaStore | 已有源绑定 checkpoint 与逐表原子文件状态；外部 StateStore、schema 版本及清理、目标端创建状态待实现 |
+| StateStore / SchemaStore | 源绑定 checkpoint、逐表文件状态、公开 SchemaStore、schema 原子文件版本及显式清理已实现；外部 StateStore、自动清理协调、目标端创建状态待实现 |
 | Destination accepted/durable | 单实例有序写入、累计屏障、空闲刷新、正常停止和批次 ID 已实测；并发表复制、目标端持久元数据及具体后端隔离待实现 |
-| 逻辑消息与 DDL | 原始消息已实测；`supabase_etl_ddl` 事件触发器、schema payload、版本顺序及列演进待实现 |
+| 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`、版本顺序/作用域/原始上游触发器已实测；完整 decoding masks、目标端列演进待实现 |
 | 类型转换 | 原始 Text/Binary/NULL/TOAST 已实现；ETL 的布尔、数值、时间、JSON、数组及未知类型矩阵待实现 |
 | 独立 replicator | 当前为嵌入式库及示例；配置、持久运行状态、健康/指标、优雅退出待实现 |
 | ClickHouse | 上游 private alpha；本地优先实现 ReplacingMergeTree / MergeTree、主键变化墓碑、truncate 与 schema 契约 |
@@ -96,3 +96,11 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   本轮完整 live 场景逐进程隔离运行，PG17/18 各 13/13；常规 native 50/50。
   完整回归暴露并修复目录 regclass 名称解析被其他 publication 并发 DROP 干扰的问题。
   仍需完整 worker handover、空表动态目录发现、schema/type、目标端及上游差分。
+- P3/P4 schema：公开版本化 SchemaStore 与原子文件实现，版本按 commit/message LSN 排序，
+  保留边界基准版本及未来版本；失败写盘不发布缓存，同版本重放冲突拒绝。
+  逐表快照在导出视图内保存全列 schema，pipeline 在目标事务写入前持久化适用 DDL。
+  使用固定上游的两份未修改 SQL 触发器验证真实 payload，覆盖同事务多次 DDL、
+  回滚、publication 作用域、默认值/nullable/复合主键顺序及 INCLUDE 排除。
+  目标端仍需按消息顺序实现自己的列演进；这不是完整 schema 规划/worker handover 对等。
+  native 56/56；schema 集成完整 live 套件 PG17/18 各 14/14。随后增加的调试字段裁剪与
+  缺失 schema 恢复拒绝，重新通过普通套件和 PG17/18 的上游 DDL 专项；release/doc 通过。

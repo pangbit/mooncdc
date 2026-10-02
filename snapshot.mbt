@@ -81,6 +81,7 @@ async fn copy_snapshot_impl(
   max_batch_bytes~ : Int,
   temporary~ : Bool,
   table~ : UInt?,
+  schema_store? : &SchemaStore,
 ) -> SnapshotPosition {
   identifier(slot)
   identifier(publication)
@@ -178,6 +179,15 @@ async fn copy_snapshot_impl(
       name,
       replica_identity: identity[0],
       columns: ReadOnlyArray::from_array(columns),
+    }
+    if schema_store is Some(store) {
+      let schema = reader.snapshot_schema(
+        relation.oid,
+        lsn,
+        connection.timeout_ms,
+        max_batch_bytes,
+      )
+      store.put(schema)
     }
     let projection = columns.map(c => sql_identifier(c.name)).join(", ")
     // Inheritance children are listed separately, so ONLY avoids copying them

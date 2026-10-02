@@ -12,6 +12,10 @@
 - [PostgreSQL SASL authentication](https://www.postgresql.org/docs/18/sasl-authentication.html).
 - [RFC 7677 SCRAM-SHA-256](https://www.rfc-editor.org/rfc/rfc7677).
 
-Protocol references inform an independent implementation. No PostgreSQL client
+`integration/reference/etl/` contains two unmodified source DDL migrations from
+[Supabase ETL](https://github.com/supabase/etl/tree/c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4),
+Apache-2.0, with its license retained. They provide real upstream payloads in isolated tests.
+
+Protocol references inform an independent MoonBit implementation. No PostgreSQL client
 implementation or other Mooncakes CDC package is copied or adapted. Official
 `moonbitlang/async` examples inform the executable example package layout.
