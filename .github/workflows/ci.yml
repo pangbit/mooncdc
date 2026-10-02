@@ -49,9 +49,9 @@ jobs:
       - run: moon update
       - run: moon run tools/setup-db.mbtx ${{ matrix.service }}
       - run: moon run tools/setup-tls.mbtx ${{ matrix.service }}
-      # Fault peers use short deliberate deadlines. Keep CPU-heavy SCRAM tests
-      # from starving their shared event loop on small hosted runners.
-      - run: moon test --target native --no-parallelize
+      # Native jobs run all unit/fault tests. Select only live scenarios here so
+      # short-deadline peers never share a process with CPU-heavy SCRAM fixtures.
+      - run: moon test --target native --filter 'live*'
         env:
           MOONCDC_TEST_PORT: ${{ matrix.port }}
           MOONCDC_TEST_CA: .test-artifacts/tls-${{ matrix.service }}/server.crt

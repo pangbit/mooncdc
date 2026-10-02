@@ -13,8 +13,8 @@ moon run tools/setup-tls.mbtx pg18
 moon run tools/setup-tls.mbtx pg17
 moon check --target native --deny-warn
 moon test --target native
-MOONCDC_TEST_PORT=55418 MOONCDC_TEST_CA=.test-artifacts/tls-pg18/server.crt moon test --target native --no-parallelize
-MOONCDC_TEST_PORT=55417 MOONCDC_TEST_CA=.test-artifacts/tls-pg17/server.crt moon test --target native --no-parallelize
+MOONCDC_TEST_PORT=55418 MOONCDC_TEST_CA=.test-artifacts/tls-pg18/server.crt moon test --target native --filter 'live*'
+MOONCDC_TEST_PORT=55417 MOONCDC_TEST_CA=.test-artifacts/tls-pg17/server.crt moon test --target native --filter 'live*'
 moon run examples/index
 moon run examples/cache
 moon run tools/recovery-test.mbtx
@@ -35,9 +35,11 @@ moon run tools/package-test.mbtx
 clean/recreate their own named slots. Do not run two live suites against the same fixture
 concurrently. The test role is a superuser only to create/drop fixtures and terminate its
 own walsender. Real applications should use restricted roles.
-Run live suites sequentially within the runner as shown: CPU-heavy SCRAM handshakes in
-other async tests can starve the deliberately short deadlines of protocol fault peers on
-small CI machines. The timeout regression itself remains enabled and keeps its original limit.
+Run the ordinary suite and the five live scenarios in separate invocations as shown:
+CPU-heavy SCRAM handshakes can interfere with deliberately short deadlines of protocol
+fault peers on small CI machines. `--no-parallelize` alone did not prevent this interference.
+All protocol fault tests remain enabled in the ordinary suite with their original limits;
+the `live*` filter ensures they never share a test process with real database handshakes.
 
 `setup-tls` creates short-lived test credentials under ignored `.test-artifacts/` and
 reloads SSL configuration only inside the selected container. OpenSSL CLI is needed for
