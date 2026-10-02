@@ -1,0 +1,31 @@
+services:
+  pg18:
+    image: postgres:18.6
+    environment:
+      POSTGRES_USER: cdc
+      POSTGRES_PASSWORD: mooncdc-test-only
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports: ["127.0.0.1:55418:5432"]
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=16", "-c", "max_wal_senders=16", "-c", "wal_sender_timeout=5s"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U cdc -d postgres"]
+      start_period: 60s
+      interval: 1s
+      timeout: 3s
+      retries: 30
+  pg17:
+    image: postgres:17.11
+    environment:
+      POSTGRES_USER: cdc
+      POSTGRES_PASSWORD: mooncdc-test-only
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports: ["127.0.0.1:55417:5432"]
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=16", "-c", "max_wal_senders=16", "-c", "wal_sender_timeout=5s"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U cdc -d postgres"]
+      start_period: 60s
+      interval: 1s
+      timeout: 3s
+      retries: 30

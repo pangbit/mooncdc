@@ -1,0 +1,41 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "pangbit/mooncdc"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+pub suberror CdcError {
+  Protocol(String)
+  Authentication(String)
+  Server(String, String)
+  InvalidConfig(String)
+  LimitExceeded(String)
+  UnsafeResume(String)
+  CheckpointError(String)
+  Closed
+} derive(@debug.Debug)
+
+// Types and methods
+pub(all) struct ConnectionConfig {
+  host : String
+  port : Int
+  user : String
+  password : String
+  database : String
+  security : Security
+  timeout_ms : Int
+}
+
+pub(all) enum Security {
+  LocalPlaintext
+  VerifyFull
+  VerifyCAFile(String)
+} derive(@debug.Debug)
+
+// Type aliases
+
+// Traits

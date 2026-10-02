@@ -15,15 +15,17 @@ version = "0.1.0"
 
 readme = "README.mbt.md"
 
-repository = ""
+repository = "https://github.com/pangbit/mooncdc"
 
 license = "Apache-2.0"
 
-keywords = []
+keywords = [ "postgresql", "cdc", "replication" ]
 
-preferred_target = "wasm"
+preferred_target = "native"
 
-description = ""
+supported_targets = "native"
+
+description = "PostgreSQL pgoutput CDC with committed transactions and durable acknowledgements"
 
 import {
   "moonbitlang/async@0.22.4",

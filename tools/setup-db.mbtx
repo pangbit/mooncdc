@@ -1,0 +1,15 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+}
+
+async fn main {
+  let args = @env.args()
+  guard args.length() == 2 && (args[1] == "pg18" || args[1] == "pg17") else {
+    fail("usage: moon run tools/setup-db.mbtx <pg18|pg17>")
+  }
+  let prefix = ["compose", "-p", "mooncdc-test", "-f", "integration/compose.yaml", "exec", "-T", args[1], "psql", "-U", "cdc", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c"]
+  @shell.Cmd("docker", prefix + ["CREATE TABLE items (id integer PRIMARY KEY, value text); CREATE TABLE extras (id integer PRIMARY KEY, value text); ALTER TABLE items REPLICA IDENTITY FULL; ALTER TABLE extras REPLICA IDENTITY FULL; CREATE PUBLICATION mooncdc_test FOR TABLE items, extras;"]).run()
+  @shell.Cmd("docker", prefix + ["SELECT * FROM pg_create_logical_replication_slot('mooncdc_test', 'pgoutput');"]).run()
+}

@@ -1,0 +1,17 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/socket",
+  "moonbitlang/async/io",
+  "moonbitlang/async/tls",
+  "moonbitlang/async/fs",
+  "moonbitlang/core/buffer",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/encoding/base64",
+  "moonbitlang/core/string",
+  "moonbitlang/core/json",
+  "moonbitlang/x/crypto",
+}
+
+import {
+  "moonbitlang/core/env",
+} for "wbtest"
