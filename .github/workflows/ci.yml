@@ -20,6 +20,7 @@ jobs:
       - run: moon version --all
       - run: moon check --target native --deny-warn
       - run: moon test --target native
+      - run: moon test tools/publish-check.mbtx
       - run: moon build --target native --release
       - run: moon info --target native && moon fmt --check
       - run: git diff --exit-code -- '*.mbti'
@@ -52,6 +53,9 @@ jobs:
         env:
           MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
       - run: moon run tools/recovery-test.mbtx
+        env:
+          MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
+      - run: moon run tools/checkpoint-crash-test.mbtx
         env:
           MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
       - if: always()

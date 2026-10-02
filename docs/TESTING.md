@@ -18,10 +18,13 @@ moon run examples/index
 moon run examples/cache
 moon run tools/recovery-test.mbtx
 MOONCDC_EXAMPLE_SERVICE=pg17 moon run tools/recovery-test.mbtx
+moon run tools/checkpoint-crash-test.mbtx
+MOONCDC_EXAMPLE_SERVICE=pg17 moon run tools/checkpoint-crash-test.mbtx
+moon test tools/publish-check.mbtx
 moon build --target native --release
 moon info --target native
 moon fmt
-moon fmt tools/setup-db.mbtx tools/setup-tls.mbtx tools/recovery-test.mbtx tools/package-test.mbtx
+moon fmt tools/setup-db.mbtx tools/setup-tls.mbtx tools/recovery-test.mbtx tools/package-test.mbtx tools/checkpoint-crash-test.mbtx tools/publish-check.mbtx
 moon doc
 moon package --list
 moon run tools/package-test.mbtx
@@ -41,7 +44,7 @@ this fixture; private keys must never be committed or packaged.
 - Unit tests exercise every split point of protocol frames, truncation, invalid lengths,
   unsupported messages/fields, transaction ordering, metadata snapshots, NULL/TOAST,
   LSN boundaries, source binding and checkpoint checksums.
-- Checkpoint boundary tests inject an exception before write, after file fsync, after
+- Checkpoint boundary tests inject an exception before/after write, after file fsync, after
   rename and after directory fsync. They verify the old/new checkpoint remains parseable.
   These are simulated interrupted control flow, not power-loss tests.
 - Live tests validate SCRAM, COPY BOTH, multi-table/rollback/ordering, contiguous ack,
@@ -49,10 +52,21 @@ this fixture; private keys must never be committed or packaged.
   truncate, missing slot/mismatched recovery and oversize transaction replay.
 - Process tests SIGKILL a native consumer at four business/ack/feedback boundaries and
   verify exact IDs and duplicate bounds in a fresh process. Disk power loss is not claimed.
+- `checkpoint-crash-test.mbtx` builds the native whitebox test worker, discovers its
+  executable from `moon test --build-only`, and SIGKILLs that owned process at five internal
+  checkpoint boundaries. It uses the real checkpoint writer with a live PostgreSQL stream,
+  verifies old/new LSNs after restart, and checks complete transactions and IDs 1,2,3.
+  Before rename, transaction 1 replays once; after rename, it does not replay. The process
+  test is not a power-loss test; the OS remains running throughout.
+- Local TCP protocol peers independently inject reconnect failures during startup,
+  IDENTIFY_SYSTEM and START_REPLICATION, including timeout, exhaustion and source mismatch.
+  These are deterministic protocol fault tests, not PostgreSQL compatibility evidence.
 
 Without `MOONCDC_TEST_PORT`, live test bodies are skipped. Without `MOONCDC_TEST_CA`,
 the TLS test body is skipped. Record environment variables along with test totals;
 the test runner does not have a separate skipped-body count.
+The checkpoint process worker is inactive during ordinary suites; only its orchestrator
+sets `MOONCDC_CHECKPOINT_DIR/PHASE/STAGE` to execute that body in a separate process.
 
 ## Cleanup
 

@@ -3,7 +3,7 @@
 Follow [MoonBit's publishing guide](https://docs.moonbitlang.com/en/latest/toolchain/moon/package-manage-tour.html).
 This repository prepares version 0.1.0; it is not published by CI.
 
-1. Run the unit, Docker PostgreSQL 18/17, TLS, three examples and SIGKILL recovery gates
+1. Run the unit, Docker PostgreSQL 18/17, TLS, three examples and both SIGKILL recovery gates
    in [TESTING](TESTING.md). Resolve warnings and record the supported configurations.
 2. Run `moon info --target native && moon fmt`; review every generated interface change.
    Run `moon fmt --check`, `moon build --target native --release`, `moon doc` and
@@ -16,6 +16,13 @@ This repository prepares version 0.1.0; it is not published by CI.
    keywords, README and native support. `moon publish --dry-run` packages and validates
    locally and contacts the registry without publishing. Record both the server response
    and CLI exit status; acceptance of a dry run is not publication or a version reservation.
+   Use `moon run tools/publish-check.mbtx` for the checked preflight. It accepts an exact
+   HTTP 202 dry-run success for the manifest's name/version. For backend
+   `mooncake-bin 0.1.20260911 (7344121 2026-09-11)` only, it recognizes the observed exit-255
+   wrapper error after successful extracted-package validation and that exact response.
+   Unknown backends with nonzero status, other server statuses, wrong package/version,
+   additional errors and authentication failures are rejected. Raw output/status are printed.
+   This compatibility handling never runs a real publish or turns a failed validation green.
 5. Commit verified explicit paths with Conventional Commit subjects. Bind the report
    to the final source commit and environment. A report-only commit may refer to its
    parent source commit; it must not claim to test future code.
@@ -28,3 +35,7 @@ This repository prepares version 0.1.0; it is not published by CI.
 
 Keep GitHub push, successful CI and Mooncakes publication as separate reported states.
 CI does not require registry credentials and must not expose publishing tokens to pull requests.
+
+The installed `moon` delegates publication to a separate backend and reports its nonzero
+exit as `moon publish failed`; see the [adapter at the tested revision](https://github.com/moonbitlang/moon/blob/914d7da08562120ae4d9ef181cdda58c4ff0c191/crates/moon/src/cli/mooncake_adapter.rs#L41-L67).
+The workaround is confined to this project's dry-run preflight. Global tools are unmodified.

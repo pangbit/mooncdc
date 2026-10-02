@@ -1,0 +1,145 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/json",
+}
+
+///|
+fn manifest_string(manifest : String, key : String) -> String raise {
+  let prefix = key + " = "
+  for line in manifest.split("\n") {
+    if line.has_prefix(prefix) {
+      guard @json.parse(line[prefix.length():].to_owned()) is String(value) else {
+        fail("expected string metadata: " + key)
+      }
+      return value
+    }
+  }
+  fail("missing metadata: " + key)
+}
+
+///|
+fn accepted_dry_run(
+  code : Int,
+  backend : String,
+  output : String,
+  name : String,
+  version : String,
+) -> Bool {
+  let expected = "Server status: 202 Accepted, detail: Dry run completed successfully. No changes were made. The dry-run was made for package \{name} version \{version}."
+  let mut accepted = 0
+  let mut wrapper_errors = 0
+  for line in output.split("\n") {
+    if line.has_prefix("Server status:") {
+      if line != expected {
+        return false
+      }
+      accepted += 1
+    }
+    if line.has_prefix("Error:") {
+      if line != "Error: `moon publish` failed" {
+        return false
+      }
+      wrapper_errors += 1
+    }
+  }
+  if accepted != 1 {
+    return false
+  }
+  if code == 0 {
+    return wrapper_errors == 0
+  }
+  code == 255 &&
+  wrapper_errors == 1 &&
+  backend == "mooncake-bin 0.1.20260911 (7344121 2026-09-11)" &&
+  output.contains("running moon check on extracted package") &&
+  output.contains("Check passed")
+}
+
+///|
+async fn main {
+  let manifest = @fs.read_file("moon.mod").text()
+  let name = manifest_string(manifest, "name")
+  let version = manifest_string(manifest, "version")
+  let backend = @shell.Cmd("mooncake", ["--version"]).output()
+  backend.check()
+  // Never invoke real publication; authentication remains inside the official CLI.
+  let result = @shell.Cmd("moon", ["publish", "--dry-run"]).output()
+  let output = result.stdout() + "\n" + result.stderr()
+  println(output)
+  let backend_version = backend.stdout().trim().to_owned()
+  println("Raw CLI exit=\{result.exit_code()}, backend=\{backend_version}")
+  if !accepted_dry_run(
+      result.exit_code(),
+      backend_version,
+      output,
+      name,
+      version,
+    ) {
+    fail("registry dry-run not accepted; inspect raw CLI output")
+  }
+  if result.exit_code() != 0 {
+    println(
+      "Recognized 202 dry-run exit-code defect in pinned backend; no publication performed.",
+    )
+  }
+  println(
+    "Registry dry-run accepted for \{name}@\{version}; this does not reserve or publish the version.",
+  )
+}
+
+///|
+test "accept only exact dry-run success for this package and known exit-code defect" {
+  let backend = "mooncake-bin 0.1.20260911 (7344121 2026-09-11)"
+  let response = "running moon check on extracted package\nCheck passed\nServer status: 202 Accepted, detail: Dry run completed successfully. No changes were made. The dry-run was made for package pangbit/mooncdc version 0.1.0.\n"
+  let defective = response + "Error: `moon publish` failed\n"
+  assert_true(
+    accepted_dry_run(0, "future", response, "pangbit/mooncdc", "0.1.0"),
+  )
+  assert_true(
+    accepted_dry_run(255, backend, defective, "pangbit/mooncdc", "0.1.0"),
+  )
+  assert_false(
+    accepted_dry_run(
+      255, "unknown backend", defective, "pangbit/mooncdc", "0.1.0",
+    ),
+  )
+  assert_false(
+    accepted_dry_run(1, backend, defective, "pangbit/mooncdc", "0.1.0"),
+  )
+  assert_false(
+    accepted_dry_run(255, backend, defective, "pangbit/other", "0.1.0"),
+  )
+  assert_false(
+    accepted_dry_run(255, backend, defective, "pangbit/mooncdc", "0.2.0"),
+  )
+  assert_false(
+    accepted_dry_run(
+      255, backend, "Server status: 401 Unauthorized", "pangbit/mooncdc", "0.1.0",
+    ),
+  )
+  assert_false(
+    accepted_dry_run(
+      255,
+      backend,
+      defective + "Error: validation failed\n",
+      "pangbit/mooncdc",
+      "0.1.0",
+    ),
+  )
+  assert_false(
+    accepted_dry_run(
+      255,
+      backend,
+      defective + response,
+      "pangbit/mooncdc",
+      "0.1.0",
+    ),
+  )
+  assert_eq(
+    manifest_string("name = \"test/package\"\nversion = \"1.2.3\"", "version"),
+    "1.2.3",
+  )
+}
