@@ -178,6 +178,12 @@ before saving either form of checkpoint also requires a deliberate fresh bootstr
 ## Destinations and durability
 
 Implement the public `Destination` trait to receive snapshots and committed transactions.
+
+When a `schema_store` is supplied to `copy_snapshot_to` or `run_pipeline`,
+`bind_snapshot_schema(relation, schema)` receives the exact imported-snapshot schema
+after durable schema storage and before `reset_table`. Its default implementation is
+empty. Typed destinations should use this version for snapshot rows, rather than infer
+the copy version from an unbounded schema-store lookup.
 Each write returns `Accepted` or `Durable`. Accepted means the destination owns the work;
 Durable means that write **and all earlier accepted writes** on the same ordered instance
 are persisted. `flush()` must wait for all earlier accepted writes to become durable or

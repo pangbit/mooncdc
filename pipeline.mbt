@@ -53,6 +53,20 @@ priv struct PipelineDestination {
 }
 
 ///|
+impl Destination for PipelineDestination with fn bind_snapshot_schema(
+  self,
+  relation,
+  schema,
+) {
+  self.mutex.acquire()
+  defer self.mutex.release()
+  if self.control.stopped {
+    raise PipelineStopped
+  }
+  self.destination.bind_snapshot_schema(relation, schema)
+}
+
+///|
 impl Destination for PipelineDestination with fn reset_table(
   self,
   relation,

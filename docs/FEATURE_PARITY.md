@@ -48,7 +48,7 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 | 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`；公开投影/identity masks、有序列 DDL 规划已差分验证；连接内完整 decoding-state 恢复、目标端 DDL 执行待实现 |
 | 类型转换 | 已有类型化文本 Cell、精确 numeric/JSON、日期/时间/UUID/bytea/可空一维数组；通用内置数组采用文本元素；PG17/18 快照及 WAL 矩阵已实测，固定上游 codec 558 向量进程差分通过；不是全部输入的等价证明 |
 | 独立 replicator | 当前为嵌入式库及示例；配置、持久运行状态、健康/指标、优雅退出待实现 |
-| ClickHouse | 上游 private alpha；本地优先实现 ReplacingMergeTree / MergeTree、主键变化墓碑、truncate 与 schema 契约 |
+| ClickHouse | 上游 private alpha；二进制编码差分及两种引擎的底层真实写入已验证；Destination 集成、主键变化墓碑、DDL 恢复仍在实现 |
 | BigQuery | 上游 stable；Storage Write API、CDC、目标端持久偏移、布局配置及真云验证待实现 |
 | DuckLake | 上游 private alpha；DuckDB/catalog、排序和恢复语义待实现 |
 | Snowflake | 上游 private alpha；Snowpipe Streaming、key-pair auth、通道恢复及 schema 子集待实现 |
@@ -164,3 +164,15 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   release 与源码包独立消费者通过。PG17/18 的 SIGKILL 工具现逐一验证 legacy 文件、
   文件 StateStore 和 PostgreSQL StateStore 的全新进程恢复。状态存储独占不替代目标端
   异步写入的分布式 fencing。
+- P5 ClickHouse 基础：实现内部 HTTP、RowBinaryWithNamesAndTypes、类型映射及元数据编码。
+  756 个标量/数组/nullable 向量与固定上游未修改 encoding.rs 逐字节一致，包含时间、UUID、
+  arbitrary_precision JSON 和 infinity 拒绝。修复 MoonBit Bytes 比较按长度优先导致的 JSON
+  键排序差异，按 UTF-8 字典序匹配 serde_json；这不改变 Cell 的原始 JSON 值。
+  本地 ClickHouse 26.4 验证两种引擎写入、copy token 重放/独立批次、删除版本、精确字段、
+  错误类型 header 拒绝与 truncate。`tools/clickhouse-test.mbtx` 可重复执行。
+  此提交是内部基础层，尚无可用的 ClickHouseDestination，不声明目标端功能对等。
+  Destination 增加默认空实现 bind_snapshot_schema，在 schema 持久化后、reset 前传入
+  导出快照内的准确元数据，避免目标端使用并发主流写入的更新 schema。既有目标端兼容。
+  普通 native 82/82；PG17/18 的上游 DDL 专项均验证 schema 回调先于 reset 且已经持久化。
+  release 构建、`moon check --deny-warn` 及源码包独立消费者通过。6 个仅由测试调用的
+  分阶段内部入口局部允许 unused_value；Destination 集成后移除这些局部标注。

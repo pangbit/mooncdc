@@ -9,7 +9,7 @@ import {
 // Values
 pub async fn copy_snapshot(ConnectionConfig, slot~ : String, publication~ : String, async (SnapshotEvent) -> Unit, batch_rows? : Int, max_frame_bytes? : Int, max_batch_bytes? : Int) -> SnapshotPosition
 
-pub async fn copy_snapshot_to(ConnectionConfig, &Destination, slot~ : String, publication~ : String, batch_rows? : Int, max_frame_bytes? : Int, max_batch_bytes? : Int) -> SnapshotPosition
+pub async fn copy_snapshot_to(ConnectionConfig, &Destination, slot~ : String, publication~ : String, batch_rows? : Int, max_frame_bytes? : Int, max_batch_bytes? : Int, schema_store? : &SchemaStore) -> SnapshotPosition
 
 pub async fn pipeline_status(String) -> PipelineStatus
 
@@ -95,6 +95,14 @@ pub fn Change::equal(Self, Self) -> Bool
 pub fn Change::not_equal(Self, Self) -> Bool
 pub fn Change::to_json(Self) -> Json
 pub fn Change::to_repr(Self) -> @debug.Repr
+
+pub(all) enum ClickHouseEngine {
+  ReplacingMergeTree
+  MergeTree
+} derive(Eq, @debug.Debug)
+pub fn ClickHouseEngine::equal(Self, Self) -> Bool
+pub fn ClickHouseEngine::not_equal(Self, Self) -> Bool
+pub fn ClickHouseEngine::to_repr(Self) -> @debug.Repr
 
 pub struct Column {
   name : String
@@ -477,6 +485,7 @@ pub fn WriteStatus::to_repr(Self) -> @debug.Repr
 // Traits
 pub(open) trait Destination {
   async fn bind_state(Self, StateSession) -> Unit = _
+  async fn bind_snapshot_schema(Self, Relation, SchemaSnapshot) -> Unit = _
   async fn startup(Self) -> Unit = _
   async fn shutdown(Self) -> Unit = _
   async fn reset_table(Self, Relation, attempt~ : String) -> Unit

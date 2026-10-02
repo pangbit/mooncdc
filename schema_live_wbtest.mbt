@@ -5,12 +5,29 @@ priv struct SchemaProbe {
   seen : Array[SchemaSnapshot]
   mut injected : Bool
   mut rows : Int
+  mut snapshot_schema : SchemaSnapshot?
+}
+
+///|
+impl Destination for SchemaProbe with fn bind_snapshot_schema(
+  self,
+  relation,
+  schema,
+) {
+  assert_eq(schema.oid, relation.oid)
+  assert_eq(self.store.get(schema.oid, schema.id), Some(schema))
+  assert_eq(
+    schema.project(relation).columns().length(),
+    relation.columns.length(),
+  )
+  self.snapshot_schema = Some(schema)
 }
 
 ///|
 impl Destination for SchemaProbe with fn reset_table(self, relation, attempt~) {
   assert_true(!attempt.is_empty())
   let versions = self.store.all()
+  assert_eq(self.snapshot_schema, Some(versions[0]))
   assert_eq(versions.length(), 1)
   assert_eq(versions[0].oid, relation.oid)
   assert_eq(versions[0].id.message_lsn.value, 0UL)
@@ -94,6 +111,7 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
           seen: [],
           injected: false,
           rows: 0,
+          snapshot_schema: None,
         }
         @async.with_task_group(group => {
           let writer = group.spawn(() => {
@@ -175,6 +193,7 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
           seen: [],
           injected: false,
           rows: 0,
+          snapshot_schema: None,
         }
         try
           run_pipeline(

@@ -1,0 +1,18 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/shell",
+}
+
+///|
+async fn main {
+  @shell.Cmd("docker", [
+    "compose", "-p", "mooncdc-clickhouse-test", "-f", "integration/clickhouse.compose.yaml",
+    "up", "-d", "--wait",
+  ]).run()
+  @shell.Cmd(
+    "moon",
+    ["test", "clickhouse_http_wbtest.mbt", "--target", "native"],
+    env=Map([("MOONCDC_CLICKHOUSE_LIVE", "1")]),
+  ).run()
+}

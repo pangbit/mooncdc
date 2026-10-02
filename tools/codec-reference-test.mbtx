@@ -11,45 +11,119 @@ import {
 async fn main {
   let root = @env.current_dir().unwrap()
   let artifacts = root + "/.test-artifacts/codec-reference"
-  if !@fs.exists(artifacts) { @fs.mkdir(artifacts, recursive=true) }
+  if !@fs.exists(artifacts) {
+    @fs.mkdir(artifacts, recursive=true)
+  }
   let archive = artifacts + "/etl.tar.gz"
   if !@fs.exists(archive) {
-    @shell.Cmd("curl", ["--fail", "--location", "--retry", "3", "https://codeload.github.com/supabase/etl/tar.gz/c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4", "--output", archive]).run()
+    @shell.Cmd("curl", [
+      "--fail", "--location", "--retry", "3", "https://codeload.github.com/supabase/etl/tar.gz/c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4",
+      "--output", archive,
+    ]).run()
   }
   let digest = @shell.Cmd("shasum", ["-a", "256", archive]).output()
   digest.check()
-  assert_true(digest.stdout().has_prefix("b1a05f0cd6486e7954920dc756298fbba93fc6f39975e8895780d94d2a7c5536  "))
+  assert_true(
+    digest
+    .stdout()
+    .has_prefix(
+      "b1a05f0cd6486e7954920dc756298fbba93fc6f39975e8895780d94d2a7c5536  ",
+    ),
+  )
   let checkout = @fs.tmpdir(prefix="mooncdc-etl-codec-")
   defer @fs.rmdir(checkout, recursive=true)
   @shell.Cmd("tar", ["xzf", archive, "--strip-components=1", "-C", checkout]).run()
-  if !@fs.exists(checkout + "/crates/etl/examples") { @fs.mkdir(checkout + "/crates/etl/examples", recursive=true) }
-  @fs.write_file(checkout + "/crates/etl/examples/mooncdc_codec.rs", @fs.read_file(root + "/integration/reference/codec_driver.rs"))
-  @fs.write_file(checkout + "/crates/etl/examples/mooncdc_schema.rs", @fs.read_file(root + "/integration/reference/schema_driver.rs"))
-  @shell.Cmd("cargo", ["+stable", "build", "--manifest-path", checkout + "/crates/etl/Cargo.toml", "--features", "fuzzing", "--example", "mooncdc_codec", "--example", "mooncdc_schema", "--locked", "--target-dir", artifacts + "/target"]).run()
-  let built = @shell.Cmd("moon", ["test", "codec_reference_wbtest.mbt", "--target", "native", "--build-only"]).output()
+  if !@fs.exists(checkout + "/crates/etl/examples") {
+    @fs.mkdir(checkout + "/crates/etl/examples", recursive=true)
+  }
+  @fs.write_file(
+    checkout + "/crates/etl/examples/mooncdc_codec.rs",
+    @fs.read_file(root + "/integration/reference/codec_driver.rs"),
+  )
+  @fs.write_file(
+    checkout + "/crates/etl/examples/mooncdc_schema.rs",
+    @fs.read_file(root + "/integration/reference/schema_driver.rs"),
+  )
+  @fs.write_file(
+    checkout + "/crates/etl/examples/mooncdc_clickhouse.rs",
+    @fs.read_file(root + "/integration/reference/clickhouse_driver.rs"),
+  )
+  @shell.Cmd("cargo", [
+    "+stable",
+    "build",
+    "--manifest-path",
+    checkout + "/crates/etl/Cargo.toml",
+    "--features",
+    "fuzzing",
+    "--example",
+    "mooncdc_codec",
+    "--example",
+    "mooncdc_schema",
+    "--example",
+    "mooncdc_clickhouse",
+    "--locked",
+    "--target-dir",
+    artifacts + "/target",
+  ]).run()
+  let built = @shell.Cmd("moon", [
+    "test", "codec_reference_wbtest.mbt", "--target", "native", "--build-only",
+  ]).output()
   built.check()
-  guard @json.parse(built.stdout()) is { "artifacts_path": [String(executable)], .. } else { fail("expected one codec test executable") }
-  let run = async fn(kind : String, selection : String, phase : String, file : String) -> Unit {
-    let result = @shell.Cmd(executable, [selection], env=Map([("MOONCDC_" + kind + "_PHASE", phase), ("MOONCDC_" + kind + "_FILE", file)])).output()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("expected one codec test executable")
+  }
+  let run = async fn(
+    kind : String,
+    selection : String,
+    phase : String,
+    file : String,
+  ) -> Unit {
+    let result = @shell.Cmd(
+      executable,
+      [selection],
+      env=Map([
+        ("MOONCDC_" + kind + "_PHASE", phase),
+        ("MOONCDC_" + kind + "_FILE", file),
+      ]),
+    ).output()
     result.check()
     let mut passed = 0
     let mut marker = false
     for line in result.stdout().split("\n") {
-      if line.has_prefix("{") && @json.parse(line) is { "type": "result", "message": String(message), .. } {
-        if message != "" { fail(result.stdout()) }
+      if line.has_prefix("{") &&
+        @json.parse(line)
+        is { "type": "result", "message": String(message), .. } {
+        if message != "" {
+          fail(result.stdout())
+        }
         passed += 1
       }
-      if line.has_prefix(kind) { println(line) }
-      if line.has_prefix(kind + (if phase == "generate" { " generated" } else { " matched" })) { marker = true }
+      if line.has_prefix(kind) {
+        println(line)
+      }
+      if line.has_prefix(
+          kind + (if phase == "generate" { " generated" } else { " matched" }),
+        ) {
+        marker = true
+      }
     }
     assert_eq(passed, 1)
     assert_true(marker)
   }
-  for (kind, selection) in [("CODEC", "codec_reference_wbtest.mbt:0-1"), ("SCHEMA", "schema_plan_wbtest.mbt:2-3")] {
+  for
+    (kind, selection) in [
+      ("CODEC", "codec_reference_wbtest.mbt:0-1"),
+      ("SCHEMA", "schema_plan_wbtest.mbt:2-3"),
+      ("CLICKHOUSE", "clickhouse_encoding_wbtest.mbt:0-1"),
+    ] {
     let input = artifacts + "/" + kind.to_lower() + "-input.json"
     let output = artifacts + "/" + kind.to_lower() + "-output.json"
     run(kind, selection, "generate", input)
-    @shell.Cmd(artifacts + "/target/debug/examples/mooncdc_" + kind.to_lower(), [input, output]).run()
+    @shell.Cmd(
+      artifacts + "/target/debug/examples/mooncdc_" + kind.to_lower(),
+      [input, output],
+    ).run()
     run(kind, selection, "verify", output)
   }
 }

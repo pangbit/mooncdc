@@ -1,0 +1,17 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.4
+    environment:
+      CLICKHOUSE_USER: cdc
+      CLICKHOUSE_PASSWORD: mooncdc-test-only
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports: ["127.0.0.1:18123:8123"]
+    volumes: ["clickhouse_data:/var/lib/clickhouse"]
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user", "cdc", "--password", "mooncdc-test-only", "--query", "SELECT 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+volumes:
+  clickhouse_data:

@@ -20,6 +20,9 @@ pub struct TableCopyBatchId {
 /// flush a cumulative durability barrier. Owned tasks require cancellation cleanup.
 pub(open) trait Destination {
   async fn bind_state(Self, StateSession) -> Unit = _
+  // Exact schema from the imported snapshot, before reset_table. A global
+  // SchemaStore lookup can already contain newer DDL from concurrent apply.
+  async fn bind_snapshot_schema(Self, Relation, SchemaSnapshot) -> Unit = _
   async fn startup(Self) -> Unit = _
   async fn shutdown(Self) -> Unit = _
   // Fence all earlier copy writes before clearing table data and replay markers.
@@ -37,6 +40,11 @@ pub(open) trait Destination {
 
 ///|
 impl Destination with fn bind_state(_self, _session) {
+  ()
+}
+
+///|
+impl Destination with fn bind_snapshot_schema(_self, _relation, _schema) {
   ()
 }
 
@@ -74,6 +82,7 @@ pub async fn copy_snapshot_to(
   batch_rows? : Int = 256,
   max_frame_bytes? : Int = 16777216,
   max_batch_bytes? : Int = 67108864,
+  schema_store? : &SchemaStore,
 ) -> SnapshotPosition {
   copy_snapshot_to_impl(
     connection,
@@ -85,6 +94,7 @@ pub async fn copy_snapshot_to(
     max_batch_bytes~,
     temporary=false,
     table=None,
+    schema_store?,
   )
 }
 
@@ -119,6 +129,9 @@ async fn copy_snapshot_to_impl(
     table~,
     schema_store?,
     after_copy?,
+    on_schema=(relation, schema) => {
+      destination.bind_snapshot_schema(relation, schema)
+    },
     event => {
       match event {
         TableBegin(relation) => {
