@@ -1,0 +1,92 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+}
+
+///|
+async fn main {
+  let args = @env.args()
+  guard args.length() == 2 && (args[1] == "pg18" || args[1] == "pg17") else {
+    fail("usage: setup-tls.mbtx <pg18|pg17>")
+  }
+  let service = args[1]
+  let dir = ".test-artifacts/tls-" + service
+  @fs.mkdir(dir, recursive=true, allow_exist=true)
+  @shell.Cmd("openssl", [
+    "req",
+    "-x509",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-days",
+    "2",
+    "-subj",
+    "/CN=mooncdc-test",
+    "-addext",
+    "subjectAltName=IP:127.0.0.1",
+    "-keyout",
+    dir + "/server.key",
+    "-out",
+    dir + "/server.crt",
+  ]).run()
+  let compose = [
+    "compose", "-p", "mooncdc-test", "-f", "integration/compose.yaml",
+  ]
+  for file in ["server.crt", "server.key"] {
+    @shell.Cmd(
+      "docker",
+      compose + ["cp", dir + "/" + file, service + ":/tmp/mooncdc-" + file],
+    ).run()
+  }
+  @shell.Cmd(
+    "docker",
+    compose +
+    [
+      "exec", "-T", "-u", "root", service, "chown", "postgres:postgres", "/tmp/mooncdc-server.key",
+      "/tmp/mooncdc-server.crt",
+    ],
+  ).run()
+  @shell.Cmd(
+    "docker",
+    compose +
+    [
+      "exec", "-T", "-u", "root", service, "chmod", "600", "/tmp/mooncdc-server.key",
+    ],
+  ).run()
+  for
+    setting in [
+      "ssl_cert_file='/tmp/mooncdc-server.crt'", "ssl_key_file='/tmp/mooncdc-server.key'",
+      "ssl='on'",
+    ] {
+    @shell.Cmd(
+      "docker",
+      compose +
+      [
+        "exec",
+        "-T",
+        service,
+        "psql",
+        "-U",
+        "cdc",
+        "-d",
+        "postgres",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-c",
+        "ALTER SYSTEM SET " + setting,
+      ],
+    ).run()
+  }
+  @shell.Cmd(
+    "docker",
+    compose +
+    [
+      "exec", "-T", service, "psql", "-U", "cdc", "-d", "postgres", "-v", "ON_ERROR_STOP=1",
+      "-c", "SELECT pg_reload_conf()",
+    ],
+  ).run()
+  println("Test CA: " + dir + "/server.crt")
+}

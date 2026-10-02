@@ -154,9 +154,10 @@ async fn connect(
               if !supported {
                 raise Authentication("SCRAM-SHA-256 required")
               }
-              let random = @fs.open("/dev/urandom", mode=ReadOnly)
-              defer random.close()
-              nonce = @base64.encode(random.read_exactly(24))
+              guard @env.rand(24) is Some(random) else {
+                raise Authentication("secure entropy unavailable")
+              }
+              nonce = @base64.encode(random)
               let first = @utf8.encode("n,,n=,r=\{nonce}")
               let out = @buffer.Buffer()
               cstring(out, "SCRAM-SHA-256")

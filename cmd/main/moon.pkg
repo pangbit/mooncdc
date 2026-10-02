@@ -1,5 +1,0 @@
-// import {
-//   "pangbit/mooncdc" @lib,
-// }
-
-pkgtype(kind: "executable")

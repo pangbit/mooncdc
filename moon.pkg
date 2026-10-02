@@ -10,8 +10,5 @@ import {
   "moonbitlang/core/string",
   "moonbitlang/core/json",
   "moonbitlang/x/crypto",
-}
-
-import {
   "moonbitlang/core/env",
-} for "wbtest"
+}

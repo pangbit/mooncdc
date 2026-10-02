@@ -6,6 +6,7 @@ import {
 }
 
 // Values
+pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, checkpoint_path~ : String, async (Subscription) -> T, max_frame_bytes? : Int, max_transaction_bytes? : Int, max_transaction_events? : Int, max_pending_transactions? : Int, max_metadata_entries? : Int, heartbeat_ms? : Int, max_reconnects? : Int, reconnect_delay_ms? : Int) -> T
 
 // Errors
 pub suberror CdcError {
@@ -18,8 +19,34 @@ pub suberror CdcError {
   CheckpointError(String)
   Closed
 } derive(@debug.Debug)
+pub fn CdcError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
+pub(all) enum Change {
+  RelationChanged(Relation)
+  TypeChanged(TypeInfo)
+  Insert(Relation, ReadOnlyArray[Value])
+  Update(Relation, OldTuple?, ReadOnlyArray[Value])
+  Delete(Relation, OldTuple)
+  Truncate(ReadOnlyArray[Relation], cascade~ : Bool, restart_identity~ : Bool)
+  Origin(Lsn, String)
+} derive(Eq, ToJson, @debug.Debug)
+pub fn Change::equal(Self, Self) -> Bool
+pub fn Change::not_equal(Self, Self) -> Bool
+pub fn Change::to_json(Self) -> Json
+pub fn Change::to_repr(Self) -> @debug.Repr
+
+pub struct Column {
+  name : String
+  type_oid : UInt
+  type_modifier : Int
+  key : Bool
+} derive(Eq, ToJson, @debug.Debug)
+pub fn Column::equal(Self, Self) -> Bool
+pub fn Column::not_equal(Self, Self) -> Bool
+pub fn Column::to_json(Self) -> Json
+pub fn Column::to_repr(Self) -> @debug.Repr
+
 pub(all) struct ConnectionConfig {
   host : String
   port : Int
@@ -30,11 +57,107 @@ pub(all) struct ConnectionConfig {
   timeout_ms : Int
 }
 
+pub struct Diagnostics {
+  reconnects : Int
+  received : Lsn
+  durable : Lsn
+  server_end : Lsn
+  outstanding_transactions : Int
+  queued_transactions : Int
+  wal_lag_bytes : UInt64
+} derive(ToJson, @debug.Debug)
+pub fn Diagnostics::to_json(Self) -> Json
+pub fn Diagnostics::to_repr(Self) -> @debug.Repr
+
+pub struct Lsn {
+  value : UInt64
+} derive(Compare, Eq, ToJson, @debug.Debug)
+pub fn Lsn::compare(Self, Self) -> Int
+pub fn Lsn::equal(Self, Self) -> Bool
+pub fn Lsn::not_equal(Self, Self) -> Bool
+pub fn Lsn::op_ge(Self, Self) -> Bool
+pub fn Lsn::op_gt(Self, Self) -> Bool
+pub fn Lsn::op_le(Self, Self) -> Bool
+pub fn Lsn::op_lt(Self, Self) -> Bool
+pub fn Lsn::parse(String) -> Self raise
+pub fn Lsn::to_json(Self) -> Json
+pub fn Lsn::to_repr(Self) -> @debug.Repr
+pub fn Lsn::to_string(Self) -> String
+
+pub(all) enum OldTuple {
+  Key(ReadOnlyArray[Value])
+  Full(ReadOnlyArray[Value])
+} derive(Eq, ToJson, @debug.Debug)
+pub fn OldTuple::equal(Self, Self) -> Bool
+pub fn OldTuple::not_equal(Self, Self) -> Bool
+pub fn OldTuple::to_json(Self) -> Json
+pub fn OldTuple::to_repr(Self) -> @debug.Repr
+
+pub struct Relation {
+  oid : UInt
+  namespace_ : String
+  name : String
+  replica_identity : Byte
+  columns : ReadOnlyArray[Column]
+} derive(Eq, ToJson, @debug.Debug)
+pub fn Relation::equal(Self, Self) -> Bool
+pub fn Relation::not_equal(Self, Self) -> Bool
+pub fn Relation::to_json(Self) -> Json
+pub fn Relation::to_repr(Self) -> @debug.Repr
+
 pub(all) enum Security {
   LocalPlaintext
   VerifyFull
   VerifyCAFile(String)
 } derive(@debug.Debug)
+pub fn Security::to_repr(Self) -> @debug.Repr
+
+pub(all) enum Start {
+  At(Lsn)
+  Resume
+}
+
+pub struct Subscription {
+  // private fields
+}
+pub async fn Subscription::ack(Self, Transaction) -> Unit
+pub fn Subscription::close(Self) -> Unit
+pub fn Subscription::diagnostics(Self) -> Diagnostics
+pub async fn Subscription::next(Self) -> Transaction
+
+pub struct Transaction {
+  id : String
+  xid : UInt
+  commit_lsn : Lsn
+  end_lsn : Lsn
+  commit_time_us : Int64
+  changes : ReadOnlyArray[Change]
+  // private fields
+} derive(@debug.Debug)
+pub fn Transaction::event_id(Self, Int) -> String?
+pub fn Transaction::to_json(Self) -> Json
+pub fn Transaction::to_repr(Self) -> @debug.Repr
+pub impl ToJson for Transaction
+
+pub struct TypeInfo {
+  oid : UInt
+  namespace_ : String
+  name : String
+} derive(Eq, ToJson, @debug.Debug)
+pub fn TypeInfo::equal(Self, Self) -> Bool
+pub fn TypeInfo::not_equal(Self, Self) -> Bool
+pub fn TypeInfo::to_json(Self) -> Json
+pub fn TypeInfo::to_repr(Self) -> @debug.Repr
+
+pub(all) enum Value {
+  Null
+  Text(String)
+  UnchangedToast
+} derive(Eq, ToJson, @debug.Debug)
+pub fn Value::equal(Self, Self) -> Bool
+pub fn Value::not_equal(Self, Self) -> Bool
+pub fn Value::to_json(Self) -> Json
+pub fn Value::to_repr(Self) -> @debug.Repr
 
 // Type aliases
 
