@@ -125,6 +125,7 @@ With the isolated PostgreSQL fixture initialized, run:
 MOONCDC_TEST_PORT=55418 moon run tools/clickhouse-test.mbtx
 MOONCDC_TEST_PORT=55417 moon run tools/clickhouse-test.mbtx
 moon run tools/codec-reference-test.mbtx
+moon run tools/clickhouse-crash-test.mbtx
 docker compose -p mooncdc-clickhouse-test -f integration/clickhouse.compose.yaml down -v
 ```
 
@@ -137,7 +138,11 @@ The DDL suite additionally exercises the pinned PostgreSQL event triggers, histo
 defaults, column addition/drop/rename, nullability, publication projection, source table
 renaming and restart. Direct ClickHouse tests inject failed intent/completion metadata
 writes and reconstruct previous/target/partial Applying endpoints, checking that only
-unambiguous endpoints recover. These do not simulate process death or power loss.
+unambiguous endpoints recover. The separate crash runner SIGKILLs only its own native
+worker after the Creating/Applying intent is durable and after CREATE/ALTER finishes
+but before completion metadata is durable. Fresh processes reopen the store and
+recover each of these four boundaries for both engines (eight cases). This tests
+process death, not power loss or in-flight INSERT completion.
 Each run removes its own database/publication/slots and temporary state. The reference
 runner compares 558 codec, 77 schema-plan, 756 RowBinary and 3,800 default-expression
 vectors with the frozen upstream Rust source; this is finite coverage, not a proof

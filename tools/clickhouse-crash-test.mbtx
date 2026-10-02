@@ -1,0 +1,74 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/process",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  @shell.Cmd("docker", [
+    "compose", "-p", "mooncdc-clickhouse-test", "-f", "integration/clickhouse.compose.yaml",
+    "up", "-d", "--wait",
+  ]).run()
+  let built = @shell.Cmd("moon", [
+    "test", "clickhouse_process_wbtest.mbt", "--target", "native", "--build-only",
+  ]).output()
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("expected one native whitebox executable")
+  }
+  let args = ["clickhouse_process_wbtest.mbt:0-1"]
+  for engine in ["ReplacingMergeTree", "MergeTree"] {
+    for
+      boundary in ["previous", "target", "creating_previous", "creating_target"] {
+      let dir = @fs.tmpdir(prefix="mooncdc-clickhouse-kill-")
+      defer @fs.rmdir(dir, recursive=true)
+      let vars = {
+        "MOONCDC_CHCRASH_DIR": dir,
+        "MOONCDC_CHCRASH_PHASE": "init",
+        "MOONCDC_CHCRASH_BOUNDARY": boundary,
+        "MOONCDC_CHCRASH_ENGINE": engine,
+      }
+      let run = async fn(phase : String) -> Unit {
+        vars["MOONCDC_CHCRASH_PHASE"] = phase
+        let result = @shell.Cmd(executable, args, env=vars).output()
+        result.check()
+        if !result
+          .stdout()
+          .contains("CLICKHOUSE crash worker completed " + phase) {
+          fail("worker failed: \{result.stdout()} \{result.stderr()}")
+        }
+      }
+      run("init")
+      defer run("cleanup")
+      vars["MOONCDC_CHCRASH_PHASE"] = "crash"
+      @async.with_task_group(group => {
+        let child = @process.spawn(
+          group,
+          executable,
+          args,
+          extra_env=vars,
+          cancel_handler=@process.hard_cancel(),
+        )
+        @async.with_timeout(30000, () => {
+          while !@fs.exists(dir + "/ready") {
+            if child.try_wait() is Some(code) {
+              fail("worker exited before boundary: \{code}")
+            }
+            @async.sleep(25)
+          }
+        })
+        @shell.Cmd("kill", ["-KILL", child.pid.to_string()]).run()
+        assert_true(child.wait() != 0)
+      })
+      run("recover")
+      println(
+        "CLICKHOUSE: \{engine} \{boundary} SIGKILL and fresh-process recovery passed",
+      )
+    }
+  }
+}

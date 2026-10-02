@@ -398,8 +398,9 @@ DDL intent is persisted before external changes. Restart recovers initial creati
 or an unambiguous previous/target schema endpoint; intermediate DDL prefixes and
 column-name reuse require manual recovery. Older schema versions and unordered
 equal-version publication-mask changes cannot drive reverse DDL. Tests cover injected
-state-write failures and reconstructed interrupted states; these are not power-loss
-or process-kill evidence for destination DDL. There is no cross-table transactional
+state-write failures, reconstructed interrupted states and SIGKILL at four creation/DDL
+metadata boundaries with recovery by a fresh process for both engines. This does not
+simulate power loss or an in-flight server-side INSERT. There is no cross-table transactional
 commit guarantee. Copy batches use stable deduplication tokens; stream
 replay deduplication depends on ClickHouse engine and server window configuration.
 

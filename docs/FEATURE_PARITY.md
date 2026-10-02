@@ -48,7 +48,7 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 | 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`；公开投影/identity masks、有序列 DDL 规划已差分验证；连接内完整 decoding-state 恢复、目标端 DDL 执行待实现 |
 | 类型转换 | 已有类型化文本 Cell、精确 numeric/JSON、日期/时间/UUID/bytea/可空一维数组；通用内置数组采用文本元素；PG17/18 快照及 WAL 矩阵已实测，固定上游 codec 558 向量进程差分通过；不是全部输入的等价证明 |
 | 独立 replicator | 当前为嵌入式库及示例；配置、持久运行状态、健康/指标、优雅退出待实现 |
-| ClickHouse | 上游 private alpha；两种引擎的全量/增量、列 DDL、publication 投影、源表重命名和重启已在 PG17/18 实测；DDL 状态故障及恢复端点已验证，进程中断与操作超时预算待补 |
+| ClickHouse | 上游 private alpha；两种引擎的全量/增量、列 DDL、publication 投影、源表重命名和重启已在 PG17/18 实测；DDL/建表 SIGKILL 恢复已验证，操作超时预算及剩余目标端故障语义待补 |
 | BigQuery | 上游 stable；Storage Write API、CDC、目标端持久偏移、布局配置及真云验证待实现 |
 | DuckLake | 上游 private alpha；DuckDB/catalog、排序和恢复语义待实现 |
 | Snowflake | 上游 private alpha；Snowpipe Streaming、key-pair auth、通道恢复及 schema 子集待实现 |
@@ -193,3 +193,9 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   PG17/18 使用固定上游 event trigger 验证两种引擎；真实 ClickHouse 注入意图/完成记录
   写入失败，确认 DDL 顺序、缓存失效及重启恢复。此处是状态故障和端点重建，尚无
   ClickHouse DDL 的 SIGKILL/掉电证据，不等于全部目标端故障语义已对齐。
+- `c6d5f48`：提交上述 DDL 实现；普通 native 90/90，严格检查、release 和源码包消费者通过。
+- P6 ClickHouse 进程恢复：专用 worker 在 Creating/Applying 意图完成落盘后，以及
+  CREATE/ALTER 完成但 Applied 尚未落盘前停在测试边界；工具发送 SIGKILL 并确认退出。
+  两种引擎四个边界共八项由全新进程重新取得文件 StateStore owner、加载元数据并恢复，
+  验证历史数据、默认值、目标结构和当前值视图。独立临时数据库逐项清理；这不覆盖
+  掉电或客户端消失后的远端在途 INSERT。
