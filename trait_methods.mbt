@@ -93,3 +93,18 @@ pub extend LogicalMessage with Debug::{to_repr}
 
 ///|
 pub extend LogicalMessage with ToJson::{to_json}
+
+///|
+pub extend WriteStatus with Eq::{equal, not_equal}
+
+///|
+pub extend WriteStatus with Debug::{to_repr}
+
+///|
+pub extend TableCopyBatchId with Eq::{equal, not_equal}
+
+///|
+pub extend TableCopyBatchId with Debug::{to_repr}
+
+///|
+pub extend TableCopyBatchId with ToJson::{to_json}

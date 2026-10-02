@@ -7,6 +7,32 @@ pub(all) enum Start {
 }
 
 ///|
+/// Persist a completed, business-durable snapshot handoff for a later Resume.
+/// The parent directory must exist; existing checkpoints are never overwritten.
+pub async fn SnapshotPosition::save_checkpoint(
+  self : SnapshotPosition,
+  path : String,
+) -> Unit {
+  if path.is_empty() {
+    raise InvalidConfig("empty snapshot checkpoint path")
+  }
+  let lock = @fs.open(
+    path + ".lock",
+    mode=ReadWrite,
+    create_mode=OpenOrCreate,
+    permission=0o600,
+  )
+  defer lock.close()
+  if !lock.try_lock(Exclusive) {
+    raise CheckpointError("checkpoint already in use")
+  }
+  if @fs.exists(path) {
+    raise CheckpointError("checkpoint exists; use Resume")
+  }
+  @async.protect_from_cancel(() => save_checkpoint(path, self.source, self.lsn))
+}
+
+///|
 priv struct Source {
   system_id : String
   timeline : String

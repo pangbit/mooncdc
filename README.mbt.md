@@ -53,6 +53,7 @@ let config : @cdc.ConnectionConfig = {
 首次运行使用复制槽创建时返回的明确 LSN：`At(Lsn::parse("0/…"))`。
 需要全量初始化时，使用 `copy_snapshot` 创建槽并读取一致性快照；逐批持久化成功后，
 将返回值传给 `AfterSnapshot(position)` 衔接增量，详见 [快照接口](docs/API.md#initial-snapshot)。
+也可用 `position.save_checkpoint(path)` 保存已持久化快照的衔接位置，再由新进程 `Resume`。
 `Resume` 要求检查点已经存在；损坏、来源不符、槽失效或位置已不可恢复时明确失败。
 不存在自动从最新位置继续的降级。
 
@@ -67,6 +68,8 @@ let config : @cdc.ConnectionConfig = {
 - `tx.id` 标识事务，`tx.event_id(index)` 标识数据变更；重复元数据不改变数据事件 ID。
 - 可用 `messages=true` 订阅逻辑消息：事务消息随提交交付，非事务消息需提供独立回调。
   消息内容保留原始字节；尚不解释 Supabase ETL 的 DDL schema payload。
+- 自定义 `Destination` 可通过 `copy_snapshot_to` 和 `sub.apply_to` 接入复制流程；
+  `Accepted` 不触发确认，持久化屏障成功才推进检查点，支持空闲刷新及正常停止。
 - 后台处理心跳；帧、事务、元数据及未确认队列有上限。超限关闭连接并保留检查点。
 - SCRAM-SHA-256；远端连接使用验证证书和主机名的 TLS。明文仅允许数字回环地址。
   首版密码限定可打印 ASCII，明确拒绝需要 SASLprep 的非 ASCII 密码。

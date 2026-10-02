@@ -8,7 +8,11 @@ import {
 // Values
 pub async fn copy_snapshot(ConnectionConfig, slot~ : String, publication~ : String, async (SnapshotEvent) -> Unit, batch_rows? : Int, max_frame_bytes? : Int, max_batch_bytes? : Int) -> SnapshotPosition
 
+pub async fn copy_snapshot_to(ConnectionConfig, &Destination, slot~ : String, publication~ : String, batch_rows? : Int, max_frame_bytes? : Int, max_batch_bytes? : Int) -> SnapshotPosition
+
 pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, checkpoint_path~ : String, async (Subscription) -> T, max_frame_bytes? : Int, max_transaction_bytes? : Int, max_transaction_events? : Int, max_pending_transactions? : Int, max_metadata_entries? : Int, heartbeat_ms? : Int, max_reconnects? : Int, reconnect_delay_ms? : Int, binary? : Bool, messages? : Bool, nontransactional_message? : async (LogicalMessage) -> Unit) -> T
+
+pub async fn[T] with_destination(&Destination, async () -> T) -> T
 
 // Errors
 pub suberror CdcError {
@@ -24,6 +28,12 @@ pub suberror CdcError {
 pub fn CdcError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
+pub struct ApplyControl {
+  // private fields
+}
+pub fn ApplyControl::ApplyControl() -> Self
+pub fn ApplyControl::stop(Self) -> Unit
+
 pub(all) enum Change {
   RelationChanged(Relation)
   TypeChanged(TypeInfo)
@@ -137,6 +147,7 @@ pub struct SnapshotPosition {
   lsn : Lsn
   // private fields
 }
+pub async fn SnapshotPosition::save_checkpoint(Self, String) -> Unit
 
 pub(all) enum Start {
   At(Lsn)
@@ -148,9 +159,20 @@ pub struct Subscription {
   // private fields
 }
 pub async fn Subscription::ack(Self, Transaction) -> Unit
+pub async fn Subscription::apply_to(Self, &Destination, control~ : ApplyControl, flush_every? : Int, flush_interval_ms? : Int) -> Unit
 pub fn Subscription::close(Self) -> Unit
 pub fn Subscription::diagnostics(Self) -> Diagnostics
 pub async fn Subscription::next(Self) -> Transaction
+
+pub struct TableCopyBatchId {
+  attempt : String
+  relation_id : UInt
+  sequence : UInt64
+} derive(Eq, ToJson, @debug.Debug)
+pub fn TableCopyBatchId::equal(Self, Self) -> Bool
+pub fn TableCopyBatchId::not_equal(Self, Self) -> Bool
+pub fn TableCopyBatchId::to_json(Self) -> Json
+pub fn TableCopyBatchId::to_repr(Self) -> @debug.Repr
 
 pub struct Transaction {
   id : String
@@ -187,6 +209,22 @@ pub fn Value::not_equal(Self, Self) -> Bool
 pub fn Value::to_json(Self) -> Json
 pub fn Value::to_repr(Self) -> @debug.Repr
 
+pub(all) enum WriteStatus {
+  Accepted
+  Durable
+} derive(Eq, @debug.Debug)
+pub fn WriteStatus::equal(Self, Self) -> Bool
+pub fn WriteStatus::not_equal(Self, Self) -> Bool
+pub fn WriteStatus::to_repr(Self) -> @debug.Repr
+
 // Type aliases
 
 // Traits
+pub(open) trait Destination {
+  async fn startup(Self) -> Unit = _
+  async fn shutdown(Self) -> Unit = _
+  async fn reset_table(Self, Relation, attempt~ : String) -> Unit
+  async fn write_rows(Self, Relation, ReadOnlyArray[ReadOnlyArray[Value]], TableCopyBatchId?) -> WriteStatus
+  async fn write_transaction(Self, Transaction) -> WriteStatus
+  async fn flush(Self) -> Unit
+}

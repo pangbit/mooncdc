@@ -114,7 +114,10 @@ After all callbacks and the read transaction succeed, the function returns an op
 `SnapshotPosition` with a readable `lsn`. Pass it to `subscribe(...,
 start=AfterSnapshot(position))` with a new checkpoint path. The handoff checks the source
 system, timeline, database, slot and publication before creating the checkpoint. Writes
-committed during copying are then replayed from the slot's consistent point. Do not
+committed during copying are then replayed from the slot's consistent point. Alternatively,
+call `position.save_checkpoint(path)` after durable copying, then start a later process
+with `Resume`. Saving uses the same lock/fsync/atomic replacement protocol and refuses
+to overwrite an existing checkpoint. Do not
 manually advance, recreate or consume that slot between snapshot and subscription.
 
 Publication column lists and row filters are applied to the initial copy. Partition
@@ -136,7 +139,42 @@ close, the read transaction ends, and no SnapshotPosition or checkpoint is produ
 The new persistent slot remains, retaining WAL: explicitly inspect/drop that owned slot
 and discard partial target state before starting a fresh copy. This API does not persist
 per-table progress or resume a partial snapshot. Losing the in-memory handoff position
-before the first subscription checkpoint also requires a deliberate fresh bootstrap.
+before saving either form of checkpoint also requires a deliberate fresh bootstrap.
+
+## Destinations and durability
+
+Implement the public `Destination` trait to receive snapshots and committed transactions.
+Each write returns `Accepted` or `Durable`. Accepted means the destination owns the work;
+Durable means that write **and all earlier accepted writes** on the same ordered instance
+are persisted. `flush()` must wait for all earlier accepted writes to become durable or
+raise. Returning successfully before persistence violates the contract and can lose data.
+
+`with_destination(destination, run)` calls startup, runs the pipeline and calls shutdown
+on success. Startup/shutdown default to no-ops. Errors propagate immediately and skip
+shutdown; destination owners must use their own resource scopes to cancel/release tasks
+on failure. Do not share one instance among concurrent pipelines: this first contract
+has one ordered writer and a cumulative global durability barrier.
+
+`copy_snapshot_to(config, destination, slot~, publication~, ...)` resets each table before
+copying. `reset_table` must fence prior copy attempts before clearing data and replay
+markers. Empty row writes have no batch ID and create empty tables. Nonempty writes carry
+`TableCopyBatchId { attempt, relation_id, sequence }`; each fresh copy generates a new
+attempt. A final Accepted result requires flush before that table completes. No snapshot
+handoff position is returned after a write or flush failure. This helper does not call
+startup/shutdown itself; place it inside with_destination.
+
+Within subscribe, call `sub.apply_to(destination, control~, ...)`. It writes transactions
+in order and acknowledges only after Durable or a successful flush. Accepted writes flush
+after `flush_every` transactions (default 8, no greater than max_pending_transactions),
+on idle `flush_interval_ms` (default 1000), or when `control.stop()` requests a graceful
+stop. Stop drains already accepted work, then returns; queued but undispatched source
+transactions remain unacknowledged. Cancellation or failure does not drain or acknowledge
+unfinished writes. Do not call next/ack concurrently with apply_to.
+
+Use transaction IDs and copy batch IDs to make destination effects idempotent. This
+contract does not provide a durable per-table state store, automatic failed-copy restart,
+schema planning, or built-in cloud destinations. Existing checkpoints remain the source
+of truth for transaction recovery; the destination persists its own business/replay state.
 
 ## Limits and diagnostics
 

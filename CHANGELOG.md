@@ -2,6 +2,8 @@
 
 ## 0.1.0 — Unreleased
 
+- Add custom Destination contracts with Accepted/Durable writes, snapshot attempt IDs,
+  cumulative/idle/stop flushes and durable snapshot checkpoints for later Resume.
 - Add opt-in logical messages with raw payloads, commit-bound transactional delivery
   and explicit nontransactional handling; retain negotiation across reconnects.
 - Add bounded, publication-aware consistent snapshots and source-bound `AfterSnapshot`
