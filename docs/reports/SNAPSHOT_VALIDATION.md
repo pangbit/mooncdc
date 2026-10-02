@@ -14,7 +14,7 @@ MOONCDC_TEST_PORT=55417 moon test --target native --filter 'live snapshot*' -v
 1. 导出槽快照后，在另一连接提交插入、更新、删除并回滚另一次插入。
    快照保持原数据；从绑定位置订阅并应用增量后，目标 Map 与最终 SQL 查询完全相同。
    同时验证 publication 列投影、行过滤、NULL、空表、含引号和中文的标识符、单行批次、
-   复制元数据与 pgoutput Relation 一致；错源位置被拒绝且未写 checkpoint。
+   主键 INCLUDE 列不标为身份键、复制元数据与 pgoutput Relation 一致；错源位置被拒绝且未写 checkpoint。
 2. 业务回调抛错时不返回位置；重复使用槽明确报错且不推进槽。
    帧超限、批次累积字节超限明确失败；取消正在等待的回调后能释放连接并删除测试槽。
 3. 分区按叶表和按根表发布，两种配置的快照 Relation 均与后续 pgoutput 一致。
@@ -22,6 +22,7 @@ MOONCDC_TEST_PORT=55417 moon test --target native --filter 'live snapshot*' -v
 
 普通套件另覆盖 SQL 标识符/字面量转义及 NUL 拒绝、公开 API 参数验证。
 本次运行的真实测试均通过；CI 的 `live*` 选择器自动包含这些场景。
+INCLUDE 回归先在 PG18 复现错误标记，随后限制到 `indnkeyatts` 个索引键，PG17/18 均通过。
 
 边界：复制期间不支持 schema/publication 变更；没有按表持久状态与自动重建；
 没有两端进程差分或长期资源测试。失败保留槽，需要明确恢复操作，不能当作完成快照。

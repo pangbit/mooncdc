@@ -125,7 +125,7 @@ pub async fn copy_snapshot(
       max_batch_bytes,
     )
     let cols = reader.snapshot_query(
-      "SELECT a.attname, a.atttypid::text, a.atttypmod::text, (c.relreplident = 'f' OR EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND (i.indisreplident OR (c.relreplident = 'd' AND i.indisprimary)) AND a.attnum = ANY(i.indkey)))::text FROM pg_publication_tables p JOIN pg_namespace n ON n.nspname = p.schemaname JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = p.tablename JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = ANY(p.attnames) WHERE p.pubname = '\{publication}' AND c.oid = \{regclass} ORDER BY a.attnum",
+      "SELECT a.attname, a.atttypid::text, a.atttypmod::text, (c.relreplident = 'f' OR EXISTS (SELECT 1 FROM pg_index i CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(attnum, pos) WHERE i.indrelid = c.oid AND (i.indisreplident OR (c.relreplident = 'd' AND i.indisprimary)) AND k.pos <= i.indnkeyatts AND a.attnum = k.attnum))::text FROM pg_publication_tables p JOIN pg_namespace n ON n.nspname = p.schemaname JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = p.tablename JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = ANY(p.attnames) WHERE p.pubname = '\{publication}' AND c.oid = \{regclass} ORDER BY a.attnum",
       connection.timeout_ms,
       max_batch_bytes,
     )

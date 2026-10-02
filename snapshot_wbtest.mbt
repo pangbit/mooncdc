@@ -29,7 +29,7 @@ async test "live snapshot projection filter concurrent writes and WAL handoff" {
       let column = sql_identifier("v\"alue")
       ignore(
         sql.query(
-          "CREATE SCHEMA \{ns}; CREATE TABLE \{table}(id int PRIMARY KEY, \{column} text, hidden text); CREATE TABLE \{ns}.empty(id int PRIMARY KEY); INSERT INTO \{table} VALUES (1,'one','secret'),(2,'two','secret'),(3,NULL,'secret'),(-1,'excluded','secret'); CREATE PUBLICATION cdc_snapshot FOR TABLE \{table}(id,\{column}) WHERE (id > 0), \{ns}.empty",
+          "CREATE SCHEMA \{ns}; CREATE TABLE \{table}(id int, \{column} text, hidden text, PRIMARY KEY(id) INCLUDE(\{column})); CREATE TABLE \{ns}.empty(id int PRIMARY KEY); INSERT INTO \{table} VALUES (1,'one','secret'),(2,'two','secret'),(3,NULL,'secret'),(-1,'excluded','secret'); CREATE PUBLICATION cdc_snapshot FOR TABLE \{table}(id,\{column}) WHERE (id > 0), \{ns}.empty",
         ),
       )
       let state : Map[String, Value] = Map([])

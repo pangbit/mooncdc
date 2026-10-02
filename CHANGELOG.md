@@ -2,6 +2,7 @@
 
 ## 0.1.0 — Unreleased
 
+- Exclude index INCLUDE columns from snapshot replica-identity key flags.
 - Add custom Destination contracts with Accepted/Durable writes, snapshot attempt IDs,
   cumulative/idle/stop flushes and durable snapshot checkpoints for later Resume.
 - Add opt-in logical messages with raw payloads, commit-bound transactional delivery
