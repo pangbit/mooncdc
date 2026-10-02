@@ -2,6 +2,10 @@
 
 ## 0.1.0 — Unreleased
 
+- Integrate pluggable StateStore ownership and durable records into pipelines and
+  subscriptions, with file/PostgreSQL backends and destination metadata sessions.
+  Retain source-bound checkpoints and reject writes from closed/stale store owners.
+
 - Persist table-copy failures with bounded timed, manual and disabled retry policies;
   keep healthy tables applying while failed tables await a fresh snapshot/reset.
   Expose live manual retry through ApplyControl and retain global durability failures.

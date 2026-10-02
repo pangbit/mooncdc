@@ -23,7 +23,9 @@ async fn main {
   for
     required in [
       "LICENSE", "README.mbt.md", "moon.mod", "moon.pkg", "subscription.mbt", "snapshot.mbt",
-      "destination.mbt", "pipeline.mbt", "schema_store.mbt", "schema_projection.mbt", "schema_plan.mbt", "cell.mbt", "cell_float.c", "examples/resume/main.mbt",
+      "destination.mbt", "pipeline.mbt", "state_store.mbt", "file_state_store.mbt",
+      "postgres_state_store.mbt", "schema_store.mbt", "schema_projection.mbt", "schema_plan.mbt",
+      "cell.mbt", "cell_float.c", "examples/resume/main.mbt",
     ] {
     assert_true(contents.split("\n").any(path => path == required))
   }
@@ -60,6 +62,8 @@ async fn main {
     #|    host: "127.0.0.1", port: 5432, user: "test", password: "test",
     #|    database: "test", security: @cdc.LocalPlaintext, timeout_ms: 1000,
     #|  }
+    #|  let state_store = @cdc.FileStateStore::new("unused")
+    #|  @cdc.run_pipeline(config, DummyDestination::{}, publication="p", destination_id="target", control~, state_store~)
     #|  try @cdc.subscribe(config, slot="INVALID", publication="p", start=@cdc.At(lsn), checkpoint_path="unused", _ => ()) catch {
     #|    @cdc.InvalidConfig(_) => ()
     #|    e => raise e
@@ -70,6 +74,16 @@ async fn main {
     #|  } noraise { _ => fail("invalid snapshot limit accepted") }
     #|  println("Extracted package consumer passed")
     #|}
+    #|///|
+    #|struct DummyDestination {}
+    #|///|
+    #|impl @cdc.Destination for DummyDestination with fn reset_table(_self, _relation, attempt~) { ignore(attempt) }
+    #|///|
+    #|impl @cdc.Destination for DummyDestination with fn write_rows(_self, _relation, _rows, _id) { @cdc.Durable }
+    #|///|
+    #|impl @cdc.Destination for DummyDestination with fn write_transaction(_self, _tx) { @cdc.Durable }
+    #|///|
+    #|impl @cdc.Destination for DummyDestination with fn flush(_self) { () }
   @fs.write_file(dir + "/consumer/main.mbt", main_source)
   @shell.Cmd(
     "moon",

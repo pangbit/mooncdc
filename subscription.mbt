@@ -11,6 +11,7 @@ pub struct Subscription {
   priv config : ConnectionConfig
   priv source : Source
   priv path : String
+  priv state_session : StateSession?
   priv session : String
   priv mut connection : Connection
   priv mut durable : Lsn
@@ -85,7 +86,7 @@ pub async fn Subscription::ack(self : Subscription, tx : Transaction) -> Unit {
   }
   // No cancellation between disk commit and in-memory publication of the position.
   @async.protect_from_cancel(() => {
-    save_checkpoint(self.path, self.source, position)
+    store_checkpoint(self.path, self.source, position, self.state_session)
     for i in (self.acknowledged + 1)..<=count {
       self.pending.remove(i)
     }
@@ -291,7 +292,7 @@ async fn Subscription::receive(
 ///|
 /// Run a bounded CDC subscription. Returning or raising from `consume` cancels all
 /// background tasks and releases the socket and checkpoint lock. Queue overflow is fatal.
-pub async fn[T] subscribe(
+async fn[T] subscribe_impl(
   connection : ConnectionConfig,
   slot~ : String,
   publication~ : String,
@@ -310,31 +311,10 @@ pub async fn[T] subscribe(
   messages? : Bool = false,
   nontransactional_message? : async (LogicalMessage) -> Unit,
   backpressure? : Bool = false,
+  state_session? : StateSession,
 ) -> T {
-  identifier(slot)
-  identifier(publication)
-  if max_frame_bytes < 64 ||
-    max_frame_bytes > 1073741824 ||
-    max_transaction_bytes < max_frame_bytes ||
-    max_transaction_events <= 0 ||
-    max_pending_transactions <= 0 ||
-    max_metadata_entries <= 0 ||
-    heartbeat_ms <= 0 ||
-    max_reconnects < 0 ||
-    reconnect_delay_ms < 0 ||
-    checkpoint_path.is_empty() {
-    raise InvalidConfig("invalid resource limit, interval or checkpoint path")
-  }
-  let lock = @fs.open(
-    checkpoint_path + ".lock",
-    mode=ReadWrite,
-    create_mode=OpenOrCreate,
-    permission=0o600,
-  )
-  defer lock.close()
-  if !lock.try_lock(Exclusive) {
-    raise CheckpointError("checkpoint already in use")
-  }
+  let lock = record_lock(checkpoint_path, state_session)
+  defer (if lock is Some(lock) { lock.close() })
   let conn = connect(connection, max_frame_bytes, true)
   errdefer conn.close()
   let source = @async.with_timeout(connection.timeout_ms, () => {
@@ -345,7 +325,8 @@ pub async fn[T] subscribe(
       if lsn.value == 0 {
         raise UnsafeResume("explicit nonzero start LSN required")
       }
-      if @fs.exists(checkpoint_path) {
+      if load_record(checkpoint_path, ReplicationCheckpoint, state_session)
+        is Some(_) {
         raise CheckpointError("checkpoint exists; use Resume")
       }
       lsn
@@ -354,18 +335,19 @@ pub async fn[T] subscribe(
       if snapshot.source != source {
         raise UnsafeResume("snapshot source/slot/publication mismatch")
       }
-      if @fs.exists(checkpoint_path) {
+      if load_record(checkpoint_path, ReplicationCheckpoint, state_session)
+        is Some(_) {
         raise CheckpointError("checkpoint exists; use Resume")
       }
       snapshot.lsn
     }
-    Resume => load_checkpoint(checkpoint_path, source)
+    Resume => stored_checkpoint(checkpoint_path, source, state_session)
   }
   @async.with_timeout(connection.timeout_ms, () => {
     start_replication(conn, source, position, position, binary~, messages~)
   })
   if start is (At(_) | AfterSnapshot(_)) {
-    save_checkpoint(checkpoint_path, source, position)
+    store_checkpoint(checkpoint_path, source, position, state_session)
   }
   guard @env.rand(24) is Some(random) else {
     raise Authentication("secure entropy unavailable")
@@ -375,6 +357,7 @@ pub async fn[T] subscribe(
     config: connection,
     source,
     path: checkpoint_path,
+    state_session,
     session,
     connection: conn,
     durable: position,

@@ -104,6 +104,7 @@ async test "pipeline state failed write preserves cached and persisted progress"
   defer @fs.rmdir(dir, recursive=true)
   let store : PipelineStore = {
     path: dir + "/state",
+    session: None,
     state: pipeline_fixture(),
     mutex: @async.Mutex(),
   }
@@ -146,6 +147,7 @@ test "table cutoff projection preserves original event ids and splits truncate" 
   }
   let store : PipelineStore = {
     path: "unused",
+    session: None,
     state: pipeline_fixture(),
     mutex: @async.Mutex(),
   }

@@ -31,6 +31,40 @@ The parent directory must already exist. Keep checkpoint files on a local filesy
 with these POSIX semantics. A `.lock` file remains after exit; its existence does not
 mean the advisory lock is held. A stale `.tmp` is ignored and replaced on the next write.
 
+## External state stores
+
+`subscribe(..., checkpoint_store=store)` uses a `StateStore` instead of `checkpoint_path`.
+`run_pipeline(..., state_store=store)` similarly replaces `state_path` and its checkpoint.
+Choose one storage option; file-path calls remain compatible. A store namespace belongs
+to one pipeline/stream, must remain stable across restart, and must not be reused for a
+different source or destination. The same source binding, checksums and replay checks apply.
+`SnapshotPosition.save_checkpoint_in(store)` persists an initial snapshot for later Resume.
+
+`StateStore` implements exclusive acquire/release, atomic load, and owner-checked durable
+save for Pipeline, ReplicationCheckpoint and TableMetadata records. Implementations must
+exclude competing processes and reject stale owners; a successful save establishes durability.
+Failed saves do not advance the in-memory pipeline/checkpoint. `state_store_status(store)`
+observes an atomic status without acquiring ownership. `with_state_store(store, session => ...)`
+releases ownership on return, error or cancellation; retained sessions reject further writes.
+
+`FileStateStore.new(existing_directory)` uses an advisory `.lock` plus atomic fsynced records.
+`PostgresStateStore.new(config, store_id~, schema?="public", table?="mooncdc_state")` uses
+one PostgreSQL session advisory lock per store ID and a shared record table. Acquisition
+creates the table if absent (the schema must exist); schema/table names and IDs are escaped.
+Writes use synchronous_commit=on and transactional upserts. Concurrent table initialization
+is serialized. A failed owner connection is closed and never silently reconnected. A fresh
+acquisition is required; backend termination releases the PostgreSQL advisory lock.
+Keep the state table outside the source publication; use a separate metadata database
+when the source publication includes all tables.
+
+For store-backed pipelines, `Destination.bind_state(session)` runs before startup after
+source/destination validation. `session.get_metadata(oid)` / `put_metadata(oid, json)` let
+destinations persist creation/schema/generation metadata after the corresponding operation
+is durable. Metadata is checksummed, OID-bound and retains exact JSON numeric text; limits
+are 16 MiB per record and 127 JSON container levels. The default bind hook does nothing.
+Custom destination operations must still fence their own earlier asynchronous writes;
+state-store ownership alone does not establish distributed fencing of destination data.
+
 ## Positions and replay
 
 `At(nonzero_lsn)` requires a new checkpoint path. Choose the consistent point returned

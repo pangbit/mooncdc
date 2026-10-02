@@ -78,6 +78,8 @@ let config : @cdc.ConnectionConfig = {
   完成的表保留快照进度，队列满时背压。运行中新发布表在首次 WAL 事件时发现并复制。
 - `Value.decode_text(oid)` 提供类型化 Cell，支持精确数值、日期时间、JSON、UUID、bytea 和
   一维数组；SQL NULL、JSON null 与未变化 TOAST 分开表示。未知标量保留文本。
+- `StateStore` 支持文件目录及 PostgreSQL 持久后端，接入流水线/订阅 checkpoint 和
+  目标端元数据；逐表复制错误可持久化并定时或人工重试。详见 [API](docs/API.md)。
 - 不提供自动切主、两阶段事务或完整目标端 DDL 规划。
   不承诺跨系统恰好一次。
 

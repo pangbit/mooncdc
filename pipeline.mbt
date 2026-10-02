@@ -327,7 +327,7 @@ impl Destination for PipelineDestination with fn flush(self) {
 /// Persist table synchronization across restarts. Owns a randomly named main slot
 /// under slot_prefix and temporary per-table copy slots. Keep state and checkpoint
 /// files together; source/destination identity changes require a new state path.
-pub async fn run_pipeline(
+async fn run_pipeline_impl(
   connection : ConnectionConfig,
   destination : &Destination,
   publication~ : String,
@@ -340,44 +340,19 @@ pub async fn run_pipeline(
   schema_store? : &SchemaStore,
   table_retry_delay_ms? : Int = 10000,
   max_table_retries? : Int = 5,
+  session? : StateSession,
 ) -> Unit {
-  identifier(publication)
-  identifier(slot_prefix)
-  if slot_prefix.length() > 32 ||
-    state_path.is_empty() ||
-    destination_id.is_empty() ||
-    copy_concurrency <= 0 ||
-    copy_concurrency > 16 ||
-    batch_rows <= 0 ||
-    batch_rows > 1024 ||
-    table_retry_delay_ms <= 0 ||
-    max_table_retries <= 0 {
-    raise InvalidConfig("pipeline identity or copy limits")
-  }
-  if control.stopped {
-    return
-  }
-  if control.table_retry is Some(_) {
-    raise InvalidConfig("control already belongs to a running pipeline")
-  }
-  let lock = @fs.open(
-    state_path + ".lock",
-    mode=ReadWrite,
-    create_mode=OpenOrCreate,
-    permission=0o600,
-  )
-  defer lock.close()
-  if !lock.try_lock(Exclusive) {
-    raise CheckpointError("pipeline already in use")
-  }
+  let lock = record_lock(state_path, session)
+  defer (if lock is Some(lock) { lock.close() })
   let checkpoint_path = state_path + ".checkpoint"
   let conn = connect(connection, 16777216, true)
   defer conn.close()
-  let exists = @fs.exists(state_path)
-  let state = if exists {
-    read_pipeline_state(state_path)
+  let stored = load_record(state_path, Pipeline, session)
+  let exists = stored is Some(_)
+  let state = if stored is Some(bytes) {
+    parse_pipeline_state(bytes)
   } else {
-    if @fs.exists(checkpoint_path) {
+    if load_record(checkpoint_path, ReplicationCheckpoint, session) is Some(_) {
       raise CheckpointError("checkpoint without pipeline state")
     }
     let slot = slot_prefix + "_" + pipeline_nonce()
@@ -395,6 +370,7 @@ pub async fn run_pipeline(
   }
   let store : PipelineStore = {
     path: state_path,
+    session,
     state,
     mutex: @async.Mutex(),
   }
@@ -411,7 +387,7 @@ pub async fn run_pipeline(
     store.update(state => state)
   }
   if store.state.initial_lsn is None {
-    if @fs.exists(checkpoint_path) {
+    if load_record(checkpoint_path, ReplicationCheckpoint, session) is Some(_) {
       raise CheckpointError("uninitialized state has a checkpoint")
     }
     // Only this durable creation intent can own this random slot. No table writes
@@ -442,26 +418,18 @@ pub async fn run_pipeline(
     })
   }
   if !store.state.checkpoint_initialized {
-    let checkpoint_lock = @fs.open(
-      checkpoint_path + ".lock",
-      mode=ReadWrite,
-      create_mode=OpenOrCreate,
-      permission=0o600,
-    )
-    defer checkpoint_lock.close()
-    if !checkpoint_lock.try_lock(Exclusive) {
-      raise CheckpointError("pipeline checkpoint already in use")
-    }
+    let checkpoint_lock = record_lock(checkpoint_path, session)
+    defer (if checkpoint_lock is Some(lock) { lock.close() })
     let position = Lsn::parse(store.state.initial_lsn.unwrap())
-    if @fs.exists(checkpoint_path) {
-      if load_checkpoint(checkpoint_path, state.source) != position {
+    if load_record(checkpoint_path, ReplicationCheckpoint, session) is Some(_) {
+      if stored_checkpoint(checkpoint_path, state.source, session) != position {
         raise CheckpointError("unexpected initial pipeline checkpoint")
       }
     } else {
-      save_checkpoint(checkpoint_path, state.source, position)
+      store_checkpoint(checkpoint_path, state.source, position, session)
     }
     store.update(state => { ..state, checkpoint_initialized: true, })
-  } else if !@fs.exists(checkpoint_path) {
+  } else if load_record(checkpoint_path, ReplicationCheckpoint, session) is None {
     raise CheckpointError("pipeline checkpoint is missing")
   }
   store.update(state => {
@@ -477,7 +445,11 @@ pub async fn run_pipeline(
     }
   })
   if schema_store is Some(schemas) {
-    let checkpoint = load_checkpoint(checkpoint_path, store.state.source)
+    let checkpoint = stored_checkpoint(
+      checkpoint_path,
+      store.state.source,
+      session,
+    )
     for table in store.state.tables {
       match table.phase {
         Catchup(cutoff) | Ready(cutoff) => {
@@ -496,12 +468,13 @@ pub async fn run_pipeline(
     }
   }
   conn.close()
-  subscribe(
+  subscribe_impl(
     connection,
     slot=state.source.slot,
     publication~,
     start=Resume,
     checkpoint_path~,
+    state_session?=session,
     backpressure=true,
     messages=true,
     nontransactional_message=message => {
@@ -519,7 +492,11 @@ pub async fn run_pipeline(
         batch_rows,
         schema_store,
         frontier: None,
-        main_lsn: load_checkpoint(checkpoint_path, store.state.source),
+        main_lsn: stored_checkpoint(
+          checkpoint_path,
+          store.state.source,
+          session,
+        ),
         copy_jobs: store.state.tables.filter_map(table => {
           match table.phase {
             Pending | Copying => Some(table.oid)
@@ -537,6 +514,9 @@ pub async fn run_pipeline(
       control.table_retry = Some(oid => sink.retry_table(oid))
       defer {
         control.table_retry = None
+      }
+      if session is Some(session) {
+        destination.bind_state(session)
       }
       with_destination(destination, () => {
         try {

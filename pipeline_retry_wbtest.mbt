@@ -47,6 +47,7 @@ async test "persisted timed retry survives restart and failed scheduling is not 
     defer @fs.rmdir(dir, recursive=true)
     let store : PipelineStore = {
       path: dir + "/state",
+      session: None,
       state: {
         ..pipeline_fixture(),
         tables: [

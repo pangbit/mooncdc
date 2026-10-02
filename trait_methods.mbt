@@ -95,6 +95,18 @@ pub extend TableRetryPolicy with @json.FromJson::{from_json}
 pub extend TableReplicationError with Debug::{to_repr}
 
 ///|
+pub extend StateRecord with Eq::{equal, not_equal}
+
+///|
+pub extend StateRecord with Debug::{to_repr}
+
+///|
+pub extend FileStateStore with StateStore::{acquire, release, load, save}
+
+///|
+pub extend PostgresStateStore with StateStore::{acquire, release, load, save}
+
+///|
 pub extend Security with Debug::{to_repr}
 
 ///|

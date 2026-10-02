@@ -25,7 +25,7 @@
 | P0 | 固化已有协议、恢复和槽安全证据 | native 普通套件、PG17/18 槽推进/失效/低流量 WAL 实测；提交可追溯 | 已提交 `5089e3a` |
 | P1 | 字段 binary 传输、逻辑消息；v2 单列协议补充 | 原始字节不损坏；NULL/TOAST 保留；重连维持协商；逻辑消息提交/回滚及异常边界；PG17/18 实测与参照差分 | binary 与逻辑消息本地验证；差分待执行 |
 | P2 | 一致性快照与增量衔接 | 导出快照、并发写入期间全量复制与增量追赶后最终状态相同；中断重建不静默遗漏；批次内存有界 | 主 worker 并发 apply、逐表独立 WAL 追赶、持久交接和复制错误隔离/重试本地验证；主流按表错误归属待实现 |
-| P3 | 持久状态与目标端契约 | 区分接收和持久完成；失败不推进 checkpoint；启动恢复、优雅退出、旧任务隔离和幂等批次可测 | 目标端契约、按表文件状态及 schema store 本地验证；外部 state store 待执行 |
+| P3 | 持久状态与目标端契约 | 区分接收和持久完成；失败不推进 checkpoint；启动恢复、优雅退出、旧任务隔离和幂等批次可测 | 目标端契约、按表状态、schema store 及外部 StateStore 本地验证；目标端分布式 fencing 待执行 |
 | P4 | 类型与 schema 演进 | 类型矩阵、Relation 版本、列增删改、publication 过滤/投影/分区变更逐项对照；未知类型明确处理 | codec 和有序 DDL 规划差分验证；目标端执行/恢复待执行 |
 | P5 | 目标端及运行方式 | 自定义目标端、独立运行程序及上游内置目标端逐项映射；本地可测逐一验证，需要外部服务的能力单列验证条件 | 待执行，内置目标端先核查稳定性 |
 | P6 | 故障及一致性验收 | 两端同输入输出归一化比对；进程中断、重试、空闲 WAL、资源上限和长期运行证据；文档/示例/独立消费者与接口同步 | 随每阶段推进，最终汇总 |
@@ -43,7 +43,7 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 | ETL 能力 | MoonCDC 状态 / 下一项 |
 |---|---|
 | 初始复制与 WAL 追赶 | 独立逐表快照、主 worker 并发 apply、临时槽追赶及持久 cutoff 交接已实测；复制错误隔离/定时及人工重试已实现；主流按表错误归属和存储 decoding masks 待实现 |
-| StateStore / SchemaStore | 源绑定 checkpoint、逐表文件状态、公开 SchemaStore、schema 原子文件版本及显式清理已实现；外部 StateStore、自动清理协调、目标端创建状态待实现 |
+| StateStore / SchemaStore | 源绑定 checkpoint、逐表状态、公开 SchemaStore/StateStore、文件/PG 状态后端和目标端元数据 API 已实现；自动 schema 清理协调、内置目标端创建状态消费待实现 |
 | Destination accepted/durable | 单实例有序写入、累计屏障、空闲刷新、正常停止和批次 ID 已实测；并发表复制、目标端持久元数据及具体后端隔离待实现 |
 | 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`；公开投影/identity masks、有序列 DDL 规划已差分验证；连接内完整 decoding-state 恢复、目标端 DDL 执行待实现 |
 | 类型转换 | 已有类型化文本 Cell、精确 numeric/JSON、日期/时间/UUID/bytea/可空一维数组；通用内置数组采用文本元素；PG17/18 快照及 WAL 矩阵已实测，固定上游 codec 558 向量进程差分通过；不是全部输入的等价证明 |
@@ -154,3 +154,13 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   人工恢复、禁止重试、错误状态重启后保留、累计 flush 失败仍终止，以及临时槽释放。
   普通 native 74/74；持久计时恢复和调度写盘失败有回归，PG17/18 SIGKILL 恢复通过。
   主流跨表事务的错误归属、更多 OS 传输分类及完整 decoding-state 仍需实现。
+- P3 外部状态存储：公开 StateStore 的独占 owner、原子读写与有效期内 StateSession，
+  文件目录和 PostgreSQL 后端接入 run_pipeline、subscribe、ack 与快照 checkpoint。
+  PG 后端通过 session advisory lock 隔离同一 store ID，使用同步提交；失效连接不隐式重连。
+  Destination.bind_state 在 startup 前接收元数据会话，支持按表持久化精确 JSON 元数据。
+  两种后端均验证重启后保留已完成表/业务数据/元数据、checkpoint 前进与源绑定；
+  外部写入失败时 ack/内存进度保持保守。另有重复 owner、失效连接、旧会话、取消释放、
+  状态写盘失败和独立消费者测试。普通 native 79/79，PG17/18 完整 live 各 20/20；
+  release 与源码包独立消费者通过。PG17/18 的 SIGKILL 工具现逐一验证 legacy 文件、
+  文件 StateStore 和 PostgreSQL StateStore 的全新进程恢复。状态存储独占不替代目标端
+  异步写入的分布式 fencing。

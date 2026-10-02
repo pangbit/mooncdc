@@ -23,6 +23,11 @@ async fn main {
   } else {
     "55418"
   }
+  let backends = match @env.get_env_var("MOONCDC_PIPELINE_STORE") {
+    Some(backend) => [backend]
+    None => ["legacy", "file", "postgres"]
+  }
+  for backend in backends {
   let dir = @fs.tmpdir(prefix="mooncdc-pipeline-kill-")
   defer @fs.rmdir(dir, recursive=true)
   let args = ["pipeline_process_wbtest.mbt:0-1"]
@@ -30,6 +35,7 @@ async fn main {
     "MOONCDC_TEST_PORT": port,
     "MOONCDC_PIPELINE_DIR": dir,
     "MOONCDC_PIPELINE_PHASE": "init",
+    "MOONCDC_PIPELINE_STORE": backend,
   }
   let run = async fn(phase : String) -> Unit {
     vars["MOONCDC_PIPELINE_PHASE"] = phase
@@ -63,6 +69,7 @@ async fn main {
   })
   run("recover")
   println(
-    "PIPELINE: SIGKILL after partial table persistence; fresh process preserves completed copy, resets interrupted copy and converges with WAL",
+    "PIPELINE: \{backend} store SIGKILL; fresh process preserves completed copy, resets interrupted copy and converges with WAL",
   )
+  }
 }

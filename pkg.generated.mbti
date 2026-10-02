@@ -13,13 +13,17 @@ pub async fn copy_snapshot_to(ConnectionConfig, &Destination, slot~ : String, pu
 
 pub async fn pipeline_status(String) -> PipelineStatus
 
-pub async fn run_pipeline(ConnectionConfig, &Destination, publication~ : String, destination_id~ : String, state_path~ : String, control~ : ApplyControl, slot_prefix? : String, copy_concurrency? : Int, batch_rows? : Int, schema_store? : &SchemaStore, table_retry_delay_ms? : Int, max_table_retries? : Int) -> Unit
+pub async fn run_pipeline(ConnectionConfig, &Destination, publication~ : String, destination_id~ : String, control~ : ApplyControl, state_path? : String, state_store? : &StateStore, slot_prefix? : String, copy_concurrency? : Int, batch_rows? : Int, schema_store? : &SchemaStore, table_retry_delay_ms? : Int, max_table_retries? : Int) -> Unit
 
-pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, checkpoint_path~ : String, async (Subscription) -> T, max_frame_bytes? : Int, max_transaction_bytes? : Int, max_transaction_events? : Int, max_pending_transactions? : Int, max_metadata_entries? : Int, heartbeat_ms? : Int, max_reconnects? : Int, reconnect_delay_ms? : Int, binary? : Bool, messages? : Bool, nontransactional_message? : async (LogicalMessage) -> Unit, backpressure? : Bool) -> T
+pub async fn state_store_status(&StateStore) -> PipelineStatus?
+
+pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, async (Subscription) -> T, checkpoint_path? : String, checkpoint_store? : &StateStore, max_frame_bytes? : Int, max_transaction_bytes? : Int, max_transaction_events? : Int, max_pending_transactions? : Int, max_metadata_entries? : Int, heartbeat_ms? : Int, max_reconnects? : Int, reconnect_delay_ms? : Int, binary? : Bool, messages? : Bool, nontransactional_message? : async (LogicalMessage) -> Unit, backpressure? : Bool) -> T
 
 pub async fn[T] with_destination(&Destination, async () -> T) -> T
 
 pub async fn[T] with_file_schema_store(String, identity~ : String, async (&SchemaStore) -> T) -> T
+
+pub async fn[T] with_state_store(&StateStore, async (StateSession) -> T) -> T
 
 // Errors
 pub suberror CdcError {
@@ -143,6 +147,16 @@ pub struct Diagnostics {
 pub fn Diagnostics::to_json(Self) -> Json
 pub fn Diagnostics::to_repr(Self) -> @debug.Repr
 
+pub struct FileStateStore {
+  // private fields
+}
+pub async fn FileStateStore::acquire(Self, String) -> Unit
+pub async fn FileStateStore::load(Self, StateRecord) -> Bytes?
+pub fn FileStateStore::new(String) -> Self raise
+pub async fn FileStateStore::release(Self, String) -> Unit
+pub async fn FileStateStore::save(Self, String, StateRecord, Bytes) -> Unit
+pub impl StateStore for FileStateStore
+
 pub(all) enum IdentityKind {
   Missing
   PrimaryKey
@@ -221,6 +235,16 @@ pub struct PipelineStatus {
   tables : ReadOnlyArray[TableSyncStatus]
 } derive(@debug.Debug)
 pub fn PipelineStatus::to_repr(Self) -> @debug.Repr
+
+pub struct PostgresStateStore {
+  // private fields
+}
+pub async fn PostgresStateStore::acquire(Self, String) -> Unit
+pub async fn PostgresStateStore::load(Self, StateRecord) -> Bytes?
+pub fn PostgresStateStore::new(ConnectionConfig, store_id~ : String, schema? : String, table? : String) -> Self raise
+pub async fn PostgresStateStore::release(Self, String) -> Unit
+pub async fn PostgresStateStore::save(Self, String, StateRecord, Bytes) -> Unit
+pub impl StateStore for PostgresStateStore
 
 pub struct Relation {
   oid : UInt
@@ -334,12 +358,28 @@ pub struct SnapshotPosition {
   // private fields
 }
 pub async fn SnapshotPosition::save_checkpoint(Self, String) -> Unit
+pub async fn SnapshotPosition::save_checkpoint_in(Self, &StateStore) -> Unit
 
 pub(all) enum Start {
   At(Lsn)
   AfterSnapshot(SnapshotPosition)
   Resume
 }
+
+pub(all) enum StateRecord {
+  Pipeline
+  ReplicationCheckpoint
+  TableMetadata(UInt)
+} derive(Eq, @debug.Debug)
+pub fn StateRecord::equal(Self, Self) -> Bool
+pub fn StateRecord::not_equal(Self, Self) -> Bool
+pub fn StateRecord::to_repr(Self) -> @debug.Repr
+
+pub struct StateSession {
+  // private fields
+}
+pub async fn StateSession::get_metadata(Self, UInt) -> Json?
+pub async fn StateSession::put_metadata(Self, UInt, Json) -> Unit
 
 pub struct Subscription {
   // private fields
@@ -436,6 +476,7 @@ pub fn WriteStatus::to_repr(Self) -> @debug.Repr
 
 // Traits
 pub(open) trait Destination {
+  async fn bind_state(Self, StateSession) -> Unit = _
   async fn startup(Self) -> Unit = _
   async fn shutdown(Self) -> Unit = _
   async fn reset_table(Self, Relation, attempt~ : String) -> Unit
@@ -449,4 +490,11 @@ pub(open) trait SchemaStore {
   async fn all(Self) -> ReadOnlyArray[SchemaSnapshot]
   async fn put(Self, SchemaSnapshot) -> Unit
   async fn prune(Self, ReadOnlyArray[(UInt, SchemaId)]) -> Int
+}
+
+pub(open) trait StateStore {
+  async fn acquire(Self, String) -> Unit
+  async fn release(Self, String) -> Unit
+  async fn load(Self, StateRecord) -> Bytes?
+  async fn save(Self, String, StateRecord, Bytes) -> Unit
 }

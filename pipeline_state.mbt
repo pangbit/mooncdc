@@ -28,6 +28,7 @@ priv struct PipelineStore {
   path : String
   mut state : PipelineState
   mutex : @async.Mutex
+  session : StateSession?
 }
 
 ///|
@@ -113,7 +114,10 @@ async fn PipelineStore::update(
   let bytes = state_bytes(next)
   ignore(parse_pipeline_state(bytes))
   @async.protect_from_cancel(() => {
-    save_atomic_file(self.path, bytes)
+    match self.session {
+      Some(session) => session.save(Pipeline, bytes)
+      None => save_atomic_file(self.path, bytes)
+    }
     self.state = next
   })
 }
@@ -169,6 +173,11 @@ pub struct PipelineStatus {
 /// Read an atomic state snapshot without changing a running pipeline.
 pub async fn pipeline_status(path : String) -> PipelineStatus {
   let state = read_pipeline_state(path)
+  pipeline_state_status(state)
+}
+
+///|
+fn pipeline_state_status(state : PipelineState) -> PipelineStatus raise {
   {
     slot: state.source.slot,
     destination_id: state.destination_id,

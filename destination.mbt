@@ -19,6 +19,7 @@ pub struct TableCopyBatchId {
 /// Ordered destination contract. Implementations must tolerate replay and make
 /// flush a cumulative durability barrier. Owned tasks require cancellation cleanup.
 pub(open) trait Destination {
+  async fn bind_state(Self, StateSession) -> Unit = _
   async fn startup(Self) -> Unit = _
   async fn shutdown(Self) -> Unit = _
   // Fence all earlier copy writes before clearing table data and replay markers.
@@ -32,6 +33,11 @@ pub(open) trait Destination {
   ) -> WriteStatus
   async fn write_transaction(Self, Transaction) -> WriteStatus
   async fn flush(Self) -> Unit
+}
+
+///|
+impl Destination with fn bind_state(_self, _session) {
+  ()
 }
 
 ///|
