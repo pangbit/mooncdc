@@ -8,7 +8,7 @@ import {
 // Values
 pub async fn copy_snapshot(ConnectionConfig, slot~ : String, publication~ : String, async (SnapshotEvent) -> Unit, batch_rows? : Int, max_frame_bytes? : Int, max_batch_bytes? : Int) -> SnapshotPosition
 
-pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, checkpoint_path~ : String, async (Subscription) -> T, max_frame_bytes? : Int, max_transaction_bytes? : Int, max_transaction_events? : Int, max_pending_transactions? : Int, max_metadata_entries? : Int, heartbeat_ms? : Int, max_reconnects? : Int, reconnect_delay_ms? : Int, binary? : Bool) -> T
+pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, checkpoint_path~ : String, async (Subscription) -> T, max_frame_bytes? : Int, max_transaction_bytes? : Int, max_transaction_events? : Int, max_pending_transactions? : Int, max_metadata_entries? : Int, heartbeat_ms? : Int, max_reconnects? : Int, reconnect_delay_ms? : Int, binary? : Bool, messages? : Bool, nontransactional_message? : async (LogicalMessage) -> Unit) -> T
 
 // Errors
 pub suberror CdcError {
@@ -32,6 +32,7 @@ pub(all) enum Change {
   Delete(Relation, OldTuple)
   Truncate(ReadOnlyArray[Relation], cascade~ : Bool, restart_identity~ : Bool)
   Origin(Lsn, String)
+  Message(LogicalMessage)
 } derive(Eq, ToJson, @debug.Debug)
 pub fn Change::equal(Self, Self) -> Bool
 pub fn Change::not_equal(Self, Self) -> Bool
@@ -70,6 +71,17 @@ pub struct Diagnostics {
 } derive(ToJson, @debug.Debug)
 pub fn Diagnostics::to_json(Self) -> Json
 pub fn Diagnostics::to_repr(Self) -> @debug.Repr
+
+pub struct LogicalMessage {
+  transactional : Bool
+  lsn : Lsn
+  prefix : String
+  content : Bytes
+} derive(Eq, ToJson, @debug.Debug)
+pub fn LogicalMessage::equal(Self, Self) -> Bool
+pub fn LogicalMessage::not_equal(Self, Self) -> Bool
+pub fn LogicalMessage::to_json(Self) -> Json
+pub fn LogicalMessage::to_repr(Self) -> @debug.Repr
 
 pub struct Lsn {
   value : UInt64

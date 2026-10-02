@@ -48,6 +48,7 @@ async fn start_replication(
   durable : Lsn,
   start : Lsn,
   binary? : Bool = false,
+  messages? : Bool = false,
 ) -> Unit {
   // A logical replication connection in database mode permits SQL before COPY BOTH.
   let query = "SELECT plugin, database, restart_lsn::text, confirmed_flush_lsn::text, wal_status, invalidation_reason, active::text FROM pg_replication_slots WHERE slot_name = '\{source.slot}'"
@@ -82,9 +83,10 @@ async fn start_replication(
   }
   let out = @buffer.Buffer()
   let transfer = if binary { ", binary 'true'" } else { "" }
+  let logical = if messages { ", messages 'true'" } else { "" }
   cstring(
     out,
-    "START_REPLICATION SLOT \{source.slot} LOGICAL \{start.to_string()} (proto_version '1', publication_names '\{source.publication}'\{transfer})",
+    "START_REPLICATION SLOT \{source.slot} LOGICAL \{start.to_string()} (proto_version '1', publication_names '\{source.publication}'\{transfer}\{logical})",
   )
   conn.send(b'Q', out.to_bytes())
   let (tag, body) = conn.read()

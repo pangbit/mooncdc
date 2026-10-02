@@ -59,7 +59,8 @@ the business transaction and excludes process-local acknowledgement tokens.
 
 ## Data
 
-`Change` supports RelationChanged, TypeChanged, Insert, Update, Delete, Truncate and Origin.
+`Change` supports RelationChanged, TypeChanged, Insert, Update, Delete, Truncate, Origin
+and opt-in transactional Message.
 Every row change includes an immutable Relation snapshot with columns, key flags, type
 OIDs and type modifiers. Schema changes are reflected in subsequent relation metadata;
 this is not a complete DDL stream. Custom types retain OID/name metadata and text values.
@@ -80,6 +81,24 @@ consumers with exhaustive Value matches to add a branch.
 Only committed transactions and UTF-8 text encoding are supported.
 Streaming large in-progress transactions, two-phase transactions and automatic
 failover are not implemented. Unknown messages fail explicitly.
+
+`subscribe(..., messages=true)` requests logical messages. Transactional messages from
+`pg_logical_emit_message` appear as `Change::Message(LogicalMessage)` in commit order;
+rolled-back messages are not delivered. `prefix` is text, `content` is raw Bytes and
+`lsn` is the message's own WAL position. `event_id` uses `tx.id + "/message/" + lsn`
+for these messages, keeping existing row-event ordinals unchanged.
+
+Nontransactional messages are delivered to the optional `nontransactional_message`
+async callback, even if the transaction that emitted them rolls back. If one arrives
+without a handler, the subscription fails explicitly. Finish required writes durably
+before returning; handler failures stop the subscription without reconnecting. The
+callback runs on the reader, with backpressure, while heartbeats remain independent.
+Its completion does not independently advance the checkpoint or feedback. A later
+acknowledged transaction can cover its position; until then it may replay after a
+restart/reconnect. Use source identity plus message LSN for deduplication. A stream
+containing only nontransactional messages retains WAL at its prior durable position.
+This is a protocol API; Supabase ETL's `supabase_etl_ddl` JSON schema interpretation,
+event-trigger installation and schema-store updates are not implemented by it.
 
 ## Initial snapshot
 

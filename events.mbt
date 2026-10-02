@@ -33,6 +33,15 @@ pub struct TypeInfo {
 } derive(Eq, Debug, ToJson)
 
 ///|
+/// Arbitrary pg_logical_emit_message payload. Content is not assumed to be UTF-8.
+pub struct LogicalMessage {
+  transactional : Bool
+  lsn : Lsn
+  prefix : String
+  content : Bytes
+} derive(Eq, Debug, ToJson)
+
+///|
 pub(all) enum OldTuple {
   Key(ReadOnlyArray[Value])
   Full(ReadOnlyArray[Value])
@@ -47,6 +56,7 @@ pub(all) enum Change {
   Delete(Relation, OldTuple)
   Truncate(ReadOnlyArray[Relation], cascade~ : Bool, restart_identity~ : Bool)
   Origin(Lsn, String)
+  Message(LogicalMessage)
 } derive(Eq, Debug, ToJson)
 
 ///|
@@ -85,6 +95,10 @@ pub fn Transaction::event_id(self : Transaction, index : Int) -> String? {
   let mut ordinal = 0
   for i in 0..<=index {
     match self.changes[i] {
+      Message(message) =>
+        if i == index {
+          return Some(self.id + "/message/" + message.lsn.to_string())
+        }
       Insert(_, _) | Update(_, _, _) | Delete(_, _) | Truncate(_, ..) => {
         if i == index {
           return Some(self.id + "/" + ordinal.to_string())

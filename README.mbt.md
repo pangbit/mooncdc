@@ -65,6 +65,8 @@ let config : @cdc.ConnectionConfig = {
 - `ack` 只越过连续完成的事务；检查点完成文件同步、原子替换及父目录同步后，
   才更新可反馈位置。接收位置不能代替业务持久位置。
 - `tx.id` 标识事务，`tx.event_id(index)` 标识数据变更；重复元数据不改变数据事件 ID。
+- 可用 `messages=true` 订阅逻辑消息：事务消息随提交交付，非事务消息需提供独立回调。
+  消息内容保留原始字节；尚不解释 Supabase ETL 的 DDL schema payload。
 - 后台处理心跳；帧、事务、元数据及未确认队列有上限。超限关闭连接并保留检查点。
 - SCRAM-SHA-256；远端连接使用验证证书和主机名的 TLS。明文仅允许数字回环地址。
   首版密码限定可打印 ASCII，明确拒绝需要 SASLprep 的非 ASCII 密码。

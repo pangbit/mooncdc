@@ -84,3 +84,12 @@ pub extend Security with Debug::{to_repr}
 
 ///|
 pub extend SnapshotEvent with Debug::{to_repr}
+
+///|
+pub extend LogicalMessage with Eq::{equal, not_equal}
+
+///|
+pub extend LogicalMessage with Debug::{to_repr}
+
+///|
+pub extend LogicalMessage with ToJson::{to_json}

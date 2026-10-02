@@ -27,6 +27,9 @@ pub struct Subscription {
   priv mut closed : Bool
   priv max_pending : Int
   priv binary : Bool
+  priv messages : Bool
+  priv nontransactional_message : (async (LogicalMessage) -> Unit)?
+  priv mut message_failed : Bool
 }
 
 ///|
@@ -150,7 +153,29 @@ async fn Subscription::read_stream(
         ignore(c.u64())
         self.server_end = { value: c.u64(), }
         ignore(c.u64())
-        if decoder.decode(body[c.pos:].to_owned())
+        let data = body[c.pos:].to_owned()
+        if data.get(0) == Some(b'M') {
+          if !self.messages {
+            raise Protocol("logical message without negotiation")
+          }
+          if data.get(1) == Some(b'\x00') {
+            let message_cursor = Cursor::new(data)
+            ignore(message_cursor.byte())
+            let message = message_cursor.logical_message()
+            message_cursor.done()
+            guard self.nontransactional_message is Some(handle) else {
+              raise InvalidConfig(
+                "nontransactional logical message requires a handler",
+              )
+            }
+            // Handler errors are business failures, never transport retries.
+            self.message_failed = true
+            handle(message)
+            self.message_failed = false
+            continue
+          }
+        }
+        if decoder.decode(data)
           is Some((xid, commit_lsn, end_lsn, time, changes)) {
           // A reconnect may repeat the last complete transaction already retained in memory.
           if end_lsn <= self.received {
@@ -203,7 +228,7 @@ async fn Subscription::receive(
         if self.closed {
           raise e
         }
-        if fatal(e) {
+        if fatal(e) || self.message_failed {
           raise e
         }
         self.connection.close()
@@ -233,6 +258,7 @@ async fn Subscription::receive(
                 self.durable,
                 self.received,
                 binary=self.binary,
+                messages=self.messages,
               )
             })
             next
@@ -272,6 +298,8 @@ pub async fn[T] subscribe(
   max_reconnects? : Int = 3,
   reconnect_delay_ms? : Int = 250,
   binary? : Bool = false,
+  messages? : Bool = false,
+  nontransactional_message? : async (LogicalMessage) -> Unit,
 ) -> T {
   identifier(slot)
   identifier(publication)
@@ -324,7 +352,7 @@ pub async fn[T] subscribe(
     Resume => load_checkpoint(checkpoint_path, source)
   }
   @async.with_timeout(connection.timeout_ms, () => {
-    start_replication(conn, source, position, position, binary~)
+    start_replication(conn, source, position, position, binary~, messages~)
   })
   if start is (At(_) | AfterSnapshot(_)) {
     save_checkpoint(checkpoint_path, source, position)
@@ -353,6 +381,9 @@ pub async fn[T] subscribe(
     closed: false,
     max_pending: max_pending_transactions,
     binary,
+    messages,
+    nontransactional_message,
+    message_failed: false,
   }
   defer sub.close()
   @async.with_task_group(group => {

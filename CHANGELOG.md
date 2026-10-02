@@ -2,6 +2,8 @@
 
 ## 0.1.0 — Unreleased
 
+- Add opt-in logical messages with raw payloads, commit-bound transactional delivery
+  and explicit nontransactional handling; retain negotiation across reconnects.
 - Add bounded, publication-aware consistent snapshots and source-bound `AfterSnapshot`
   handoff; retain failed bootstrap slots for explicit recovery.
 - Add opt-in pgoutput binary transfer and raw Binary values; preserve negotiation on reconnect.

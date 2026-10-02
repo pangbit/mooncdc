@@ -130,6 +130,13 @@ fn Decoder::decode(
         raise LimitExceeded("transaction events")
       }
       let change = match tag {
+        b'M' => {
+          let message = c.logical_message()
+          if !message.transactional {
+            raise Protocol("nontransactional message in transaction decoder")
+          }
+          Message(message)
+        }
         b'R' => {
           let oid = c.i32().reinterpret_as_uint()
           let namespace_ = c.cstring()
@@ -231,4 +238,16 @@ fn Decoder::decode(
   }
   c.done()
   result
+}
+
+///|
+fn Cursor::logical_message(self : Cursor) -> LogicalMessage raise {
+  let flags = self.byte()
+  if flags != b'\x00' && flags != b'\x01' {
+    raise Protocol("logical message flags")
+  }
+  let lsn : Lsn = { value: self.u64(), }
+  let prefix = self.cstring()
+  let content = self.take(self.i32())
+  { transactional: flags == b'\x01', lsn, prefix, content, }
 }

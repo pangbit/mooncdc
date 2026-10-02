@@ -23,7 +23,7 @@
 | 阶段 | 工作 | 可观察验收 | 状态 |
 |---|---|---|---|
 | P0 | 固化已有协议、恢复和槽安全证据 | native 普通套件、PG17/18 槽推进/失效/低流量 WAL 实测；提交可追溯 | 已提交 `5089e3a` |
-| P1 | 字段 binary 传输、逻辑消息、协议 v2 大事务流 | 原始字节不损坏；NULL/TOAST 保留；重连维持协商；流式事务中止不交付，提交才确认；PG17/18 与参照输出对照 | 开始 binary 传输 |
+| P1 | 字段 binary 传输、逻辑消息；v2 单列协议补充 | 原始字节不损坏；NULL/TOAST 保留；重连维持协商；逻辑消息提交/回滚及异常边界；PG17/18 实测与参照差分 | binary 与逻辑消息本地验证；差分待执行 |
 | P2 | 一致性快照与增量衔接 | 导出快照、并发写入期间全量复制与增量追赶后最终状态相同；中断重建不静默遗漏；批次内存有界 | 基础快照本地验证；按表协调及自动重建待执行 |
 | P3 | 持久状态与目标端契约 | 区分接收和持久完成；失败不推进 checkpoint；启动恢复、优雅退出、旧任务隔离和幂等批次可测 | 待执行 |
 | P4 | 类型与 schema 演进 | 类型矩阵、Relation 版本、列增删改、publication 过滤/投影/分区变更逐项对照；未知类型明确处理 | 待执行 |
@@ -33,6 +33,30 @@
 Supabase ETL 的按表初始同步与现有完整事务交付需要分开的接口契约。
 pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充，Kafka Connect 不是本次主参照范围。
 自动切主、两阶段事务等须对照固定 ETL 版本的实际能力记录，不能推测。
+
+## 固定基线的具体差距
+
+主参照 `crates/etl/src/postgres/client/raw.rs` 的 `start_logical_replication` 使用
+`proto_version=1, messages=true`。协议 v2 streaming 属 pglogrepl 补充项，不能用它替代
+主参照的按表复制、持久状态和目标端功能验收；仍保留为后续独立协议工作。
+
+| ETL 能力 | MoonCDC 状态 / 下一项 |
+|---|---|
+| 初始复制与 WAL 追赶 | 一致性基础接口已实测；逐表独立快照、Catchup/SyncDone/Ready 协调、失败重建待实现 |
+| StateStore / SchemaStore | 目前只有源绑定事务 checkpoint；表状态、schema 版本及清理、目标端创建状态待实现 |
+| Destination accepted/durable | 当前要求业务落盘后 ack；独立接收/持久完成、累计屏障、旧批次隔离及启动/退出契约待实现 |
+| 逻辑消息与 DDL | 原始消息已实测；`supabase_etl_ddl` 事件触发器、schema payload、版本顺序及列演进待实现 |
+| 类型转换 | 原始 Text/Binary/NULL/TOAST 已实现；ETL 的布尔、数值、时间、JSON、数组及未知类型矩阵待实现 |
+| 独立 replicator | 当前为嵌入式库及示例；配置、持久运行状态、健康/指标、优雅退出待实现 |
+| ClickHouse | 上游 private alpha；本地优先实现 ReplacingMergeTree / MergeTree、主键变化墓碑、truncate 与 schema 契约 |
+| BigQuery | 上游 stable；Storage Write API、CDC、目标端持久偏移、布局配置及真云验证待实现 |
+| DuckLake | 上游 private alpha；DuckDB/catalog、排序和恢复语义待实现 |
+| Snowflake | 上游 private alpha；Snowpipe Streaming、key-pair auth、通道恢复及 schema 子集待实现 |
+| Iceberg | 上游 deprecated；保留在差距清单，兼容实现/验证未完成，不声明已对齐 |
+
+目标端状态取自固定提交的 `site/content/docs/reference/destinations.mdx`，不是动态网页。
+云目标端真实验收需要对应账号及隔离资源；本地实现和可模拟验证先推进，缺乏真云证据时
+保持“未验证”，不把编译通过当作对等。现阶段没有完整 ETL 对等结论。
 
 ## 提交与证据规则
 
@@ -48,7 +72,10 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   验证 int4/bytea/bool 精确字节、默认文本及 ack，畸形长度与非 UTF-8 字节有单元测试。
   添加公开 enum 分支会影响调用方的穷举匹配；不代表已实现原生类型转换。
 - `ea502b3`：提交上述 binary 实现和验证。
+- `b09f3f2`：提交 P2 一致性快照基础层。
 - P2 基础快照：实现 `copy_snapshot`、publication 投影/过滤、有界 FETCH、空表通知及
   源身份绑定的 `AfterSnapshot`。并发 I/U/D + 回滚、分区 root/leaf、普通继承去重、
   回调失败、行/批次超限、取消释放与拒绝复用槽有 PG17/18 实测。
   尚未实现 ETL 的独立按表状态机、持久同步状态、并行复制或失败自动重建。
+- P1 逻辑消息：PG17/18 验证事务提交/回滚、非事务消息及原始字节；单元验证畸形字段、
+  稳定消息 ID、重连协商，故障测试验证回调错误不推进 checkpoint、不重连。

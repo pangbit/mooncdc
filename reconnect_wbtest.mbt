@@ -24,6 +24,7 @@ async fn mock_replication(
   stream? : async (@socket.Tcp) -> Unit,
   rejected_slot? : Array[String?],
   binary? : Bool = false,
+  messages? : Bool = false,
 ) -> Unit {
   let size = Cursor::new(tcp.read_exactly(4)).i32()
   ignore(tcp.read_exactly(size - 4))
@@ -78,6 +79,7 @@ async fn mock_replication(
     } else {
       assert_true(query.has_prefix("START_REPLICATION"))
       assert_eq(query.contains("binary 'true'"), binary)
+      assert_eq(query.contains("messages 'true'"), messages)
       if mode == "start" {
         return
       }
@@ -120,6 +122,7 @@ async fn reconnect_scenario(
   plan : Array[String],
   expected : String,
   binary? : Bool = false,
+  messages? : Bool = false,
 ) -> Unit {
   @async.with_timeout(5000, () => {
     let server = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
@@ -140,7 +143,7 @@ async fn reconnect_scenario(
         for mode in ["initial"] + plan {
           let (tcp, _) = server.accept()
           defer tcp.close()
-          mock_replication(tcp, mode, binary~)
+          mock_replication(tcp, mode, binary~, messages~)
         }
       })
       try
@@ -154,6 +157,7 @@ async fn reconnect_scenario(
           reconnect_delay_ms=1,
           heartbeat_ms=10000,
           binary~,
+          messages~,
           sub => {
             let tx = sub.next()
             assert_eq(expected, "success")
@@ -196,4 +200,9 @@ async test "reconnect refuses changed source without another attempt" {
 ///|
 async test "binary negotiation survives reconnect" {
   reconnect_scenario(["success"], "success", binary=true)
+}
+
+///|
+async test "logical message negotiation survives reconnect" {
+  reconnect_scenario(["success"], "success", messages=true)
 }
