@@ -16,6 +16,30 @@ priv struct StoredSchema {
 } derive(ToJson, @json.FromJson)
 
 ///|
+/// Canonical versioned representation for external SchemaStore implementations.
+pub impl ToJson for SchemaSnapshot with fn to_json(self) {
+  ToJson::to_json(StoredSchema::{
+    commit_lsn: self.id.commit_lsn.to_string(),
+    message_lsn: self.id.message_lsn.to_string(),
+    payload: self.payload,
+  })
+}
+
+///|
+/// Reconstruct validated schema metadata and identity from the canonical envelope.
+pub fn SchemaSnapshot::from_json(json : Json) -> SchemaSnapshot raise {
+  try {
+    let stored : StoredSchema = @json.from_json(json)
+    parse_schema(stored.payload, {
+      commit_lsn: Lsn::parse(stored.commit_lsn),
+      message_lsn: Lsn::parse(stored.message_lsn),
+    })
+  } catch {
+    e => raise Protocol("invalid serialized schema: \{e}")
+  }
+}
+
+///|
 priv struct SchemaFile {
   version : Int
   identity : String

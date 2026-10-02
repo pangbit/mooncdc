@@ -139,6 +139,31 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
         assert_eq(probe.seen[1].columns[1].primary_key_ordinal, None)
         assert_true(probe.seen[1].columns[3].default_expression is Some(_))
         assert_eq(store.all().length(), 4)
+        let initial = store.all()[0]
+        let before = initial.project(initial.relation(["a", "b", "c"]))
+        let added = probe.seen[0].project(
+          probe.seen[0].relation(["a", "b", "c", "d"]),
+        )
+        let required = probe.seen[1].project(
+          probe.seen[1].relation(["a", "b", "c", "d"]),
+        )
+        let filtered = probe.seen[2].project(
+          probe.seen[2].relation(["a", "c", "d"]),
+        )
+        assert_true(
+          before.plan_change(added).operations
+          is [AddColumn(column, reason=TableSchema)] &&
+          column.name == "d",
+        )
+        assert_true(
+          added.plan_change(required).operations
+          is [AlterColumn(kind=Nullability, ..)],
+        )
+        assert_true(
+          required.plan_change(filtered).operations
+          is [DropColumn(column, reason=Publication)] &&
+          column.name == "b",
+        )
       })
       with_file_schema_store(dir + "/schemas", identity="ddl/source/target", store => {
         assert_eq(store.all().length(), 4)

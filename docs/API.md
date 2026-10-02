@@ -244,12 +244,31 @@ order; destinations call schema_snapshot when applying it and must implement the
 schema evolution policy. Filtered pre-copy/foreign-publication DDL is not applied.
 Resume rejects a completed table whose required retained schema is missing. Store files
 retain consumed metadata only; upstream debug fields such as current_query are discarded.
+External stores can persist `schema.to_json()` and restore it with
+`SchemaSnapshot.from_json(json)`. The validated envelope retains both LSNs, full columns
+and replica-identity metadata; it uses the same representation as the file store.
+
+`schema.project(relation)` builds a `ReplicatedSchema` with separate full-width publication
+and identity masks. `identity_kind()` distinguishes primary, full-row, alternative and missing
+identity; `all_primary_keys_replicated()` checks complete source-key coverage independently.
+`decode_row(values)` converts a published row using its projected type OIDs. The explicit
+constructor validates mask widths and identity membership. `with_schema(next)` retains masks
+for metadata-only DDL; a replacement Relation is required when membership/width changes.
+
+`before.plan_change(after, map_name?)` plans column DDL by physical ordinal, with source-table
+changes distinguished from publication-membership changes. It validates destination name
+collisions, orders drops before renames and additions, and breaks rename cycles with reserved
+temporary names. Type/modifier, nullability and default alterations then follow; each operation
+contains the exact expected before/after state. Primary-key changes are reported separately.
+The deterministic mapping callback must match table creation and writes (default: identity).
+Names in the plan are already mapped. Planning does not execute DDL or imply that a target
+supports every operation; destinations must validate capabilities before starting a plan.
 
 The pipeline negotiates logical messages and rejects nontransactional DDL. Actual DDL
 production requires upstream source helpers/event triggers installed by the operator;
 the library never installs database-wide triggers. The pinned unmodified SQL in
-`integration/reference/etl` is exercised only in isolated tests. Full destination schema
-planning, stored decoding masks/worker handover and automatic schema-retention coordination
+`integration/reference/etl` is exercised only in isolated tests. Destination DDL execution,
+stored decoding-mask recovery and automatic schema-retention coordination
 remain separate work.
 
 ## Typed text cells

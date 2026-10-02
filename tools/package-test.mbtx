@@ -23,7 +23,7 @@ async fn main {
   for
     required in [
       "LICENSE", "README.mbt.md", "moon.mod", "moon.pkg", "subscription.mbt", "snapshot.mbt",
-      "destination.mbt", "pipeline.mbt", "schema_store.mbt", "cell.mbt", "cell_float.c", "examples/resume/main.mbt",
+      "destination.mbt", "pipeline.mbt", "schema_store.mbt", "schema_projection.mbt", "schema_plan.mbt", "cell.mbt", "cell_float.c", "examples/resume/main.mbt",
     ] {
     assert_true(contents.split("\n").any(path => path == required))
   }

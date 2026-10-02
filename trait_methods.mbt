@@ -146,6 +146,9 @@ pub extend SchemaSnapshot with Eq::{equal, not_equal}
 pub extend SchemaSnapshot with Debug::{to_repr}
 
 ///|
+pub extend SchemaSnapshot with ToJson::{to_json}
+
+///|
 pub extend Cell with Eq::{equal, not_equal}
 
 ///|
@@ -168,3 +171,39 @@ pub extend PgTimestamp with Eq::{equal, not_equal}
 
 ///|
 pub extend PgTimestamp with Debug::{to_repr}
+
+///|
+pub extend IdentityKind with Eq::{equal, not_equal}
+
+///|
+pub extend IdentityKind with Debug::{to_repr}
+
+///|
+pub extend ReplicatedSchema with Eq::{equal, not_equal}
+
+///|
+pub extend ReplicatedSchema with Debug::{to_repr}
+
+///|
+pub extend ColumnPresenceReason with Eq::{equal, not_equal}
+
+///|
+pub extend ColumnPresenceReason with Debug::{to_repr}
+
+///|
+pub extend ColumnAlteration with Eq::{equal, not_equal}
+
+///|
+pub extend ColumnAlteration with Debug::{to_repr}
+
+///|
+pub extend SchemaOperation with Eq::{equal, not_equal}
+
+///|
+pub extend SchemaOperation with Debug::{to_repr}
+
+///|
+pub extend SchemaPlan with Eq::{equal, not_equal}
+
+///|
+pub extend SchemaPlan with Debug::{to_repr}

@@ -2,6 +2,10 @@
 
 ## 0.1.0 — Unreleased
 
+- Add schema projection/identity masks, typed row decoding, canonical schema JSON
+  roundtrips and ordered column DDL plans with rename-cycle handling. Verify plans
+  against 77 vectors evaluated by the pinned official ETL planner.
+
 - Apply ready tables while bounded table workers copy and replay private WAL;
   persist handover cutoffs only after durability and recover unfinished copies even
   when the main checkpoint has advanced. Scope split truncate IDs by table.

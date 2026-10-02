@@ -18,7 +18,8 @@ Apache-2.0, with its license retained. They provide real upstream payloads in is
 
 `tools/codec-reference-test.mbtx` downloads the same frozen ETL commit, verifies
 the source archive hash and builds its unmodified codec with the upstream lockfile.
-`integration/reference/codec_driver.rs` is our comparison fixture, not a copied codec.
+`integration/reference/codec_driver.rs` and `schema_driver.rs` are our comparison
+fixtures; they call the upstream codec/planner without copying those implementations.
 The production float converter uses the platform C runtime with a private C locale.
 
 Protocol references inform an independent MoonBit implementation. No PostgreSQL client

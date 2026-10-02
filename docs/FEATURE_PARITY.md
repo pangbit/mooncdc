@@ -25,8 +25,8 @@
 | P0 | 固化已有协议、恢复和槽安全证据 | native 普通套件、PG17/18 槽推进/失效/低流量 WAL 实测；提交可追溯 | 已提交 `5089e3a` |
 | P1 | 字段 binary 传输、逻辑消息；v2 单列协议补充 | 原始字节不损坏；NULL/TOAST 保留；重连维持协商；逻辑消息提交/回滚及异常边界；PG17/18 实测与参照差分 | binary 与逻辑消息本地验证；差分待执行 |
 | P2 | 一致性快照与增量衔接 | 导出快照、并发写入期间全量复制与增量追赶后最终状态相同；中断重建不静默遗漏；批次内存有界 | 主 worker 并发 apply、逐表独立 WAL 追赶及持久交接本地验证；逐表错误隔离/重试待执行 |
-| P3 | 持久状态与目标端契约 | 区分接收和持久完成；失败不推进 checkpoint；启动恢复、优雅退出、旧任务隔离和幂等批次可测 | 目标端契约、按表文件状态本地验证；schema store 和外部 state store 待执行 |
-| P4 | 类型与 schema 演进 | 类型矩阵、Relation 版本、列增删改、publication 过滤/投影/分区变更逐项对照；未知类型明确处理 | 待执行 |
+| P3 | 持久状态与目标端契约 | 区分接收和持久完成；失败不推进 checkpoint；启动恢复、优雅退出、旧任务隔离和幂等批次可测 | 目标端契约、按表文件状态及 schema store 本地验证；外部 state store 待执行 |
+| P4 | 类型与 schema 演进 | 类型矩阵、Relation 版本、列增删改、publication 过滤/投影/分区变更逐项对照；未知类型明确处理 | codec 和有序 DDL 规划差分验证；目标端执行/恢复待执行 |
 | P5 | 目标端及运行方式 | 自定义目标端、独立运行程序及上游内置目标端逐项映射；本地可测逐一验证，需要外部服务的能力单列验证条件 | 待执行，内置目标端先核查稳定性 |
 | P6 | 故障及一致性验收 | 两端同输入输出归一化比对；进程中断、重试、空闲 WAL、资源上限和长期运行证据；文档/示例/独立消费者与接口同步 | 随每阶段推进，最终汇总 |
 
@@ -45,7 +45,7 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 | 初始复制与 WAL 追赶 | 独立逐表快照、主 worker 并发 apply、临时槽追赶及持久 cutoff 交接已实测；逐表错误隔离/重试和存储 decoding masks 待实现 |
 | StateStore / SchemaStore | 源绑定 checkpoint、逐表文件状态、公开 SchemaStore、schema 原子文件版本及显式清理已实现；外部 StateStore、自动清理协调、目标端创建状态待实现 |
 | Destination accepted/durable | 单实例有序写入、累计屏障、空闲刷新、正常停止和批次 ID 已实测；并发表复制、目标端持久元数据及具体后端隔离待实现 |
-| 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`、版本顺序/作用域/原始上游触发器已实测；完整 decoding masks、目标端列演进待实现 |
+| 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`；公开投影/identity masks、有序列 DDL 规划已差分验证；连接内完整 decoding-state 恢复、目标端 DDL 执行待实现 |
 | 类型转换 | 已有类型化文本 Cell、精确 numeric、日期/时间/JSON/UUID/bytea/可空一维数组；未知标量保留文本；PG17/18 快照及 WAL 矩阵已实测，固定上游 codec 320 向量进程差分通过；不是全部输入的等价证明 |
 | 独立 replicator | 当前为嵌入式库及示例；配置、持久运行状态、健康/指标、优雅退出待实现 |
 | ClickHouse | 上游 private alpha；本地优先实现 ReplacingMergeTree / MergeTree、主键变化墓碑、truncate 与 schema 契约 |
@@ -132,3 +132,12 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   flush 失败时拒绝交接，以及 checkpoint 已前进情况下只重建 B 后与 SQL 源状态一致。
   新行为下 PG17/18 的 SIGKILL 新进程恢复也通过；普通 native 64/64，release 和独立源码包消费者通过。
   逐表错误隔离/重试、外部 StateStore、完整 schema 演进和目标端仍未对齐。
+- P4 schema 规划：公开 ReplicatedSchema，分别保留 publication/identity masks、主键覆盖与
+  行类型转换；SchemaSnapshot 增加规范 JSON 往返，外部 SchemaStore 可恢复完整私有元数据。
+  按 attnum 识别列身份，区分物理增删与 publication 投影变化；先 drop、解开 rename
+  链/循环、add，再执行 type/nullability/default 单字段状态转换；主键变更单独报告。
+  固定官方 ETL planner 77 个向量逐操作一致，覆盖全部三列掩码组合、名称映射碰撞、
+  rename 循环及临时名称占用。`tools/codec-reference-test.mbtx` 同时运行 codec/schema 差分。
+  普通 native 68/68；PG17/18 原始上游 DDL 消息产生的 add/not-null/publication-remove
+  计划逐项通过；规范 JSON、投影及规划 API 有外部消费者测试。
+  此阶段提供规划 API，不代表各目标端已经能执行或恢复这些 DDL。

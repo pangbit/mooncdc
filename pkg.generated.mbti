@@ -93,6 +93,24 @@ pub fn Column::not_equal(Self, Self) -> Bool
 pub fn Column::to_json(Self) -> Json
 pub fn Column::to_repr(Self) -> @debug.Repr
 
+pub(all) enum ColumnAlteration {
+  Rename
+  DataType
+  Nullability
+  DefaultExpression
+} derive(Eq, @debug.Debug)
+pub fn ColumnAlteration::equal(Self, Self) -> Bool
+pub fn ColumnAlteration::not_equal(Self, Self) -> Bool
+pub fn ColumnAlteration::to_repr(Self) -> @debug.Repr
+
+pub(all) enum ColumnPresenceReason {
+  TableSchema
+  Publication
+} derive(Eq, @debug.Debug)
+pub fn ColumnPresenceReason::equal(Self, Self) -> Bool
+pub fn ColumnPresenceReason::not_equal(Self, Self) -> Bool
+pub fn ColumnPresenceReason::to_repr(Self) -> @debug.Repr
+
 pub(all) struct ConnectionConfig {
   host : String
   port : Int
@@ -114,6 +132,16 @@ pub struct Diagnostics {
 } derive(ToJson, @debug.Debug)
 pub fn Diagnostics::to_json(Self) -> Json
 pub fn Diagnostics::to_repr(Self) -> @debug.Repr
+
+pub(all) enum IdentityKind {
+  Missing
+  PrimaryKey
+  FullRow
+  AlternativeKey
+} derive(Eq, @debug.Debug)
+pub fn IdentityKind::equal(Self, Self) -> Bool
+pub fn IdentityKind::not_equal(Self, Self) -> Bool
+pub fn IdentityKind::to_repr(Self) -> @debug.Repr
 
 pub struct LogicalMessage {
   transactional : Bool
@@ -196,6 +224,22 @@ pub fn Relation::not_equal(Self, Self) -> Bool
 pub fn Relation::to_json(Self) -> Json
 pub fn Relation::to_repr(Self) -> @debug.Repr
 
+pub struct ReplicatedSchema {
+  schema : SchemaSnapshot
+  replicated : ReadOnlyArray[Bool]
+  identity : ReadOnlyArray[Bool]
+} derive(Eq, @debug.Debug)
+pub fn ReplicatedSchema::all_primary_keys_replicated(Self) -> Bool
+pub fn ReplicatedSchema::columns(Self) -> ReadOnlyArray[SchemaColumn]
+pub fn ReplicatedSchema::decode_row(Self, ReadOnlyArray[Value]) -> ReadOnlyArray[Cell] raise
+pub fn ReplicatedSchema::equal(Self, Self) -> Bool
+pub fn ReplicatedSchema::identity_kind(Self) -> IdentityKind
+pub fn ReplicatedSchema::new(SchemaSnapshot, replicated~ : ReadOnlyArray[Bool], identity~ : ReadOnlyArray[Bool]) -> Self raise
+pub fn ReplicatedSchema::not_equal(Self, Self) -> Bool
+pub fn ReplicatedSchema::plan_change(Self, Self, map_name? : (String) -> String) -> SchemaPlan raise
+pub fn ReplicatedSchema::to_repr(Self) -> @debug.Repr
+pub fn ReplicatedSchema::with_schema(Self, SchemaSnapshot) -> Self raise
+
 pub struct SchemaColumn {
   name : String
   type_oid : UInt
@@ -224,6 +268,24 @@ pub fn SchemaId::op_le(Self, Self) -> Bool
 pub fn SchemaId::op_lt(Self, Self) -> Bool
 pub fn SchemaId::to_repr(Self) -> @debug.Repr
 
+pub(all) enum SchemaOperation {
+  DropColumn(SchemaColumn, reason~ : ColumnPresenceReason)
+  AddColumn(SchemaColumn, reason~ : ColumnPresenceReason)
+  AlterColumn(before~ : SchemaColumn, after~ : SchemaColumn, kind~ : ColumnAlteration)
+} derive(Eq, @debug.Debug)
+pub fn SchemaOperation::equal(Self, Self) -> Bool
+pub fn SchemaOperation::not_equal(Self, Self) -> Bool
+pub fn SchemaOperation::to_repr(Self) -> @debug.Repr
+
+pub struct SchemaPlan {
+  operations : ReadOnlyArray[SchemaOperation]
+  primary_key_changed : Bool
+  has_rename_cycles : Bool
+} derive(Eq, @debug.Debug)
+pub fn SchemaPlan::equal(Self, Self) -> Bool
+pub fn SchemaPlan::not_equal(Self, Self) -> Bool
+pub fn SchemaPlan::to_repr(Self) -> @debug.Repr
+
 pub struct SchemaSnapshot {
   id : SchemaId
   oid : UInt
@@ -234,10 +296,14 @@ pub struct SchemaSnapshot {
   // private fields
 } derive(@debug.Debug)
 pub fn SchemaSnapshot::equal(Self, Self) -> Bool
+pub fn SchemaSnapshot::from_json(Json) -> Self raise
 pub fn SchemaSnapshot::not_equal(Self, Self) -> Bool
+pub fn SchemaSnapshot::project(Self, Relation) -> ReplicatedSchema raise
 pub fn SchemaSnapshot::relation(Self, ReadOnlyArray[String]) -> Relation raise
+pub fn SchemaSnapshot::to_json(Self) -> Json
 pub fn SchemaSnapshot::to_repr(Self) -> @debug.Repr
 pub impl Eq for SchemaSnapshot
+pub impl ToJson for SchemaSnapshot
 
 pub(all) enum Security {
   LocalPlaintext
