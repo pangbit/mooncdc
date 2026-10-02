@@ -23,6 +23,7 @@ pub async fn[T] with_file_schema_store(String, identity~ : String, async (&Schem
 // Errors
 pub suberror CdcError {
   Protocol(String)
+  Conversion(String)
   Authentication(String)
   Server(String, String)
   InvalidConfig(String)
@@ -39,6 +40,32 @@ pub struct ApplyControl {
 }
 pub fn ApplyControl::ApplyControl() -> Self
 pub fn ApplyControl::stop(Self) -> Unit
+
+pub(all) enum Cell {
+  SqlNull
+  ToastUnchanged
+  Bool(Bool)
+  String(String)
+  I16(Int16)
+  I32(Int)
+  I64(Int64)
+  U32(UInt)
+  F32(Float)
+  F64(Double)
+  Numeric(String)
+  Date(PgDate)
+  Time(PgTime)
+  TimeTz(PgTime, offset_seconds~ : Int)
+  Timestamp(PgTimestamp)
+  TimestampTz(PgTimestamp)
+  Uuid(Bytes)
+  Json(Json)
+  Bytes(Bytes)
+  Array(ReadOnlyArray[Cell])
+} derive(Eq, @debug.Debug)
+pub fn Cell::equal(Self, Self) -> Bool
+pub fn Cell::not_equal(Self, Self) -> Bool
+pub fn Cell::to_repr(Self) -> @debug.Repr
 
 pub(all) enum Change {
   RelationChanged(Relation)
@@ -123,6 +150,32 @@ pub fn OldTuple::equal(Self, Self) -> Bool
 pub fn OldTuple::not_equal(Self, Self) -> Bool
 pub fn OldTuple::to_json(Self) -> Json
 pub fn OldTuple::to_repr(Self) -> @debug.Repr
+
+pub(all) enum PgDate {
+  Finite(year~ : Int, month~ : Int, day~ : Int)
+  PosInfinity
+  NegInfinity
+} derive(Eq, @debug.Debug)
+pub fn PgDate::equal(Self, Self) -> Bool
+pub fn PgDate::not_equal(Self, Self) -> Bool
+pub fn PgDate::to_repr(Self) -> @debug.Repr
+
+pub struct PgTime {
+  seconds : Int
+  nanoseconds : Int
+} derive(Eq, @debug.Debug)
+pub fn PgTime::equal(Self, Self) -> Bool
+pub fn PgTime::not_equal(Self, Self) -> Bool
+pub fn PgTime::to_repr(Self) -> @debug.Repr
+
+pub(all) enum PgTimestamp {
+  Finite(date~ : PgDate, time~ : PgTime)
+  PosInfinity
+  NegInfinity
+} derive(Eq, @debug.Debug)
+pub fn PgTimestamp::equal(Self, Self) -> Bool
+pub fn PgTimestamp::not_equal(Self, Self) -> Bool
+pub fn PgTimestamp::to_repr(Self) -> @debug.Repr
 
 pub struct PipelineStatus {
   slot : String
@@ -277,6 +330,7 @@ pub(all) enum Value {
   Binary(Bytes)
   UnchangedToast
 } derive(Eq, ToJson, @debug.Debug)
+pub fn Value::decode_text(Self, UInt, array_element_oid? : UInt) -> Cell raise
 pub fn Value::equal(Self, Self) -> Bool
 pub fn Value::not_equal(Self, Self) -> Bool
 pub fn Value::to_json(Self) -> Json

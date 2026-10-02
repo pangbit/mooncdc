@@ -244,6 +244,29 @@ the library never installs database-wide triggers. The pinned unmodified SQL in
 planning, stored decoding masks/worker handover and automatic schema-retention coordination
 remain separate work.
 
+## Typed text cells
+
+`value.decode_text(type_oid, array_element_oid?)` converts PostgreSQL text transfer into
+`Cell`: bool, signed int2/int4/int8, unsigned oid, float4/float8, exact numeric text, bytea,
+UUID bytes, JSON, date/time/timetz/timestamp/timestamptz and one-dimensional arrays of these
+types. Text/name/varchar/bpchar and unknown scalar OIDs remain String. Supply a catalog
+element OID for custom arrays. Nested arrays are rejected; explicit lower bounds are
+validated and discarded, matching the reference's one-dimensional value representation.
+Quoted `"NULL"` stays a string while unquoted NULL becomes SqlNull. ToastUnchanged is
+distinct from SqlNull and JSON null. Binary transfer is rejected by this text-only API.
+
+Numeric retains exact decimal text and scale without floating-point conversion. UUIDs
+are 16 bytes. Dates use astronomical years (1 BC = 0), with the reference's finite calendar
+range -262143 through 262142. Date/timestamp infinities remain explicit variants. Time
+uses seconds and nanoseconds; seconds=86400 distinguishes 24:00:00 from midnight. Timetz
+preserves local time and its offset; timestamptz normalizes to UTC across date/era changes.
+Conversion errors never silently substitute a null or rounded integer.
+
+All connections request ISO/YMD dates, UTC timezone, hexadecimal bytea, extra_float_digits=3
+and PostgreSQL interval formatting at startup, including reconnect and snapshot readers.
+Raw Value remains available and typed conversion is explicit. This interface does not add
+numeric arithmetic or destination-specific coercions.
+
 ## Limits and diagnostics
 
 | Option | Default | Meaning |

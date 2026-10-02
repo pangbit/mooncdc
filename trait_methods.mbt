@@ -144,3 +144,27 @@ pub extend SchemaSnapshot with Eq::{equal, not_equal}
 
 ///|
 pub extend SchemaSnapshot with Debug::{to_repr}
+
+///|
+pub extend Cell with Eq::{equal, not_equal}
+
+///|
+pub extend Cell with Debug::{to_repr}
+
+///|
+pub extend PgDate with Eq::{equal, not_equal}
+
+///|
+pub extend PgDate with Debug::{to_repr}
+
+///|
+pub extend PgTime with Eq::{equal, not_equal}
+
+///|
+pub extend PgTime with Debug::{to_repr}
+
+///|
+pub extend PgTimestamp with Eq::{equal, not_equal}
+
+///|
+pub extend PgTimestamp with Debug::{to_repr}

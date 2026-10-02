@@ -106,6 +106,9 @@ async fn connect(
         ("database", config.database),
         ("client_encoding", "UTF8"),
         ("application_name", "mooncdc"),
+        (
+          "options", "-c DateStyle=ISO,YMD -c TimeZone=UTC -c bytea_output=hex -c extra_float_digits=3 -c IntervalStyle=postgres",
+        ),
       ] {
       cstring(body, k)
       cstring(body, v)

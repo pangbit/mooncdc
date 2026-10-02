@@ -22,7 +22,8 @@ async fn main {
   }
   for
     required in [
-      "LICENSE", "README.mbt.md", "moon.mod", "moon.pkg", "subscription.mbt", "snapshot.mbt", "destination.mbt", "examples/resume/main.mbt",
+      "LICENSE", "README.mbt.md", "moon.mod", "moon.pkg", "subscription.mbt", "snapshot.mbt",
+      "destination.mbt", "pipeline.mbt", "schema_store.mbt", "cell.mbt", "examples/resume/main.mbt",
     ] {
     assert_true(contents.split("\n").any(path => path == required))
   }
@@ -50,6 +51,9 @@ async fn main {
     #|  assert_true(@cdc.Null != @cdc.UnchangedToast)
     #|  assert_true(@cdc.Binary(b"\x00\xff") != @cdc.Null)
     #|  assert_true(@cdc.Accepted != @cdc.Durable)
+    #|  assert_eq(@cdc.Text("42").decode_text(23U), @cdc.I32(42))
+    #|  assert_eq(@cdc.Null.decode_text(25U), @cdc.SqlNull)
+    #|  assert_eq(@cdc.SchemaId::before_lsn(@cdc.Lsn::parse("1/0")).commit_lsn.to_string(), "0/FFFFFFFF")
     #|  let control = @cdc.ApplyControl()
     #|  control.stop()
     #|  let config : @cdc.ConnectionConfig = {

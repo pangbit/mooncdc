@@ -2,6 +2,9 @@
 
 ## 0.1.0 — Unreleased
 
+- Add typed PostgreSQL text cells, exact numeric text, temporal infinities/BC/24h,
+  nullable arrays and stable session output formats for snapshots and replication.
+
 - Add Supabase ETL DDL parsing, ordered schema versions, publication-scoped handling,
   full snapshot schemas and an atomic schema store with replay checks and retention bounds.
 

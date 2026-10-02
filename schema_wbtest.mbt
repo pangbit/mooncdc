@@ -8,7 +8,7 @@ fn ddl_fixture(
     "command_tag": command.to_json(),
     "publication_name": match publication {
       Some(value) => value.to_json()
-      None => Null
+      None => Json::null()
     },
     "nspname": "public",
     "relname": "items",
@@ -40,7 +40,7 @@ fn ddl_fixture(
         "atttypmod": -1,
         "attnum": 2,
         "attnotnull": false,
-        "default_expression": Null,
+        "default_expression": Json::null(),
       },
     ],
     "future_field": { "ignored": true },

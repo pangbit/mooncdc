@@ -46,7 +46,7 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 | StateStore / SchemaStore | 源绑定 checkpoint、逐表文件状态、公开 SchemaStore、schema 原子文件版本及显式清理已实现；外部 StateStore、自动清理协调、目标端创建状态待实现 |
 | Destination accepted/durable | 单实例有序写入、累计屏障、空闲刷新、正常停止和批次 ID 已实测；并发表复制、目标端持久元数据及具体后端隔离待实现 |
 | 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`、版本顺序/作用域/原始上游触发器已实测；完整 decoding masks、目标端列演进待实现 |
-| 类型转换 | 原始 Text/Binary/NULL/TOAST 已实现；ETL 的布尔、数值、时间、JSON、数组及未知类型矩阵待实现 |
+| 类型转换 | 已有类型化文本 Cell、精确 numeric、日期/时间/JSON/UUID/bytea/可空一维数组；未知标量保留文本；PG17/18 快照及 WAL 矩阵已实测，上游 codec 进程差分待执行 |
 | 独立 replicator | 当前为嵌入式库及示例；配置、持久运行状态、健康/指标、优雅退出待实现 |
 | ClickHouse | 上游 private alpha；本地优先实现 ReplacingMergeTree / MergeTree、主键变化墓碑、truncate 与 schema 契约 |
 | BigQuery | 上游 stable；Storage Write API、CDC、目标端持久偏移、布局配置及真云验证待实现 |
@@ -107,3 +107,9 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 - P6 逐表进程恢复：PG17/18 均在 B 表首批业务数据持久化、状态仍为 Copying 时真实
   SIGKILL worker。新进程验证 A 表不重置、B 表重置一次、主 checkpoint 未提前推进，
   追赶崩溃前后跨表 WAL 后目标内容与 SQL 查询完全一致。工具已纳入 CI；不声称掉电验证。
+- P4 类型：`Value.decode_text` 输出类型化 Cell，覆盖有符号宽度/OID、float、精确 numeric
+  文本、bytea、UUID、JSON、BC/扩展年份、infinity、24:00:00、UTC 时区归一化及一维可空数组。
+  PG17/18 已对照初始快照与 WAL 的相同字段值；连接固定输出 GUC，写入会话的其他设置
+  不改变消费者值。未知标量保留文本，自定义数组可提供 element OID。二进制仍为独立原始 API。
+  Rust 上游 codec 的逐向量进程差分和目标端类型映射尚未完成，不扩大本阶段结论。
+  普通 native 62/62，PG17/18 完整 live 各 15/15；独立源码包消费者通过。

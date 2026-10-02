@@ -76,7 +76,9 @@ let config : @cdc.ConnectionConfig = {
   首版密码限定可打印 ASCII，明确拒绝需要 SASLprep 的非 ASCII 密码。
 - `run_pipeline` 提供持久逐表状态、并行独立快照、重启后失败表重建和增量追赶；
   完成的表保留快照进度，队列满时背压。运行中新发布表在首次 WAL 事件时发现并复制。
-- 不提供自动切主、两阶段事务、完整 DDL 或原生 SQL 类型解码。
+- `Value.decode_text(oid)` 提供类型化 Cell，支持精确数值、日期时间、JSON、UUID、bytea 和
+  一维数组；SQL NULL、JSON null 与未变化 TOAST 分开表示。未知标量保留文本。
+- 不提供自动切主、两阶段事务或完整目标端 DDL 规划。
   不承诺跨系统恰好一次。
 
 `replica identity` 决定旧值是否存在。`FULL` 能提供较完整旧行；默认主键身份可能仅有
