@@ -35,6 +35,13 @@ Choose `max_slot_wal_keep_size` and storage alarms deliberately: a finite cap ca
 a lagging slot, while an unlimited slot can fill the disk. Set client heartbeat below
 `wal_sender_timeout` and avoid blocking the MoonBit event loop with long CPU-bound callbacks.
 
+Heartbeat feedback reports only the business-durable position. If published tables are
+quiet while unrelated tables generate WAL, a healthy connection can still retain increasing
+WAL; server-end progress does not advance the checkpoint. Monitor retained WAL even when
+reconnects and outstanding transactions are zero. This behavior is covered by the
+[isolated PG17/18 validation](reports/SLOT_SAFETY_VALIDATION.md). Do not externally advance
+the slot to hide this growth: a slot ahead of the checkpoint is rejected on resume.
+
 When a frame/transaction/queue limit is reached, business ack does not advance. Diagnose
 the oversized workload or slow sink, adjust the appropriate limit and resume. A missing,
 invalidated or externally advanced slot requires operator intervention and usually a new

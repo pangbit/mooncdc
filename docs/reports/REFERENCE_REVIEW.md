@@ -78,11 +78,11 @@ Debezium 文档提供的检查线索包括 offset 与槽进度不一致、不可
 | 乱序 ack、检查点写失败、立即心跳 | 本次新增 TCP 用例通过 | 五阶段反馈位置与上文完全一致 |
 | 断线及重连各阶段失败 | 已有 `reconnect_wbtest.mbt`，本次普通套件执行 | 重试有界，源改变立即失败，耗尽返回最后错误 |
 | 缺槽、错误 publication、检查点损坏 | 已有 live 和普通用例 | 明确失败；不自动创建槽或跳到最新位置 |
-| 槽 confirmed/restart LSN 超前或已失效 | `start_replication` 有拒绝分支；缺少对应专门用例 | **优先补测**：peer 分别返回超前位置、`lost`、非空 invalidation_reason；断言在 START_REPLICATION 前失败且文件不变。真实 WAL 失效需另用隔离库制造 |
+| 槽 confirmed/restart LSN 超前或已失效 | 后续 `resume_wbtest.mbt` 覆盖客户端分支；[真实槽验证](SLOT_SAFETY_VALIDATION.md) 覆盖 PG17/18 外部推进与 WAL 失效 | 客户端 Resume/重连共 8 个场景；真实库恢复拒绝且 checkpoint 字节不变 |
 | NULL、TOAST、主键变化、Relation 更新、truncate | 已有 `decoder_wbtest.mbt` 和 `advanced_wbtest.mbt` | 普通解码本次执行；真实 PG17/18 场景保留在 live 套件 |
 | 帧、事务和未确认队列超限 | 已有单元与 live 用例 | 明确失败且 checkpoint 不前进；提高限制后完整重放 |
 | 业务写入与检查点之间进程终止 | 已有独立 SIGKILL 工具及历史报告 | 本次未重跑；验收需新进程恢复、稳定 ID 和重复边界，而非仅异常注入 |
-| 低流量 publication，但其他表持续产生 WAL | durable-only 策略已确认；无专项持续运行证据 | **后续隔离实测**：只写未订阅表，观察 retained WAL 与 checkpoint；心跳存活不代表槽能释放所有无关 WAL |
+| 低流量 publication，但其他表持续产生 WAL | [PG17/18 三次采样](SLOT_SAFETY_VALIDATION.md)确认心跳存活但 retained WAL 增长 | 已有短时正确性证据；不外推为持续运行容量或长期磁盘增长速率 |
 | 恢复期间同名 publication 改过滤条件或列清单 | 仅绑定名称；[OPERATIONS](../OPERATIONS.md) 已要求保持定义稳定 | 属于运维前提；若要支持在线修改，先设计定义绑定及重新初始化语义 |
 | 分区根发布、行过滤、列投影和最小权限角色 | 当前专门兼容性证据不足 | **后续矩阵**：明确配置后在 PG17/18 验证事件表身份、列数量和权限错误 |
 | 一致性快照、自动切主、两阶段事务 | 首版明确不支持 | 属于新功能范围，不能用普通套件通过代替支持声明 |
@@ -108,3 +108,35 @@ Debezium 文档提供的检查线索包括 offset 与槽进度不一致、不可
 本次没有启动 PostgreSQL、运行上游项目、执行性能测试或重跑远端 CI。
 已有 PG17/18 与 SIGKILL 证据的版本和边界以 [VALIDATION_FOLLOWUP](VALIDATION_FOLLOWUP.md)
 为准，不能视作本次新增用例的数据库兼容性证明。
+
+## 恢复拒绝测试跟进
+
+2026-10-02，在已提交的参考核查 `b753b5d5c1e1b1f2fb6e9d85f55b30fd9eb50298`
+基础上，新增 [resume_wbtest.mbt](../../resume_wbtest.mbt)。这次继续推进只修改测试和文档，
+生产逻辑及公共接口不变。
+
+| peer 返回的异常 | 首次 Resume | 保留未确认事务后重连 |
+|---|---|---|
+| restart LSN `0/20` 高于 durable `0/10` | 拒绝，通过 | 拒绝，通过 |
+| confirmed LSN `0/20` 高于 durable `0/10` | 拒绝，通过 | 拒绝，通过 |
+| `wal_status=lost` | 拒绝，通过 | 拒绝，通过 |
+| 非空 `invalidation_reason=wal_removed` | 拒绝，通过 | 拒绝，通过 |
+
+测试逐一隔离四个拒绝条件，合成 catalog 行不代表 PostgreSQL 一定会产生该字段组合。
+重连前已交付 end LSN 为 `0/65` 的事务，但没有 ack；即使槽位置 `0/20` 低于 received，
+仍必须相对于 durable `0/10` 拒绝恢复。每个场景同时验证：
+
+- 返回预期的 `UnsafeResume` 原因，未进入成功消费路径。
+- peer 收到连接关闭，而非后续查询、START_REPLICATION 或反馈报文。
+- 重连计数为 1，即使允许 3 次重试也立即终止；未确认事务仍未被 ack。
+- 检查点大小和全部字节保持不变，解析所得 LSN 不变，退出后可重新取得独占锁。
+
+`moon test --target native --filter '*slots*'`：2/2 测试通过，覆盖上述 8 个场景。
+清除 live/worker 环境开关后，完整普通套件 24/24 runner entries 通过：18 个执行体
+活跃，5 个 live 体和 1 个进程 worker 未启用。`moon check --target native --deny-warn`、
+`moon info --target native`、`moon fmt`、`moon fmt --check`、`git diff --check` 均通过，
+生成的 `.mbti` 无变化。
+
+该轮关闭了客户端协议测试缺口，没有操作数据库、运行进程故障测试或执行远端 CI。
+随后完成的隔离 PostgreSQL 槽推进、WAL 失效及低流量 WAL 保留实测，单独记录于
+[真实槽验证报告](SLOT_SAFETY_VALIDATION.md)，不改变上面各轮历史结果的范围。

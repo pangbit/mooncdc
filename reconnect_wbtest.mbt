@@ -22,6 +22,7 @@ async fn mock_replication(
   tcp : @socket.Tcp,
   mode : String,
   stream? : async (@socket.Tcp) -> Unit,
+  rejected_slot? : Array[String?],
 ) -> Unit {
   let size = Cursor::new(tcp.read_exactly(4)).i32()
   ignore(tcp.read_exactly(size - 4))
@@ -55,6 +56,13 @@ async fn mock_replication(
         return
       }
     } else if query.has_prefix("SELECT plugin") {
+      if rejected_slot is Some(fields) {
+        mock_row(tcp, fields)
+        // Rejection must close before any publication query, START_REPLICATION,
+        // or feedback is sent on this connection.
+        assert_eq(tcp.read_some(), None)
+        return
+      }
       mock_row(tcp, [
         Some("pgoutput"),
         Some("db"),

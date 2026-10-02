@@ -71,12 +71,43 @@ this fixture; private keys must never be committed or packaged.
   after a failed checkpoint write, after a successful retry, and on a requested keepalive
   reply. See the [cross-language reference review](reports/REFERENCE_REVIEW.md) for the
   protocol comparison and remaining scenario gaps.
+- Unsafe-slot peers independently return advanced restart/confirmed positions, lost WAL,
+  and an invalidation reason on initial Resume and reconnect. They assert closure before
+  START_REPLICATION, unchanged checkpoint bytes, lock release, and immediate fatal failure
+  despite remaining retries. Reconnect retains unacknowledged work so received progress
+  cannot accidentally substitute for durable progress. Synthetic catalog rows isolate
+  client guards; they do not demonstrate actual PostgreSQL WAL invalidation.
 
 Without `MOONCDC_TEST_PORT`, live test bodies are skipped. Without `MOONCDC_TEST_CA`,
 the TLS test body is skipped. Record environment variables along with test totals;
 the test runner does not have a separate skipped-body count.
+The additional slot-safety body uses only `MOONCDC_SLOT_TEST_PORT` and is inactive
+in both the ordinary suite and the `live*` suite; run it separately as below.
 The checkpoint process worker is inactive during ordinary suites; only its orchestrator
 sets `MOONCDC_CHECKPOINT_DIR/PHASE/STAGE` to execute that body in a separate process.
+
+## Isolated slot safety tests
+
+The dedicated fixture uses database `mooncdc_slot_safety`, loopback ports 55428/55427,
+and `max_slot_wal_keep_size=0`. It must not share a server with other test slots.
+The test advances its own slot, samples a quiet publication while writing an unrelated
+table, then switches WAL and runs CHECKPOINT to cause actual `wal_removed` invalidation.
+The invalidation loop is capped at eight 16 MiB segment switches and the whole body
+has a 60-second timeout. These are bounded correctness tests, not a throughput or soak run.
+
+```sh
+docker compose -p mooncdc-slot-test -f integration/slot-safety.compose.yaml up -d --wait
+MOONCDC_SLOT_TEST_PORT=55428 moon test --target native --filter 'slot safety live*'
+MOONCDC_SLOT_TEST_PORT=55427 moon test --target native --filter 'slot safety live*'
+docker compose -p mooncdc-slot-test -f integration/slot-safety.compose.yaml logs
+docker compose -p mooncdc-slot-test -f integration/slot-safety.compose.yaml down -v
+```
+
+Preserve failed logs before cleanup; run `down -v` even after a failure. The body requires
+an empty slot catalog and creates its own tables/publication without overwriting existing
+ones. Success removes all owned SQL fixtures; container cleanup also handles partial failure.
+CI runs this body in a separate process and fixture for each PostgreSQL version.
+See [slot safety validation](reports/SLOT_SAFETY_VALIDATION.md) for local results and limits.
 
 ## Cleanup
 

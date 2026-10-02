@@ -36,8 +36,10 @@ jobs:
         include:
           - service: pg18
             port: 55418
+            slot_port: 55428
           - service: pg17
             port: 55417
+            slot_port: 55427
     steps:
       - uses: actions/checkout@v5
       - name: Install MoonBit
@@ -64,6 +66,16 @@ jobs:
       - run: moon run tools/checkpoint-crash-test.mbtx
         env:
           MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
+      - name: Start isolated WAL invalidation fixture
+        run: docker compose -p mooncdc-slot-test -f integration/slot-safety.compose.yaml up -d --wait ${{ matrix.service }}
+      - name: Check slot safety and quiet publication WAL
+        run: moon test --target native --filter 'slot safety live*'
+        env:
+          MOONCDC_SLOT_TEST_PORT: ${{ matrix.slot_port }}
+      - if: always()
+        run: docker compose -p mooncdc-slot-test -f integration/slot-safety.compose.yaml logs
+      - if: always()
+        run: docker compose -p mooncdc-slot-test -f integration/slot-safety.compose.yaml down -v
       - if: always()
         run: docker compose -p mooncdc-test -f integration/compose.yaml logs
       - if: always()
