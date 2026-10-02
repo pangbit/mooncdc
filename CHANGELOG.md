@@ -2,6 +2,8 @@
 
 ## 0.1.0 — Unreleased
 
+- Add opt-in pgoutput binary transfer and raw Binary values; preserve negotiation on reconnect.
+
 - Retry transient failures throughout reconnect startup, identification and COPY BOTH;
   close failed attempts and surface the latest error when the retry budget is exhausted.
 - Add protocol fault regressions and real SIGKILL tests at five internal checkpoint boundaries.

@@ -71,8 +71,14 @@ TOAST values. `UnchangedToast` means retain the previously known value, or fetch
 state if it is unavailable. It never means SQL NULL. Truncate can affect multiple relations
 and carries cascade/restart-identity flags.
 
-Only protocol v1, text transfer, committed transactions and UTF-8 client encoding are
-supported. Streaming large in-progress transactions, binary fields, two-phase transactions,
+Protocol v1 supports default text transfer or explicit `subscribe(..., binary=true)`.
+Binary fields are exposed as `Value::Binary(Bytes)` without UTF-8 conversion or native
+SQL type decoding; use each column's OID to interpret its wire format. PostgreSQL may
+fall back to text for types without binary output, so handle both Text and Binary.
+The transfer choice is retained during reconnect. Adding the Binary variant requires
+consumers with exhaustive Value matches to add a branch.
+Only committed transactions and UTF-8 text encoding are supported.
+Streaming large in-progress transactions and two-phase transactions,
 failover and initial snapshots are outside scope. Unknown messages fail explicitly.
 
 ## Limits and diagnostics

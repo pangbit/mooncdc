@@ -14,3 +14,12 @@ test "LSN roundtrip unsigned ordering and strict syntax" {
     }
   }
 }
+
+///|
+test "binary values remain distinct from text null and unchanged TOAST" {
+  let value = @mooncdc.Binary(b"\x00\xff\x80")
+  assert_true(value is @mooncdc.Binary(b"\x00\xff\x80"))
+  assert_true(value != @mooncdc.Null)
+  assert_true(value != @mooncdc.UnchangedToast)
+  assert_true(value != @mooncdc.Text(""))
+}

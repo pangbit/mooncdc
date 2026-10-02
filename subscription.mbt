@@ -26,6 +26,7 @@ pub struct Subscription {
   priv mut reconnects : Int
   priv mut closed : Bool
   priv max_pending : Int
+  priv binary : Bool
 }
 
 ///|
@@ -226,7 +227,13 @@ async fn Subscription::receive(
                 self.source {
                 raise UnsafeResume("source changed during reconnect")
               }
-              start_replication(next, self.source, self.durable, self.received)
+              start_replication(
+                next,
+                self.source,
+                self.durable,
+                self.received,
+                binary=self.binary,
+              )
             })
             next
           } catch {
@@ -264,6 +271,7 @@ pub async fn[T] subscribe(
   heartbeat_ms? : Int = 1000,
   max_reconnects? : Int = 3,
   reconnect_delay_ms? : Int = 250,
+  binary? : Bool = false,
 ) -> T {
   identifier(slot)
   identifier(publication)
@@ -307,7 +315,7 @@ pub async fn[T] subscribe(
     Resume => load_checkpoint(checkpoint_path, source)
   }
   @async.with_timeout(connection.timeout_ms, () => {
-    start_replication(conn, source, position, position)
+    start_replication(conn, source, position, position, binary~)
   })
   if start is At(_) {
     save_checkpoint(checkpoint_path, source, position)
@@ -335,6 +343,7 @@ pub async fn[T] subscribe(
     reconnects: 0,
     closed: false,
     max_pending: max_pending_transactions,
+    binary,
   }
   defer sub.close()
   @async.with_task_group(group => {

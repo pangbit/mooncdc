@@ -54,7 +54,8 @@ fn Cursor::tuple(
       b'n' => Null
       b'u' => UnchangedToast
       b't' => Text(@utf8.decode(self.take(self.i32()), ignore_bom=true))
-      _ => raise Protocol("unknown or binary tuple field")
+      b'b' => Binary(self.take(self.i32()))
+      _ => raise Protocol("unknown tuple field")
     }
   })
 }

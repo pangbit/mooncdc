@@ -1,8 +1,9 @@
 ///|
-/// Text transfer preserves SQL NULL and unchanged out-of-line TOAST distinctly.
+/// Raw transfer values preserve SQL NULL and unchanged out-of-line TOAST distinctly.
 pub(all) enum Value {
   Null
   Text(String)
+  Binary(Bytes)
   UnchangedToast
 } derive(Eq, Debug, ToJson)
 
