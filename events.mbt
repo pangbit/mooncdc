@@ -70,6 +70,7 @@ pub struct Transaction {
   changes : ReadOnlyArray[Change]
   priv session : String
   priv sequence : Int
+  priv projected_ids : ReadOnlyArray[String?]?
 } derive(Debug)
 
 ///|
@@ -91,6 +92,9 @@ pub impl ToJson for Transaction with fn to_json(self) {
 pub fn Transaction::event_id(self : Transaction, index : Int) -> String? {
   if index < 0 || index >= self.changes.length() {
     return None
+  }
+  if self.projected_ids is Some(ids) {
+    return ids[index]
   }
   let mut ordinal = 0
   for i in 0..<=index {

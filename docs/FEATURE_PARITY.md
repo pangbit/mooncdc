@@ -24,8 +24,8 @@
 |---|---|---|---|
 | P0 | 固化已有协议、恢复和槽安全证据 | native 普通套件、PG17/18 槽推进/失效/低流量 WAL 实测；提交可追溯 | 已提交 `5089e3a` |
 | P1 | 字段 binary 传输、逻辑消息；v2 单列协议补充 | 原始字节不损坏；NULL/TOAST 保留；重连维持协商；逻辑消息提交/回滚及异常边界；PG17/18 实测与参照差分 | binary 与逻辑消息本地验证；差分待执行 |
-| P2 | 一致性快照与增量衔接 | 导出快照、并发写入期间全量复制与增量追赶后最终状态相同；中断重建不静默遗漏；批次内存有界 | 基础快照本地验证；按表协调及自动重建待执行 |
-| P3 | 持久状态与目标端契约 | 区分接收和持久完成；失败不推进 checkpoint；启动恢复、优雅退出、旧任务隔离和幂等批次可测 | 目标端基础契约及快照 checkpoint 本地验证；按表状态待执行 |
+| P2 | 一致性快照与增量衔接 | 导出快照、并发写入期间全量复制与增量追赶后最终状态相同；中断重建不静默遗漏；批次内存有界 | 逐表持久恢复、并行复制及 WAL 追赶本地验证；完整 worker handover 待执行 |
+| P3 | 持久状态与目标端契约 | 区分接收和持久完成；失败不推进 checkpoint；启动恢复、优雅退出、旧任务隔离和幂等批次可测 | 目标端契约、按表文件状态本地验证；schema store 和外部 state store 待执行 |
 | P4 | 类型与 schema 演进 | 类型矩阵、Relation 版本、列增删改、publication 过滤/投影/分区变更逐项对照；未知类型明确处理 | 待执行 |
 | P5 | 目标端及运行方式 | 自定义目标端、独立运行程序及上游内置目标端逐项映射；本地可测逐一验证，需要外部服务的能力单列验证条件 | 待执行，内置目标端先核查稳定性 |
 | P6 | 故障及一致性验收 | 两端同输入输出归一化比对；进程中断、重试、空闲 WAL、资源上限和长期运行证据；文档/示例/独立消费者与接口同步 | 随每阶段推进，最终汇总 |
@@ -42,8 +42,8 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 
 | ETL 能力 | MoonCDC 状态 / 下一项 |
 |---|---|
-| 初始复制与 WAL 追赶 | 一致性基础接口已实测；逐表独立快照、Catchup/SyncDone/Ready 协调、失败重建待实现 |
-| StateStore / SchemaStore | 目前只有源绑定事务 checkpoint；表状态、schema 版本及清理、目标端创建状态待实现 |
+| 初始复制与 WAL 追赶 | 独立逐表快照、持久 cutoff、并行复制、重启只重建失败表已实测；完整 SyncDone worker handover 待实现 |
+| StateStore / SchemaStore | 已有源绑定 checkpoint 与逐表原子文件状态；外部 StateStore、schema 版本及清理、目标端创建状态待实现 |
 | Destination accepted/durable | 单实例有序写入、累计屏障、空闲刷新、正常停止和批次 ID 已实测；并发表复制、目标端持久元数据及具体后端隔离待实现 |
 | 逻辑消息与 DDL | 原始消息已实测；`supabase_etl_ddl` 事件触发器、schema payload、版本顺序及列演进待实现 |
 | 类型转换 | 原始 Text/Binary/NULL/TOAST 已实现；ETL 的布尔、数值、时间、JSON、数组及未知类型矩阵待实现 |
@@ -89,3 +89,10 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 - 首批累计验证：native 套件 43/43；PG17.11、18.6 的 `live*` 各 11/11；
   release 构建、文档与打包后独立消费者通过。见 [阶段报告](reports/FEATURE_PARITY_BATCH1.md)。
   下一项是 P2/P3 的逐表持久同步状态及失败重建，之后推进 schema/type 和目标端。
+- P2/P3 逐表阶段：`run_pipeline` 保存建槽意图及每表 Pending/Copying/Catchup/Ready，
+  保留完成表的 cutoff，重启重新 reset 未完成表；临时 copy 槽自动释放，主槽保留恢复。
+  全量期间并发事务、跨表 cutoff、运行中新表、目标身份拒绝及三表独立快照重叠已在
+  PG17.11/18.6 验证。投影后 row/message ID 保持原序号；有界队列背压通过 wire 测试。
+  本轮完整 live 场景逐进程隔离运行，PG17/18 各 13/13；常规 native 50/50。
+  完整回归暴露并修复目录 regclass 名称解析被其他 publication 并发 DROP 干扰的问题。
+  仍需完整 worker handover、空表动态目录发现、schema/type、目标端及上游差分。

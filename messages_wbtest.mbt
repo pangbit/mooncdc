@@ -34,6 +34,7 @@ test "logical messages remain in transaction order with stable independent ids" 
     changes,
     session: "session",
     sequence: 1,
+    projected_ids: None,
   }
   assert_eq(tx.event_id(0), Some("tx/message/0/5A"))
   assert_eq(tx.event_id(1), None)

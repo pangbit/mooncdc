@@ -172,9 +172,38 @@ transactions remain unacknowledged. Cancellation or failure does not drain or ac
 unfinished writes. Do not call next/ack concurrently with apply_to.
 
 Use transaction IDs and copy batch IDs to make destination effects idempotent. This
-contract does not provide a durable per-table state store, automatic failed-copy restart,
-schema planning, or built-in cloud destinations. Existing checkpoints remain the source
+contract does not itself provide schema planning or built-in cloud destinations.
+The pipeline below adds durable per-table coordination. Existing checkpoints remain the source
 of truth for transaction recovery; the destination persists its own business/replay state.
+
+## Persistent table pipeline
+
+`run_pipeline(config, destination, publication~, destination_id~, state_path~, control~,
+slot_prefix?="mooncdc", copy_concurrency?=2, batch_rows?=256)` owns a randomly named main
+replication slot and temporary slots for independent table snapshots. It manages destination
+startup/shutdown and keeps a checksummed, atomically replaced state file plus a sibling
+`.checkpoint` file. Keep both files, their locks, and the destination's durable data together.
+The destination identity is caller supplied and must uniquely identify the target dataset.
+Source, destination and slot-prefix mismatches fail before target startup.
+
+`pipeline_status(path)` reads Pending, Copying, Catchup(cutoff) and Ready(cutoff) per OID.
+After restart, only Pending/Copying tables receive a fresh snapshot and reset; completed
+snapshots retain their cutoff. Main-stream events before each table's cutoff are filtered,
+including individual members of a multi-table truncate. Projected events retain their
+original `event_id`. Destination durability precedes Ready and source checkpoint advancement.
+Failures propagate; restarting the same state path performs recovery. Missing checkpoints
+after initialization fail instead of resetting progress. Creation-intent recovery may replace
+only its own randomly named slot, before any destination writes.
+
+Copy concurrency is 1–16 and destination calls are serialized with a cumulative barrier.
+The initial copy wave completes before incremental application starts. The receiver uses
+bounded backpressure with independent heartbeats. Newly published tables are copied on their
+first WAL relation/row event; empty new tables are discovered on the next pipeline startup.
+Publication removal is reconciled at startup and does not delete destination data.
+This is not yet ETL's complete worker handover/schema-store implementation. Schema changes
+during a table copy remain unsupported. Cancellation leaves conservative replay positions;
+`control.stop()` drains accepted writes. Owned persistent slots retain WAL after exit and
+require explicit operator cleanup when the pipeline is permanently retired.
 
 ## Limits and diagnostics
 
@@ -184,6 +213,7 @@ of truth for transaction recovery; the destination persists its own business/rep
 | max_transaction_bytes | 64 MiB | Sum of pgoutput message bytes in a transaction |
 | max_transaction_events | 100000 | Changes including metadata |
 | max_pending_transactions | 16 | Queued plus delivered but unacknowledged transactions |
+| backpressure | false | Wait for durable acknowledgement when the queue is full |
 | max_metadata_entries | 4096 | Maximum relations and types, separately |
 | heartbeat_ms | 1000 | Feedback interval; choose well below server wal_sender_timeout |
 | max_reconnects | 3 | Total reconnect attempts per subscription |
@@ -191,7 +221,8 @@ of truth for transaction recovery; the destination persists its own business/rep
 
 These bound retained protocol data, not exact heap/RSS. Decoded strings/objects add overhead.
 The reader may assemble one additional bounded transaction before detecting queue overflow.
-Metadata entries are individually bounded by frame size. A full queue fails; it never drops
+Metadata entries are individually bounded by frame size. By default a full queue fails;
+with backpressure it waits for a durable prefix to free capacity. It never drops
 oldest/latest data. After raising limits, resume from the same checkpoint.
 
 Diagnostics report reconnect attempts, last retained complete transaction position, durable

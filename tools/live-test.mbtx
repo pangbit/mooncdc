@@ -1,0 +1,81 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+}
+
+///|
+fn verify_result(output : String) -> Unit raise {
+  let mut results = 0
+  for line in output.split("\n") {
+    if line.has_prefix("{") {
+      let event = @json.parse(line)
+      if event is { "type": "result", "message": String(message), .. } {
+        assert_eq(message, "")
+        results += 1
+      }
+    }
+  }
+  assert_eq(results, 1)
+}
+
+///|
+test "live runner checks result records even when executable exits zero" {
+  verify_result("{\"type\":\"result\",\"message\":\"\"}")
+  for output in ["", "{\"type\":\"result\",\"message\":\"TimeoutError\"}"] {
+    try verify_result(output) catch {
+      _ => ()
+    } noraise {
+      _ => fail("failed test accepted")
+    }
+  }
+}
+
+///|
+async fn main {
+  guard @env.get_env_var("MOONCDC_TEST_PORT") is Some(_) &&
+    @env.get_env_var("MOONCDC_TEST_CA") is Some(_) else {
+    fail(
+      "set MOONCDC_TEST_PORT and MOONCDC_TEST_CA for complete live verification",
+    )
+  }
+  let outline = @shell.Cmd("moon", [
+    "test", "--target", "native", "--filter", "live*", "--outline",
+  ]).output()
+  outline.check()
+  let built = @shell.Cmd("moon", [
+    "test", "tls_wbtest.mbt", "--target", "native", "--build-only",
+  ]).output()
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("expected one native whitebox executable")
+  }
+  let mut count = 0
+  for line in outline.stdout().split("\n") {
+    let words = line.split(" ").filter(word => !word.is_empty()).collect()
+    if words.length() == 0 {
+      continue
+    }
+    guard words.length() >= 5 && words[3].has_prefix("index=") else {
+      fail("unrecognized moon test outline: \{line}")
+    }
+    let file = words[2].split(":").next().unwrap().to_owned()
+    let index = @string.parse_int(words[3][6:])
+    println(line)
+    let result = @shell.Cmd(executable, ["\{file}:\{index}-\{index + 1}"]).output()
+    result.check()
+    verify_result(result.stdout())
+    for line in result.stdout().split("\n") {
+      if line.has_prefix("LIVE:") {
+        println(line)
+      }
+    }
+    count += 1
+  }
+  assert_true(count > 0)
+  println("LIVE: \{count} isolated scenarios passed")
+}

@@ -82,6 +82,15 @@ async fn save_checkpoint(
   lsn : Lsn,
   boundary? : async (String) -> Unit = _ => (),
 ) -> Unit {
+  save_atomic_file(path, checkpoint_bytes(source, lsn), boundary~)
+}
+
+///|
+async fn save_atomic_file(
+  path : String,
+  bytes : Bytes,
+  boundary? : async (String) -> Unit = _ => (),
+) -> Unit {
   let temp = path + ".tmp"
   boundary("before_write")
   let file = @fs.open(
@@ -91,7 +100,7 @@ async fn save_checkpoint(
     permission=0o600,
   )
   defer file.close()
-  file.write(checkpoint_bytes(source, lsn))
+  file.write(bytes)
   boundary("after_write")
   file.sync()
   boundary("after_file_sync")

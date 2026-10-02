@@ -53,7 +53,7 @@ jobs:
       - run: moon run tools/setup-tls.mbtx ${{ matrix.service }}
       # Native jobs run all unit/fault tests. Select only live scenarios here so
       # short-deadline peers never share a process with CPU-heavy SCRAM fixtures.
-      - run: moon test --target native --filter 'live*'
+      - run: moon run tools/live-test.mbtx
         env:
           MOONCDC_TEST_PORT: ${{ matrix.port }}
           MOONCDC_TEST_CA: .test-artifacts/tls-${{ matrix.service }}/server.crt

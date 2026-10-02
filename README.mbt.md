@@ -73,7 +73,8 @@ let config : @cdc.ConnectionConfig = {
 - 后台处理心跳；帧、事务、元数据及未确认队列有上限。超限关闭连接并保留检查点。
 - SCRAM-SHA-256；远端连接使用验证证书和主机名的 TLS。明文仅允许数字回环地址。
   首版密码限定可打印 ASCII，明确拒绝需要 SASLprep 的非 ASCII 密码。
-- 支持新槽的一致性全量快照与增量衔接；暂不提供按表并行同步、复制中断后的自动重建。
+- `run_pipeline` 提供持久逐表状态、并行独立快照、重启后失败表重建和增量追赶；
+  完成的表保留快照进度，队列满时背压。运行中新发布表在首次 WAL 事件时发现并复制。
 - 不提供自动切主、两阶段事务、完整 DDL 或原生 SQL 类型解码。
   不承诺跨系统恰好一次。
 
@@ -92,8 +93,10 @@ moon run tools/setup-db.mbtx pg18
 moon run tools/setup-db.mbtx pg17
 moon check --target native --deny-warn
 moon test --target native
-MOONCDC_TEST_PORT=55418 moon test --target native --filter 'live*'
-MOONCDC_TEST_PORT=55417 moon test --target native --filter 'live*'
+moon run tools/setup-tls.mbtx pg18
+moon run tools/setup-tls.mbtx pg17
+MOONCDC_TEST_PORT=55418 MOONCDC_TEST_CA=.test-artifacts/tls-pg18/server.crt moon run tools/live-test.mbtx
+MOONCDC_TEST_PORT=55417 MOONCDC_TEST_CA=.test-artifacts/tls-pg17/server.crt moon run tools/live-test.mbtx
 moon run examples/index
 moon run examples/cache
 moon run tools/recovery-test.mbtx

@@ -108,3 +108,15 @@ pub extend TableCopyBatchId with Debug::{to_repr}
 
 ///|
 pub extend TableCopyBatchId with ToJson::{to_json}
+
+///|
+pub extend TableSyncPhase with Eq::{equal, not_equal}
+
+///|
+pub extend TableSyncPhase with Debug::{to_repr}
+
+///|
+pub extend TableSyncStatus with Debug::{to_repr}
+
+///|
+pub extend PipelineStatus with Debug::{to_repr}

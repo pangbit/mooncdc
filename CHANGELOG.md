@@ -2,6 +2,9 @@
 
 ## 0.1.0 — Unreleased
 
+- Add a persistent per-table pipeline with concurrent independent snapshots, failed-copy
+  restart, table cutoffs, dynamic WAL-driven discovery and opt-in bounded backpressure.
+
 - Exclude index INCLUDE columns from snapshot replica-identity key flags.
 - Add custom Destination contracts with Accepted/Durable writes, snapshot attempt IDs,
   cumulative/idle/stop flushes and durable snapshot checkpoints for later Resume.

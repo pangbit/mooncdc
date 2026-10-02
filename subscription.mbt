@@ -30,6 +30,7 @@ pub struct Subscription {
   priv messages : Bool
   priv nontransactional_message : (async (LogicalMessage) -> Unit)?
   priv mut message_failed : Bool
+  priv backpressure : Bool
 }
 
 ///|
@@ -90,6 +91,7 @@ pub async fn Subscription::ack(self : Subscription, tx : Transaction) -> Unit {
     }
     self.acknowledged = count
     self.durable = position
+    self.ready.broadcast()
   })
   // Background heartbeat is the sole periodic sender; ack need not wait for the server.
 }
@@ -181,8 +183,14 @@ async fn Subscription::read_stream(
           if end_lsn <= self.received {
             continue
           }
-          if self.pending.length() >= self.max_pending {
-            raise LimitExceeded("outstanding transaction queue")
+          while self.pending.length() >= self.max_pending {
+            if !self.backpressure {
+              raise LimitExceeded("outstanding transaction queue")
+            }
+            self.ready.wait()
+            if self.closed {
+              raise Closed
+            }
           }
           if self.sequence == 2147483647 {
             raise LimitExceeded("session sequence; reopen subscription")
@@ -197,6 +205,7 @@ async fn Subscription::read_stream(
             changes,
             session: self.session,
             sequence: self.sequence,
+            projected_ids: None,
           }
           self.pending[self.sequence] = {
             end_lsn,
@@ -300,6 +309,7 @@ pub async fn[T] subscribe(
   binary? : Bool = false,
   messages? : Bool = false,
   nontransactional_message? : async (LogicalMessage) -> Unit,
+  backpressure? : Bool = false,
 ) -> T {
   identifier(slot)
   identifier(publication)
@@ -384,6 +394,7 @@ pub async fn[T] subscribe(
     messages,
     nontransactional_message,
     message_failed: false,
+    backpressure,
   }
   defer sub.close()
   @async.with_task_group(group => {

@@ -59,6 +59,7 @@ test "stable event ids ignore repeated relation metadata" {
     changes,
     session: "a",
     sequence: 1,
+    projected_ids: None,
   }
   let b : Transaction = {
     ..a,

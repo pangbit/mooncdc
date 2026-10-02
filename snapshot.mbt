@@ -57,6 +57,31 @@ pub async fn copy_snapshot(
   max_frame_bytes? : Int = 16777216,
   max_batch_bytes? : Int = 67108864,
 ) -> SnapshotPosition {
+  copy_snapshot_impl(
+    connection,
+    slot~,
+    publication~,
+    consume,
+    batch_rows~,
+    max_frame_bytes~,
+    max_batch_bytes~,
+    temporary=false,
+    table=None,
+  )
+}
+
+///|
+async fn copy_snapshot_impl(
+  connection : ConnectionConfig,
+  slot~ : String,
+  publication~ : String,
+  consume : async (SnapshotEvent) -> Unit,
+  batch_rows~ : Int,
+  max_frame_bytes~ : Int,
+  max_batch_bytes~ : Int,
+  temporary~ : Bool,
+  table~ : UInt?,
+) -> SnapshotPosition {
   identifier(slot)
   identifier(publication)
   if batch_rows <= 0 ||
@@ -79,8 +104,9 @@ pub async fn copy_snapshot(
   if pubs.length() != 1 {
     raise UnsafeResume("publication missing")
   }
+  let lifetime = if temporary { " TEMPORARY" } else { "" }
   let created = exporter.snapshot_query(
-    "CREATE_REPLICATION_SLOT \{slot} LOGICAL pgoutput EXPORT_SNAPSHOT",
+    "CREATE_REPLICATION_SLOT \{slot}\{lifetime} LOGICAL pgoutput EXPORT_SNAPSHOT",
     connection.timeout_ms,
     max_batch_bytes,
   )
@@ -102,11 +128,18 @@ pub async fn copy_snapshot(
   )
   // No commands are sent on the exporter after CREATE_REPLICATION_SLOT: they
   // would invalidate the exported snapshot. The reader owns the imported view.
+  let selected = match table {
+    Some(oid) => " AND c.oid = \{oid}"
+    None => ""
+  }
   let tables = reader.snapshot_query(
-    "SELECT schemaname, tablename, rowfilter FROM pg_publication_tables WHERE pubname = '\{publication}' ORDER BY schemaname, tablename",
+    "SELECT p.schemaname, p.tablename, p.rowfilter FROM pg_publication_tables p JOIN pg_namespace n ON n.nspname=p.schemaname JOIN pg_class c ON c.relnamespace=n.oid AND c.relname=p.tablename WHERE p.pubname = '\{publication}'\{selected} ORDER BY p.schemaname, p.tablename",
     connection.timeout_ms,
     max_batch_bytes,
   )
+  if table is Some(_) && tables.length() != 1 {
+    raise UnsafeResume("snapshot table is no longer published")
+  }
   for table in tables {
     let namespace_ = cell([table], 0, 0)
     let name = cell([table], 0, 1)

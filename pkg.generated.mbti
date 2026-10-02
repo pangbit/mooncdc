@@ -10,7 +10,11 @@ pub async fn copy_snapshot(ConnectionConfig, slot~ : String, publication~ : Stri
 
 pub async fn copy_snapshot_to(ConnectionConfig, &Destination, slot~ : String, publication~ : String, batch_rows? : Int, max_frame_bytes? : Int, max_batch_bytes? : Int) -> SnapshotPosition
 
-pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, checkpoint_path~ : String, async (Subscription) -> T, max_frame_bytes? : Int, max_transaction_bytes? : Int, max_transaction_events? : Int, max_pending_transactions? : Int, max_metadata_entries? : Int, heartbeat_ms? : Int, max_reconnects? : Int, reconnect_delay_ms? : Int, binary? : Bool, messages? : Bool, nontransactional_message? : async (LogicalMessage) -> Unit) -> T
+pub async fn pipeline_status(String) -> PipelineStatus
+
+pub async fn run_pipeline(ConnectionConfig, &Destination, publication~ : String, destination_id~ : String, state_path~ : String, control~ : ApplyControl, slot_prefix? : String, copy_concurrency? : Int, batch_rows? : Int) -> Unit
+
+pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, checkpoint_path~ : String, async (Subscription) -> T, max_frame_bytes? : Int, max_transaction_bytes? : Int, max_transaction_events? : Int, max_pending_transactions? : Int, max_metadata_entries? : Int, heartbeat_ms? : Int, max_reconnects? : Int, reconnect_delay_ms? : Int, binary? : Bool, messages? : Bool, nontransactional_message? : async (LogicalMessage) -> Unit, backpressure? : Bool) -> T
 
 pub async fn[T] with_destination(&Destination, async () -> T) -> T
 
@@ -117,6 +121,13 @@ pub fn OldTuple::not_equal(Self, Self) -> Bool
 pub fn OldTuple::to_json(Self) -> Json
 pub fn OldTuple::to_repr(Self) -> @debug.Repr
 
+pub struct PipelineStatus {
+  slot : String
+  destination_id : String
+  tables : ReadOnlyArray[TableSyncStatus]
+} derive(@debug.Debug)
+pub fn PipelineStatus::to_repr(Self) -> @debug.Repr
+
 pub struct Relation {
   oid : UInt
   namespace_ : String
@@ -173,6 +184,22 @@ pub fn TableCopyBatchId::equal(Self, Self) -> Bool
 pub fn TableCopyBatchId::not_equal(Self, Self) -> Bool
 pub fn TableCopyBatchId::to_json(Self) -> Json
 pub fn TableCopyBatchId::to_repr(Self) -> @debug.Repr
+
+pub(all) enum TableSyncPhase {
+  Pending
+  Copying
+  Catchup(Lsn)
+  Ready(Lsn)
+} derive(Eq, @debug.Debug)
+pub fn TableSyncPhase::equal(Self, Self) -> Bool
+pub fn TableSyncPhase::not_equal(Self, Self) -> Bool
+pub fn TableSyncPhase::to_repr(Self) -> @debug.Repr
+
+pub struct TableSyncStatus {
+  oid : UInt
+  phase : TableSyncPhase
+} derive(@debug.Debug)
+pub fn TableSyncStatus::to_repr(Self) -> @debug.Repr
 
 pub struct Transaction {
   id : String

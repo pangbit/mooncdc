@@ -69,19 +69,46 @@ pub async fn copy_snapshot_to(
   max_frame_bytes? : Int = 16777216,
   max_batch_bytes? : Int = 67108864,
 ) -> SnapshotPosition {
+  copy_snapshot_to_impl(
+    connection,
+    destination,
+    slot~,
+    publication~,
+    batch_rows~,
+    max_frame_bytes~,
+    max_batch_bytes~,
+    temporary=false,
+    table=None,
+  )
+}
+
+///|
+async fn copy_snapshot_to_impl(
+  connection : ConnectionConfig,
+  destination : &Destination,
+  slot~ : String,
+  publication~ : String,
+  batch_rows~ : Int,
+  max_frame_bytes~ : Int,
+  max_batch_bytes~ : Int,
+  temporary~ : Bool,
+  table~ : UInt?,
+) -> SnapshotPosition {
   guard @env.rand(24) is Some(random) else {
     raise Authentication("secure entropy unavailable")
   }
   let attempt = @base64.encode(random)
   let mut sequence = 0UL
   let mut accepted = false
-  let point = copy_snapshot(
+  let point = copy_snapshot_impl(
     connection,
     slot~,
     publication~,
     batch_rows~,
     max_frame_bytes~,
     max_batch_bytes~,
+    temporary~,
+    table~,
     event => {
       match event {
         TableBegin(relation) => {
