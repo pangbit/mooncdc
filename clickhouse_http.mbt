@@ -7,8 +7,6 @@ priv struct ChHttp {
 }
 
 ///|
-// Staged backend entry point, exercised by live tests until Destination integration.
-#warnings("-unused_value")
 fn ChHttp::new(
   endpoint : String,
   user : String,
@@ -99,8 +97,6 @@ async fn ChHttp::query(
 }
 
 ///|
-// Staged backend entry point, exercised by live tests until Destination integration.
-#warnings("-unused_value")
 async fn ChHttp::insert(
   self : ChHttp,
   table : String,

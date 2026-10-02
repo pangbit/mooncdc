@@ -2,6 +2,11 @@
 
 ## 0.1.0 — Unreleased
 
+- Add ClickHouseDestination with RowBinary snapshot/CDC writes, primary-key tombstones,
+  FULL TOAST reconstruction, persistent schema bindings and restart layout validation.
+  Verify both engines on PostgreSQL 17/18 and ClickHouse 26.4, plus 3,800 upstream
+  default-expression vectors. Structural DDL execution remains unsupported.
+
 - Integrate pluggable StateStore ownership and durable records into pipelines and
   subscriptions, with file/PostgreSQL backends and destination metadata sessions.
   Retain source-bound checkpoints and reject writes from closed/stale store owners.

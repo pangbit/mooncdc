@@ -53,8 +53,6 @@ fn ch_scalar_type(oid : UInt) -> String {
 }
 
 ///|
-// Staged backend entry point; remove the local allowance when Destination calls it.
-#warnings("-unused_value")
 fn ch_type(oid : UInt, nullable : Bool, force_nullable : Bool) -> String {
   match array_element(oid) {
     Some(element) => "Array(Nullable(" + ch_scalar_type(element) + "))"
@@ -70,8 +68,6 @@ fn ch_type(oid : UInt, nullable : Bool, force_nullable : Bool) -> String {
 }
 
 ///|
-// Staged backend entry point; covered by naming regression tests.
-#warnings("-unused_value")
 fn ch_table_name(
   namespace_ : String,
   table : String,
@@ -119,8 +115,6 @@ priv struct ChLayout {
 }
 
 ///|
-// Staged backend entry point; covered by wire and live tests.
-#warnings("-unused_value")
 fn ChLayout::new(columns : ReadOnlyArray[(String, String)]) -> ChLayout raise {
   let seen : Map[String, Bool] = Map([])
   for (name, _) in columns {
@@ -149,8 +143,6 @@ fn ChLayout::new(columns : ReadOnlyArray[(String, String)]) -> ChLayout raise {
 }
 
 ///|
-// Staged backend entry point; covered by wire and live tests.
-#warnings("-unused_value")
 fn ChLayout::row(
   self : ChLayout,
   cells : ReadOnlyArray[Cell],

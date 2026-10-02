@@ -360,6 +360,36 @@ and PostgreSQL interval formatting at startup, including reconnect and snapshot 
 Raw Value remains available and typed conversion is explicit. This interface does not add
 numeric arithmetic or destination-specific coercions.
 
+## ClickHouse destination
+
+`ClickHouseDestination::new` takes `endpoint`, `user`, `password`, `database`,
+`publication` and `schema_store`. Supply that same SchemaStore and a persistent
+StateStore to `run_pipeline`; the database must already exist. Use a dedicated
+StateStore namespace per target. Credentials go in HTTP headers; HTTPS validates
+the server using system trust.
+
+The default engine is `ReplacingMergeTree`; `MergeTree` keeps an append-only CDC
+history. Optional `max_insert_bytes` defaults to 64 MiB and `timeout_ms` to 260000.
+The byte limit splits encoded batches, allowing an oversized single row. HTTP writes
+are synchronous and return Durable only after server acknowledgement. StateStore
+ownership does not fence a previously running remote HTTP request.
+
+Source underscores are doubled and schema/table names joined with `_`. For example,
+`public.my_table` becomes `public_my__table`. ReplacingMergeTree requires published
+primary keys and creates a `<target>__current` view; its underlying rows carry
+`_etl_version` and `_etl_deleted`. MergeTree permits tables without primary keys and
+adds `cdc_operation`, `cdc_lsn`, and `cdc_tx_ordinal`. Primary-key changes produce an
+old-key tombstone before the new row. Missing unchanged TOAST values require a FULL
+old image; they are never replaced by NULL. NULL arrays and temporal infinities are
+rejected. Portable literal defaults are translated conservatively.
+
+Restart preserves completed tables and validates persisted target identity and
+physical column names, order, types and engine before writing. Snapshot retries reset
+incomplete tables. Structural source DDL currently fails closed when observed by a
+row event; automatic DDL execution/recovery is still pending. There is no cross-table
+transactional commit guarantee. Copy batches use stable deduplication tokens; stream
+replay deduplication depends on ClickHouse engine and server window configuration.
+
 ## Limits and diagnostics
 
 | Option | Default | Meaning |

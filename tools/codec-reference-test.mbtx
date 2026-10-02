@@ -116,12 +116,15 @@ async fn main {
       ("CODEC", "codec_reference_wbtest.mbt:0-1"),
       ("SCHEMA", "schema_plan_wbtest.mbt:2-3"),
       ("CLICKHOUSE", "clickhouse_encoding_wbtest.mbt:0-1"),
+      ("CHDEFAULT", "clickhouse_destination_wbtest.mbt:3-4"),
     ] {
     let input = artifacts + "/" + kind.to_lower() + "-input.json"
     let output = artifacts + "/" + kind.to_lower() + "-output.json"
     run(kind, selection, "generate", input)
     @shell.Cmd(
-      artifacts + "/target/debug/examples/mooncdc_" + kind.to_lower(),
+      artifacts +
+      "/target/debug/examples/mooncdc_" +
+      (if kind == "CHDEFAULT" { "clickhouse" } else { kind.to_lower() }),
       [input, output],
     ).run()
     run(kind, selection, "verify", output)

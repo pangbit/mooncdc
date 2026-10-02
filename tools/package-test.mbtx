@@ -25,7 +25,9 @@ async fn main {
       "LICENSE", "README.mbt.md", "moon.mod", "moon.pkg", "subscription.mbt", "snapshot.mbt",
       "destination.mbt", "pipeline.mbt", "state_store.mbt", "file_state_store.mbt",
       "postgres_state_store.mbt", "schema_store.mbt", "schema_projection.mbt", "schema_plan.mbt",
-      "cell.mbt", "cell_float.c", "examples/resume/main.mbt",
+      "cell.mbt", "cell_float.c", "clickhouse_destination.mbt", "clickhouse_metadata.mbt",
+      "clickhouse_defaults.mbt", "clickhouse_rows.mbt", "clickhouse_http.mbt", "clickhouse_encoding.mbt",
+      "clickhouse_schema.mbt", "examples/resume/main.mbt",
     ] {
     assert_true(contents.split("\n").any(path => path == required))
   }

@@ -48,7 +48,7 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
 | 逻辑消息与 DDL | 已解码并存储 `supabase_etl_ddl`；公开投影/identity masks、有序列 DDL 规划已差分验证；连接内完整 decoding-state 恢复、目标端 DDL 执行待实现 |
 | 类型转换 | 已有类型化文本 Cell、精确 numeric/JSON、日期/时间/UUID/bytea/可空一维数组；通用内置数组采用文本元素；PG17/18 快照及 WAL 矩阵已实测，固定上游 codec 558 向量进程差分通过；不是全部输入的等价证明 |
 | 独立 replicator | 当前为嵌入式库及示例；配置、持久运行状态、健康/指标、优雅退出待实现 |
-| ClickHouse | 上游 private alpha；二进制编码差分及两种引擎的底层真实写入已验证；Destination 集成、主键变化墓碑、DDL 恢复仍在实现 |
+| ClickHouse | 上游 private alpha；两种引擎的 Destination 全量/增量、主键变化墓碑、重启及漂移恢复已在 PG17/18 实测；DDL 执行/恢复仍待实现 |
 | BigQuery | 上游 stable；Storage Write API、CDC、目标端持久偏移、布局配置及真云验证待实现 |
 | DuckLake | 上游 private alpha；DuckDB/catalog、排序和恢复语义待实现 |
 | Snowflake | 上游 private alpha；Snowpipe Streaming、key-pair auth、通道恢复及 schema 子集待实现 |
@@ -176,3 +176,10 @@ pglogrepl 用于协议字段和消息对照；Debezium 用于异常场景补充�
   普通 native 82/82；PG17/18 的上游 DDL 专项均验证 schema 回调先于 reset 且已经持久化。
   release 构建、`moon check --deny-warn` 及源码包独立消费者通过。6 个仅由测试调用的
   分阶段内部入口局部允许 unused_value；Destination 集成后移除这些局部标注。
+- P5 ClickHouse 流水线：公开 ClickHouseDestination，持久绑定目标身份、schema 和投影；
+  重启检查实际列顺序/类型/引擎，保留完成表。同步 HTTP 确认后才返回 Durable。
+  ReplacingMergeTree 提供当前值视图；MergeTree 保留操作、提交 LSN 与原始事务序号。
+  PG17/18 到 ClickHouse 26.4 验证两种引擎的快照、主键变化墓碑、FULL TOAST、key-only
+  删除、回滚、truncate 和三轮重启；MergeTree 另验证无主键重复行。
+  外部列漂移阻止 checkpoint，修复后重放成功。默认值转换与固定上游 3,800 向量一致。
+  DDL 结构变化仍明确失败；服务器去重窗口、跨表原子性及分布式 fencing 不作额外保证。

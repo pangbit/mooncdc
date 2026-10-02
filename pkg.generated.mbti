@@ -96,6 +96,20 @@ pub fn Change::not_equal(Self, Self) -> Bool
 pub fn Change::to_json(Self) -> Json
 pub fn Change::to_repr(Self) -> @debug.Repr
 
+pub struct ClickHouseDestination {
+  // private fields
+}
+pub async fn ClickHouseDestination::bind_snapshot_schema(Self, Relation, SchemaSnapshot) -> Unit
+pub async fn ClickHouseDestination::bind_state(Self, StateSession) -> Unit
+pub async fn ClickHouseDestination::flush(Self) -> Unit
+pub fn ClickHouseDestination::new(endpoint~ : String, user~ : String, password~ : String, database~ : String, publication~ : String, schema_store~ : &SchemaStore, engine? : ClickHouseEngine, max_insert_bytes? : Int, timeout_ms? : Int) -> Self raise
+pub async fn ClickHouseDestination::reset_table(Self, Relation, attempt~ : String) -> Unit
+pub async fn ClickHouseDestination::shutdown(Self) -> Unit
+pub async fn ClickHouseDestination::startup(Self) -> Unit
+pub async fn ClickHouseDestination::write_rows(Self, Relation, ReadOnlyArray[ReadOnlyArray[Value]], TableCopyBatchId?) -> WriteStatus
+pub async fn ClickHouseDestination::write_transaction(Self, Transaction) -> WriteStatus
+pub impl Destination for ClickHouseDestination
+
 pub(all) enum ClickHouseEngine {
   ReplacingMergeTree
   MergeTree

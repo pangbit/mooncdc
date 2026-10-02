@@ -80,6 +80,8 @@ let config : @cdc.ConnectionConfig = {
   一维数组；SQL NULL、JSON null 与未变化 TOAST 分开表示。未知标量保留文本。
 - `StateStore` 支持文件目录及 PostgreSQL 持久后端，接入流水线/订阅 checkpoint 和
   目标端元数据；逐表复制错误可持久化并定时或人工重试。详见 [API](docs/API.md)。
+- `ClickHouseDestination` 支持 ReplacingMergeTree 当前值视图和 MergeTree 操作历史，
+  接入全量/增量及持久恢复；目标端 DDL 执行仍待实现。见 [API](docs/API.md#clickhouse-destination)。
 - 不提供自动切主、两阶段事务或完整目标端 DDL 规划。
   不承诺跨系统恰好一次。
 

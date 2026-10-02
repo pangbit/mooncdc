@@ -117,6 +117,27 @@ ones. Success removes all owned SQL fixtures; container cleanup also handles par
 CI runs this body in a separate process and fixture for each PostgreSQL version.
 See [slot safety validation](reports/SLOT_SAFETY_VALIDATION.md) for local results and limits.
 
+## ClickHouse destination
+
+With the isolated PostgreSQL fixture initialized, run:
+
+```sh
+MOONCDC_TEST_PORT=55418 moon run tools/clickhouse-test.mbtx
+MOONCDC_TEST_PORT=55417 moon run tools/clickhouse-test.mbtx
+moon run tools/codec-reference-test.mbtx
+docker compose -p mooncdc-clickhouse-test -f integration/clickhouse.compose.yaml down -v
+```
+
+The ClickHouse runner starts its own loopback-only Compose project. Without
+`MOONCDC_TEST_PORT` it tests HTTP/RowBinary only. With the port set it also exercises
+both engines through snapshot, CDC, primary-key updates, FULL TOAST, key-only deletes,
+rollback, truncate and restart; MergeTree additionally covers duplicate keyless rows.
+Injected destination column drift must retain the checkpoint and replay after repair.
+Each run removes its own database/publication/slots and temporary state. The reference
+runner compares 558 codec, 77 schema-plan, 756 RowBinary and 3,800 default-expression
+vectors with the frozen upstream Rust source; this is finite coverage, not a proof
+of equivalence for every input. CI runs the live destination on both PG versions.
+
 ## Cleanup
 
 After preserving evidence, remove only the owned Compose project:
