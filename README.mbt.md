@@ -5,7 +5,7 @@ MoonBit 编写的 PostgreSQL → ClickHouse CDC 库与独立同步工具。库�
 [当前交付范围](docs/RELEASE_SCOPE.md)。底层订阅使用原生 `pgoutput` 协议 v1，按完整的
 已提交事务交付数据，提供显式确认、持久检查点和有限次数断线重连。
 
-**0.1.0 发布候选，尚未发布到 Mooncakes。** Native 后端；验收方法及历史证据索引见
+**0.1.0：Native 后端的 PostgreSQL → ClickHouse 库与 CLI。** 验收方法及历史证据索引见
 [测试说明](docs/TESTING.md)。
 采用至少一次投递，业务端必须处理重放。
 
@@ -16,8 +16,10 @@ MoonBit 编写的 PostgreSQL → ClickHouse CDC 库与独立同步工具。库�
 
 ## 安装与使用
 
-发布后通过 `moon add pangbit/mooncdc` 安装。发布前可在本仓库运行示例，或按照
-[发布检查](docs/RELEASING.md) 使用打包源码做独立消费者验证。
+先用 `moon view pangbit/mooncdc@0.1.0` 查询注册库中的版本。
+该版本可用时，可通过 `moon add pangbit/mooncdc@0.1.0` 安装，并核对实际解析版本。
+若尚不可用，可在本仓库运行示例，或按照[发布检查](docs/RELEASING.md)
+使用打包源码做独立消费者验证；本地消费者通过不代表注册库版本已发布。
 
 在 `moon.mod` 中设置 `preferred_target = "native"`，在使用方 `moon.pkg` 导入。
 以下示例统一使用默认别名 `@mooncdc`：
@@ -122,7 +124,8 @@ let config = @mooncdc.ConnectionConfig::new(
   目标端元数据；逐表复制错误可持久化并定时或人工重试。详见 [API](docs/API.md)。
 - `ClickHouseDestination` 支持 ReplacingMergeTree 当前值视图和 MergeTree 操作历史，
   接入全量/增量、列 DDL 及持久恢复。支持范围见 [API](docs/API.md#clickhouse-destination)。
-- 正式模块仅提供 PostgreSQL → ClickHouse；BigQuery、Snowflake、Iceberg 的实现、CLI 与测试保留在未发布扩展（仅仓库内：`extensions/README.md`）。DuckLake 继续作为扩展路线图，不能视为已实现。
+- 本模块仅提供 PostgreSQL → ClickHouse，不包含 BigQuery、Snowflake 或 Iceberg。
+  DuckLake 是路线图，不能视为已实现。
 - 不提供自动切主或两阶段事务；各目标端的 schema 支持范围单独列明。
   不承诺跨系统恰好一次。
 
@@ -131,6 +134,11 @@ let config = @mooncdc.ConnectionConfig::new(
 [API 与支持范围](docs/API.md)。
 
 ## 本地验证
+
+已知验证局限：合并源码的一轮 macOS release 普通测试中，copy-exit cleanup 与
+reconnect retry 两个场景报 `TimeoutError`；同一源码、工具链、命令和时限下仅重试
+该 job 一次后通过。原因尚未确认，不能视为已修复或据此认定产品缺陷。
+具体时限、运行结果及版本绑定见[验证记录](docs/VALIDATION.md#github-ci-at-the-reviewed-source)。
 
 使用专用 Docker Compose 项目，数据库端口只绑定 `127.0.0.1`：
 

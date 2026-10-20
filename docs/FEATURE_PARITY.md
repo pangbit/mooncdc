@@ -1,6 +1,6 @@
 # Supported feature map
 
-This map describes the 0.1.0 candidate's implementation scope, not a completion
+This map describes the 0.1.0 implementation scope, not a completion
 percentage or an assertion that every platform/fault combination has passed.
 See [release scope](RELEASE_SCOPE.md), [API](API.md) and
 [version-bound validation](VALIDATION.md).

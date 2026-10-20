@@ -49,7 +49,7 @@
 配置覆盖都保留字符串原值，整数参数另行严格解析；`true`、`00123` 等密码不会被转型。
 嵌套字段使用 `__` 分隔、键忽略大小写。数组选择列表从 JSON/YAML 提供。
 
-其他目标由未发布扩展 CLI（仅仓库内：`extensions/docs/REPLICATOR.md`）保留。核心 CLI 在读取目标凭据前拒绝 BigQuery、Snowflake、Iceberg 和 DuckLake。
+其他目标不在本模块或 CLI 的交付范围内。核心 CLI 在读取目标凭据前拒绝 BigQuery、Snowflake、Iceberg 和 DuckLake。
 
 `copy_concurrency` 控制同时复制的表数，默认 4，范围 1–256。
 `copy_connections_per_table` 控制单表读取连接，默认 4，范围 1–256；两者乘积不得超过

@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.1.0 — Unreleased
+## 0.1.0
+
+This entry describes the changes prepared for version 0.1.0. It records neither
+a publication date nor a registry publication receipt. Check the exact version
+with `moon view pangbit/mooncdc@0.1.0`; see [releasing](docs/RELEASING.md).
+
+### Validation note
+
+One macOS release test run at the merged source reported `TimeoutError` in the
+copy-exit cleanup and reconnect retry scenarios. One retry of that job passed
+with source, toolchain, commands and timeouts unchanged. The cause is unconfirmed;
+this is not a claim that a product defect was established or fixed. See the
+[version-bound record](docs/VALIDATION.md#github-ci-at-the-reviewed-source).
+
+### Changes
 
 - Persist SchemaStore history through an exclusive StateStore namespace, including
   PostgreSQL recovery without a local schema file and stale-owner write rejection.

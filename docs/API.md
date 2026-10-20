@@ -4,9 +4,9 @@ The compiler-generated [interface](../pkg.generated.mbti) is authoritative.
 Run `moon doc` for browsable API documentation. The public types belong to the root
 `pangbit/mooncdc` package; examples are separate executable packages.
 
-The current, unpublished module supports the PostgreSQL → ClickHouse library and
+The 0.1.0 module supports the PostgreSQL → ClickHouse library and
 replicator CLI through the same pipeline core. See [release scope](RELEASE_SCOPE.md).
-Other destination APIs are retained in the unpublished extension module.
+Other destination implementations are outside this module's scope.
 
 ## Connection settings
 

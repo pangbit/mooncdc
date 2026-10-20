@@ -1,7 +1,8 @@
 # Validation scope and version binding
 
-This is a release-candidate record, dated 2026-10-20. It is not a publication
-receipt or a claim that the pending release branch passed remote CI.
+This records version-bound validation observations from 2026-10-20. It is not a
+registry publication receipt. Initial pre-CI assembly records are retained below;
+the reviewed-source GitHub results are recorded separately.
 
 ## Inputs and reuse
 
@@ -100,11 +101,49 @@ No database, remote host, full 260-test runtime or registry consumer was
 started in this local organization pass. Final interface/format/package checks
 and full review inventories are recorded with actual exits outside tracked source.
 
+## GitHub CI at the reviewed source
+
+The reviewed release head was `dc29b03afc0ec15582330c38f92e57b4c6e7e603`.
+Its [PR run](https://github.com/pangbit/mooncdc/actions/runs/39387450645) and
+[push run](https://github.com/pangbit/mooncdc/actions/runs/39387444662) both completed
+successfully. The normal merge commit
+`7eb58ae7235c5c8c2f43cebfb1ee13bfae9dbf3b` has the same source tree.
+
+The [first main attempt](https://github.com/pangbit/mooncdc/actions/runs/39393658718/attempts/1)
+passed five jobs. Its macOS native release runtime step took about five seconds
+and passed 258/260 ordinary tests; `slot_failover_wbtest.mbt:73` (copy-exit cleanup)
+and `reconnect_wbtest.mbt:200` (reconnect retry) reported `TimeoutError`.
+The former uses a 3000 ms outer timeout per scenario and 100 ms connection timeout;
+the latter uses a 5000 ms outer timeout and 200 ms connection timeout.
+The log does not identify the failing scenario or which timer produced the error.
+The CI step's five-minute limit was not reached.
+
+Exactly the failed job received [one retry](https://github.com/pangbit/mooncdc/actions/runs/39393658718/attempts/2).
+Its release runtime step took about two seconds and passed 260/260.
+Source, commands, assertions, timeouts, the pinned MoonBit toolchain, macOS image
+and 8 MiB runtime stack were unchanged; the worker was different. Scheduling or
+host load was not measured, so the cause remains unconfirmed. The first failure
+is retained; the retry neither establishes nor fixes a product defect.
+
+The successful main Linux job and macOS retry each passed 260/260 debug and
+260/260 release ordinary tests and the full 65-command offline package audit.
+Two nonzero commands were expected negative controls. PostgreSQL 17/18,
+cross-language reference and commit-subject checks passed. The final six check
+results were successful, retaining the first attempt's five successful jobs.
+The existing Python Path-accessor reproduction was the sole filesystem-test skip.
+
+These results belong to the named source inputs. A documentation-only follow-up
+can reuse matching product evidence after byte comparisons of production sources,
+native stubs, API, metadata, tests and CI inputs. Check changed Markdown examples,
+links and licenses, then inspect and checksum the new archive. Its new checksum
+does not imply a fresh product/database run or remote CI at the follow-up commit.
+
 ## Remaining release gates
 
 Release product inputs were introduced by `44a41f8c98b761d127623ba4b65a530bf29c2591`.
 Configuration and validation documentation are separate commits. Record the final
 branch commit, source inventory, archive hash and actual validation exits in its
-PR. Remote CI, namespace publishing authority, any upload-type dry run, actual
-publication and a clean exact-version registry consumer remain separate gates. Do not
+PR. The GitHub results above apply to their named commits. Namespace publishing
+authority, any upload-type dry run, actual publication and a clean exact-version
+registry consumer remain separate gates. Do not
 claim the historical Linux result covers changes to test tools or future code.
