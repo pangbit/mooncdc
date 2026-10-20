@@ -50,12 +50,15 @@ fn cli_build_executable(
   paths : Array[String],
 ) -> String raise {
   assert_eq(paths.length(), 1)
-  let expected = build +
-    "/native/" +
-    mode.label() +
-    "/build/cmd/replicator/replicator.exe"
-  assert_eq(paths[0], expected)
-  expected
+  let prefix = build + "/native/" + mode.label() + "/build/"
+  // Moon qualifies workspace artifacts with the module name. Both forms must
+  // remain in this fresh owned output, requested mode and exact CLI package.
+  let expected = [
+    prefix + "cmd/replicator/replicator.exe",
+    prefix + "pangbit/mooncdc/cmd/replicator/replicator.exe",
+  ]
+  assert_true(expected.contains(paths[0]), msg="unexpected owned CLI artifact")
+  paths[0]
 }
 
 ///|
@@ -84,16 +87,24 @@ test "CLI build mode preserves debug default and selects release explicitly" {
 ///|
 test "CLI executable must belong to the requested build mode and owned output" {
   for mode in [Debug, Release] {
-    let expected = "/owned/native/" +
-      mode.label() +
-      "/build/cmd/replicator/replicator.exe"
-    assert_eq(cli_build_executable(mode, "/owned", [expected]), expected)
+    for module_prefix in ["", "pangbit/mooncdc/"] {
+      let expected = "/owned/native/" +
+        mode.label() +
+        "/build/" +
+        module_prefix +
+        "cmd/replicator/replicator.exe"
+      assert_eq(cli_build_executable(mode, "/owned", [expected]), expected)
+    }
   }
   for
     paths in [
       [],
       ["/owned/native/debug/build/cmd/replicator/replicator.exe"],
       ["/foreign/native/release/build/cmd/replicator/replicator.exe"],
+      ["/owned/native/release/build/other/module/cmd/replicator/replicator.exe"],
+      [
+        "/owned/native/debug/build/pangbit/mooncdc/cmd/replicator/replicator.exe",
+      ],
       [
         "/owned/native/release/build/cmd/replicator/replicator.exe", "/owned/native/debug/build/cmd/replicator/replicator.exe",
       ],
