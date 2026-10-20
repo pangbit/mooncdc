@@ -1,11 +1,11 @@
 ///|
 import {
-  "moonbitlang/async",
-  "moonbitlang/async/fs",
-  "moonbitlang/async/io",
-  "moonbitlang/async/process",
-  "moonbitlang/async/shell",
-  "moonbitlang/async/socket",
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/fs",
+  "moonbitlang/async@0.22.4/io",
+  "moonbitlang/async@0.22.4/process",
+  "moonbitlang/async@0.22.4/shell",
+  "moonbitlang/async@0.22.4/socket",
   "moonbitlang/core/buffer",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/env",
