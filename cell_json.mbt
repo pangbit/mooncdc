@@ -3,7 +3,7 @@
 // string before using the core parser. Tagging *all* strings prevents collisions
 // with user data. This keeps core's grammar/Unicode checks without its lossy
 // Double conversion. Object keys must still be original string tokens.
-fn pg_json(text : String) -> Json raise {
+fn pg_json(text : String, canonical_numbers? : Bool = true) -> Json raise {
   let encoded = StringBuilder()
   let mut i = 0
   let mut depth = 0
@@ -68,11 +68,14 @@ fn pg_json(text : String) -> Json raise {
       }
     }
   }
-  restore_pg_json(@json.parse(encoded.to_string()))
+  restore_pg_json(@json.parse(encoded.to_string()), canonical_numbers~)
 }
 
 ///|
-fn restore_pg_json(value : Json) -> Json raise {
+fn restore_pg_json(
+  value : Json,
+  canonical_numbers? : Bool = true,
+) -> Json raise {
   match value {
     String(text) => {
       if text.has_prefix("s") {
@@ -80,23 +83,27 @@ fn restore_pg_json(value : Json) -> Json raise {
       }
       let token = text[1:].to_owned()
       let mut repr = token.replace_all(old="E", new="e")
-      if repr == "-0" {
+      if canonical_numbers && repr == "-0" {
         repr = "0"
-      } else if repr.find("e") is Some(pos) {
+      } else if canonical_numbers && repr.find("e") is Some(pos) {
         if repr[pos + 1] != '+' && repr[pos + 1] != '-' {
           repr = repr[:pos + 1].to_owned() + "+" + repr[pos + 1:].to_owned()
         }
       }
       Json::number(pg_float(token, single=false), repr~)
     }
-    Array(items) => Json::array(items.map(restore_pg_json))
+    Array(items) =>
+      Json::array(items.map(item => restore_pg_json(item, canonical_numbers~)))
     Object(fields) => {
       let restored : Map[String, Json] = Map([])
       for key, value in fields {
         if !key.has_prefix("s") {
           raise Conversion("JSON object key must be a string")
         }
-        restored[key[1:].to_owned()] = restore_pg_json(value)
+        restored[key[1:].to_owned()] = restore_pg_json(
+          value,
+          canonical_numbers~,
+        )
       }
       Json::object(restored)
     }

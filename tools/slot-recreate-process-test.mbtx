@@ -1,0 +1,383 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/shell",
+  "moonbitlang/async/process",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let repo = @env.current_dir().unwrap()
+  let root = @fs.tmpdir(prefix="mooncdc-recreate-process-")
+  let evidence = root + "/evidence"
+  let snapshot = root + "/source"
+  @fs.mkdir(evidence)
+  @fs.mkdir(snapshot)
+  @fs.write_file("/tmp/mooncdc-recreate-process-root.txt", root)
+  println("RECREATE ROOT: " + root)
+  let vars = @env.get_env_vars()
+  for key in vars.keys().to_array() {
+    if key.has_prefix("APP_") || key.has_prefix("MOONCDC_") {
+      vars.remove(key)
+    }
+  }
+  vars["RUST_LOG"] = "error"
+  let commands : Array[Json] = []
+  let workers : Array[Json] = []
+  let pids : Array[String] = []
+  let run = async fn(
+    name : String,
+    program : String,
+    args : Array[String],
+    cwd : String,
+  ) -> @shell.Output {
+    let result = @shell.Cmd(program, args, cwd~, env=vars, inherit_env=false).output(
+      timeout_ms=300000,
+      max_output_bytes=20000000,
+    )
+    @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
+    @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
+    commands.push({
+      "name": name.to_json(),
+      "program": program.to_json(),
+      "args": args.to_json(),
+      "cwd": cwd.to_json(),
+      "exit_code": result.exit_code().to_json(),
+    })
+    @fs.write_file(
+      evidence + "/commands.json",
+      commands.to_json().stringify(indent=2),
+    )
+    println(
+      "RECREATE AUDIT: " + name + " exit=" + result.exit_code().to_string(),
+    )
+    result
+  }
+  run("source", "git", ["rev-parse", "HEAD", "HEAD^{tree}"], repo).check()
+  run("initial-status", "git", ["status", "--porcelain=v1"], repo).check()
+  run("tested-source", "git", ["diff", "--binary", "HEAD"], repo).check()
+  run("toolchain", "moon", ["version", "--all"], repo).check()
+  run("host", "uname", ["-a"], repo).check()
+  run("docker", "docker", ["version"], repo).check()
+  run(
+    "images",
+    "docker",
+    [
+      "image", "inspect", "postgres:17.11", "postgres:18.6", "--format", "{{.Id}} {{json .RepoDigests}}",
+    ],
+    repo,
+  ).check()
+  let tracked = @shell.Cmd(
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".", ":(exclude)docs/reports/evidence"],
+    cwd=repo,
+  ).output()
+  tracked.check()
+  let paths = tracked
+    .stdout()
+    .split("\u0000")
+    .filter(p => !p.is_empty())
+    .map(p => p.to_owned())
+    .collect()
+  for path in paths {
+    let parts = path.split("/").collect()
+    if parts.length() > 1 {
+      @fs.mkdir(
+        snapshot + "/" + parts[:parts.length() - 1].join("/"),
+        recursive=true,
+        allow_exist=true,
+      )
+    }
+    @fs.write_file(snapshot + "/" + path, @fs.read_file(repo + "/" + path))
+  }
+  @shell.Cmd("cp", ["-R", repo + "/.mooncakes", snapshot + "/.mooncakes"]).run()
+  run("tracked-sha256", "shasum", ["-a", "256"] + paths, repo).check()
+  for
+    (name, args) in [
+      ("check", ["check", "--target", "native", "--frozen", "--deny-warn"]),
+      ("ordinary", ["test", "--target", "native", "--frozen", "--deny-warn"]),
+      ("release", ["build", "--target", "native", "--release", "--frozen"]),
+    ] {
+    run(name, "moon", args, snapshot).check()
+  }
+  let file = "pipeline_recreate_process_wbtest.mbt"
+  let built = run(
+    "build-worker",
+    "moon",
+    [
+      "test", file, "--target", "native", "--build-only", "--frozen", "--deny-warn",
+    ],
+    snapshot,
+  )
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("one native worker required")
+  }
+  let project = root
+    .split("/")
+    .last()
+    .unwrap()
+    .to_owned()
+    .to_lower()
+    .replace_all(old=".", new="-")
+  let services : Map[String, Json] = Map([])
+  for
+    (name, image, mount) in [
+      ("pg17", "postgres:17.11", "/var/lib/postgresql/data"),
+      ("pg18", "postgres:18.6", "/var/lib/postgresql"),
+    ] {
+    services[name] = {
+      "image": image.to_json(),
+      "environment": {
+        "POSTGRES_USER": "cdc",
+        "POSTGRES_PASSWORD": "mooncdc-test-only",
+        "POSTGRES_DB": "postgres",
+        "POSTGRES_INITDB_ARGS": "--auth-host=scram-sha-256",
+      },
+      "ports": [{ "host_ip": "127.0.0.1", "target": 5432, "published": "0" }],
+      "tmpfs": [mount.to_json()],
+      "command": [
+        "postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=16",
+        "-c", "max_wal_senders=16", "-c", "wal_sender_timeout=5s",
+      ],
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U cdc -d postgres"],
+        "start_period": "60s",
+        "interval": "1s",
+        "timeout": "3s",
+        "retries": 30,
+      },
+    }
+  }
+  let compose_path = evidence + "/compose.json"
+  @fs.write_file(
+    compose_path,
+    { "services": services.to_json() }.to_json().stringify(indent=2),
+  )
+  let prefix = ["compose", "-p", project, "-f", compose_path]
+  let compose = async fn(name : String, args : Array[String]) -> String {
+    let result = run(name, "docker", prefix + args, repo)
+    result.check()
+    result.stdout().trim().to_owned()
+  }
+  defer @async.protect_from_cancel(() => {
+    ignore(compose("fixture-logs", ["logs", "--no-color"]))
+    ignore(compose("fixture-down", ["down", "-v", "--remove-orphans"]))
+    for
+      (name, args) in [
+        (
+          "fixture-cleanup",
+          [
+            "ps",
+            "-a",
+            "--filter",
+            "label=com.docker.compose.project=" + project,
+            "--format",
+            "{{.ID}} {{.Names}}",
+          ],
+        ),
+        (
+          "volume-cleanup",
+          [
+            "volume",
+            "ls",
+            "--filter",
+            "label=com.docker.compose.project=" + project,
+            "--format",
+            "{{.Name}}",
+          ],
+        ),
+      ] {
+      let result = run(name, "docker", args, repo)
+      result.check()
+      assert_eq(result.stdout().trim(), "")
+    }
+    if !pids.is_empty() {
+      let result = run(
+        "workers-cleanup",
+        "ps",
+        ["-p", pids.join(","), "-o", "pid=,comm="],
+        repo,
+      )
+      assert_eq(result.stdout().trim(), "")
+      assert_eq(result.exit_code(), 1)
+    }
+  })
+  ignore(
+    compose("fixture-up", [
+      "up", "-d", "--wait", "--wait-timeout", "120", "--pull", "never",
+    ]),
+  )
+  ignore(compose("fixture-ps", ["ps", "--format", "json"]))
+  let chosen_services = match @env.get_env_var("MOONCDC_EXAMPLE_SERVICE") {
+    Some(service) => [service]
+    None => ["pg17", "pg18"]
+  }
+  let backends = match @env.get_env_var("MOONCDC_RECREATE_STORE") {
+    Some(store) => [store]
+    None => ["legacy", "file", "postgres"]
+  }
+  let boundaries = match @env.get_env_var("MOONCDC_RECREATE_BOUNDARY") {
+    Some(boundary) => [boundary]
+    None =>
+      [
+        "after_intent", "after_drop", "after_create", "after_position", "after_checkpoint",
+        "after_complete", "during_copy",
+      ]
+  }
+  for service in chosen_services {
+    assert_true(service == "pg17" || service == "pg18")
+    let port = compose(service + "-port", ["port", service, "5432"])
+      .split(":")
+      .last()
+      .unwrap()
+      .to_owned()
+    ignore(
+      compose(service + "-version", [
+        "exec", "-T", service, "psql", "-U", "cdc", "-d", "postgres", "-Atc", "SHOW server_version",
+      ]),
+    )
+    for backend in backends {
+      for boundary in boundaries {
+        let name = service + "-" + backend + "-" + boundary
+        let dir = evidence + "/" + name
+        @fs.mkdir(dir)
+        for phase in ["prepare", "kill", "recover", "restart"] {
+          let child_env = vars.copy()
+          child_env["MOONCDC_TEST_PORT"] = port
+          child_env["MOONCDC_RECREATE_DIR"] = dir
+          child_env["MOONCDC_RECREATE_STORE"] = backend
+          child_env["MOONCDC_RECREATE_BOUNDARY"] = boundary
+          child_env["MOONCDC_RECREATE_PHASE"] = phase
+          let recorded_env : Map[String, String] = Map([])
+          for
+            key in [
+              "RUST_LOG", "MOONCDC_TEST_PORT", "MOONCDC_RECREATE_DIR", "MOONCDC_RECREATE_STORE",
+              "MOONCDC_RECREATE_BOUNDARY", "MOONCDC_RECREATE_PHASE",
+            ] {
+            recorded_env[key] = child_env[key]
+          }
+          let output = @process.redirect_to_file(dir + "/" + phase + ".log")
+          defer output.close()
+          @async.with_task_group(group => {
+            let child = @process.spawn(
+              group,
+              executable,
+              [file + ":0-1"],
+              extra_env=child_env,
+              inherit_env=false,
+              stdout=output,
+              stderr=output,
+              cancel_handler=@process.hard_cancel(),
+            )
+            let pid = child.pid.to_string()
+            pids.push(pid)
+            let code = @async.with_timeout(150000, () => {
+              if phase == "kill" {
+                while !@fs.exists(dir + "/boundary.ready") {
+                  if child.try_wait() is Some(code) {
+                    fail(
+                      "worker exited before durable boundary: " +
+                      code.to_string() +
+                      " " +
+                      @fs.read_file(dir + "/kill.log").text(),
+                    )
+                  }
+                  @async.sleep(25)
+                }
+                assert_eq(
+                  @fs.read_file(dir + "/boundary.ready").text(),
+                  boundary,
+                )
+                run(name + "-sigkill", "kill", ["-KILL", pid], repo).check()
+              }
+              child.wait()
+            })
+            workers.push({
+              "scenario": name.to_json(),
+              "phase": phase.to_json(),
+              "pid": pid.to_json(),
+              "exit_code": code.to_json(),
+              "boundary": boundary.to_json(),
+              "args": [file + ":0-1"].to_json(),
+              "env": recorded_env.to_json(),
+            })
+            @fs.write_file(
+              evidence + "/workers.json",
+              workers.to_json().stringify(indent=2),
+            )
+            if phase == "kill" {
+              assert_eq(code, -9)
+            } else {
+              assert_eq(code, 0)
+              let log = @fs.read_file(dir + "/" + phase + ".log").text()
+              let mut passed = 0
+              for line in log.split("\n") {
+                if line.has_prefix("{") &&
+                  @json.parse(line)
+                  is { "type": "result", "message": String(message), .. } {
+                  assert_eq(message, "", msg="worker assertion failed: " + log)
+                  passed += 1
+                }
+              }
+              assert_eq(passed, 1)
+              assert_true(
+                log.contains(
+                  "RECREATE: " +
+                  phase +
+                  " passed; backend=" +
+                  backend +
+                  "; boundary=" +
+                  boundary,
+                ),
+              )
+            }
+            println(
+              "RECREATE CHILD: " +
+              name +
+              " " +
+              phase +
+              " pid=" +
+              pid +
+              " exit=" +
+              code.to_string(),
+            )
+          })
+        }
+        let resources = compose(name + "-resources", [
+          "exec", "-T", service, "psql", "-U", "cdc", "-d", "postgres", "-Atc", "SELECT 'slots='||count(*) FROM pg_replication_slots; SELECT 'clients='||count(*) FROM pg_stat_activity WHERE application_name LIKE 'mooncdc%'; SELECT 'publications='||count(*) FROM pg_publication; SELECT 'tables='||count(*) FROM pg_tables WHERE schemaname NOT IN('pg_catalog','information_schema')",
+        ])
+        assert_eq(resources, "slots=0\nclients=0\npublications=0\ntables=0")
+      }
+    }
+  }
+  for path in paths {
+    if @fs.read_file(repo + "/" + path).binary() !=
+      @fs.read_file(snapshot + "/" + path).binary() {
+      fail("tested source changed: " + path)
+    }
+  }
+  run("final-tracked-sha256", "shasum", ["-a", "256"] + paths, repo).check()
+  @fs.write_file(
+    evidence + "/summary.json",
+    {
+      "workers": workers.length().to_json(),
+      "sigkills": workers
+      .filter(worker => worker is { "phase": "kill", .. })
+      .length()
+      .to_json(),
+      "source_unchanged": true,
+    }
+    .to_json()
+    .stringify(indent=2),
+  )
+  println(
+    "RECREATE audit passed: " +
+    workers.length().to_string() +
+    " workers; source bytes unchanged",
+  )
+}

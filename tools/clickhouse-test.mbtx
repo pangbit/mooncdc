@@ -18,6 +18,11 @@ async fn main {
   ).run()
   @shell.Cmd(
     "moon",
+    ["test", "clickhouse_cancellation_wbtest.mbt", "--target", "native"],
+    env=Map([("MOONCDC_CLICKHOUSE_LIVE", "1")]),
+  ).run()
+  @shell.Cmd(
+    "moon",
     ["test", "clickhouse_ddl_wbtest.mbt", "--target", "native"],
     env=Map([("MOONCDC_CLICKHOUSE_LIVE", "1")]),
   ).run()

@@ -1,0 +1,145 @@
+///|
+import {
+  "moonbitlang/async", "moonbitlang/async/fs", "moonbitlang/async/shell",
+  "moonbitlang/async/process", "moonbitlang/core/env", "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let repo = @env.get_env_var("PWD").unwrap()
+  let root = @fs.tmpdir(prefix="mooncdc-promotion-")
+  let evidence = root + "/evidence"
+  let snapshot = root + "/source"
+  @fs.mkdir(evidence)
+  @fs.mkdir(snapshot)
+  @fs.write_file("/tmp/mooncdc-promotion-root.txt", root)
+  println("PROMOTION ROOT: " + root)
+  let vars = @env.get_env_vars()
+  for key in vars.keys().to_array() {
+    if key.has_prefix("APP_") || key.has_prefix("MOONCDC_") { vars.remove(key) }
+  }
+  vars["RUST_LOG"] = "error"
+  let records : Array[Json] = []
+  let workers : Array[Json] = []
+  let pids : Array[String] = []
+  let killing = @env.get_env_var("MOONCDC_PROMOTION_KILL") == Some("true")
+  let run = async fn(name : String, program : String, args : Array[String], cwd : String, extra : Map[String,String]) -> @shell.Output {
+    let env = vars.copy()
+    for key, value in extra { env[key] = value }
+    let result = @shell.Cmd(program,args,cwd~,env~,inherit_env=false).output(timeout_ms=300000,max_output_bytes=20000000)
+    @fs.write_file(evidence+"/"+name+".stdout",result.stdout_bytes())
+    @fs.write_file(evidence+"/"+name+".stderr",result.stderr())
+    records.push({"name":name.to_json(),"program":program.to_json(),"args":args.to_json(),"cwd":cwd.to_json(),"env":extra.to_json(),"exit_code":result.exit_code().to_json()})
+    @fs.write_file(evidence+"/commands.json",records.to_json().stringify(indent=2))
+    println("PROMOTION AUDIT: "+name+" exit="+result.exit_code().to_string())
+    result
+  }
+  run("source","git",["rev-parse","HEAD","HEAD^{tree}"],repo,Map([])).check()
+  run("initial-status","git",["status","--porcelain=v1"],repo,Map([])).check()
+  run("tested-source","git",["diff","--binary","HEAD"],repo,Map([])).check()
+  run("toolchain","moon",["version","--all"],repo,Map([])).check()
+  run("host","uname",["-a"],repo,Map([])).check()
+  run("docker","docker",["version"],repo,Map([])).check()
+  run("images","docker",["image","inspect","postgres:17.11","postgres:18.6","--format","{{.Id}} {{json .RepoDigests}}"],repo,Map([])).check()
+  let tracked = @shell.Cmd("git",["ls-files","--cached","--others","--exclude-standard","-z","--",".",":(exclude)docs/reports/evidence"],cwd=repo).output()
+  tracked.check()
+  let paths = tracked.stdout().split("\u0000").filter(p=>!p.is_empty()).map(p=>p.to_owned()).collect()
+  for path in paths {
+    let parts = path.split("/").collect()
+    if parts.length()>1 { @fs.mkdir(snapshot+"/"+parts[:parts.length()-1].join("/"),recursive=true,allow_exist=true) }
+    @fs.write_file(snapshot+"/"+path,@fs.read_file(repo+"/"+path))
+  }
+  @shell.Cmd("cp",["-R",repo+"/.mooncakes",snapshot+"/.mooncakes"]).run()
+  run("tracked-sha256","shasum",["-a","256"]+paths,repo,Map([])).check()
+  for (name,args) in [
+    ("check",["check","--target","native","--frozen","--deny-warn"]),
+    ("ordinary",["test","--target","native","--frozen","--deny-warn"]),
+    ("release",["build","--target","native","--release","--frozen"]),
+  ] { run(name,"moon",args,snapshot,Map([])).check() }
+  let file = "timeline_promotion_live_wbtest.mbt"
+  let built = run("build-worker","moon",["test",file,"--target","native","--build-only","--frozen","--deny-warn"],snapshot,Map([]))
+  built.check()
+  guard @json.parse(built.stdout()) is {"artifacts_path":[String(executable)],..} else { fail("one native worker required") }
+  let services = match @env.get_env_var("MOONCDC_EXAMPLE_SERVICE") { Some(service)=>[service];None=>["pg17","pg18"] }
+  let backends = match @env.get_env_var("MOONCDC_PROMOTION_STORE") { Some(backend)=>[backend];None=>["legacy","file","postgres"] }
+  for service in services {
+    let image = match service { "pg17"=>"postgres:17.11";"pg18"=>"postgres:18.6";_=>fail("expected pg17 or pg18") }
+    for backend in backends {
+      let name = service+"-"+backend
+      let dir = evidence+"/"+name
+      @fs.mkdir(dir)
+      let project = root.split("/").last().unwrap().to_owned().to_lower().replace_all(old=".",new="-")+"-"+name
+      let prefix = ["compose","-p",project,"-f",snapshot+"/integration/standby.compose.yaml"]
+      let env = {"MOONCDC_STANDBY_IMAGE":image,"MOONCDC_SYNC_SLOT":"mooncdc_physical","MOONCDC_SLOT_SYNC":"on"}
+      let compose = async fn(stage : String,args : Array[String]) -> String {
+        let result=run(name+"-"+stage,"docker",prefix+args,snapshot,env)
+        result.check()
+        result.stdout().trim().to_owned()
+      }
+      assert_eq(compose("initial-fixture",["ps","--quiet"]),"")
+      defer @async.protect_from_cancel(() => {
+        ignore(compose("logs",["logs","--no-color"]))
+        ignore(compose("down",["down","--volumes","--remove-orphans"]))
+        let cleanup=run(name+"-cleanup","docker",["ps","-a","--filter","label=com.docker.compose.project="+project,"--format","{{.ID}} {{.Names}}"],repo,Map([]))
+        cleanup.check()
+        assert_eq(cleanup.stdout().trim(),"")
+        let volumes=run(name+"-volume-cleanup","docker",["volume","ls","--filter","label=com.docker.compose.project="+project,"--format","{{.Name}}"],repo,Map([]))
+        volumes.check()
+        assert_eq(volumes.stdout().trim(),"")
+      })
+      ignore(compose("primary-up",["up","-d","--wait","--pull","never","primary"]))
+      ignore(compose("basebackup",["run","--rm","--no-deps","--pull","never","--entrypoint","pg_basebackup","standby","--dbname=host=primary user=cdc password=mooncdc-test-only dbname=postgres","-D","/var/lib/postgresql/data/pgdata","-R","-X","stream","--checkpoint=fast","-C","-S","mooncdc_physical"]))
+      ignore(compose("standby-up",["up","-d","--wait","--pull","never","standby"]))
+      let port=compose("primary-port",["port","primary","5432"]).split(":").last().unwrap().to_owned()
+      let standby=compose("standby-port",["port","standby","5432"]).split(":").last().unwrap().to_owned()
+      for phase in (if killing { ["prepare","promote","recover","restart"] } else { ["prepare","promote","restart"] }) {
+        if phase=="promote" { ignore(compose("fence-primary",["stop","--timeout","30","primary"])) }
+        let child_env=vars.copy()
+        child_env["MOONCDC_TEST_PORT"]=port
+        child_env["MOONCDC_STANDBY_PORT"]=standby
+        child_env["MOONCDC_PROMOTION_DIR"]=dir
+        child_env["MOONCDC_PROMOTION_STORE"]=backend
+        child_env["MOONCDC_PROMOTION_PHASE"]=phase
+        let boundary=match backend { "legacy"=>"after_intent";"file"=>"after_checkpoint";"postgres"=>"after_complete";_=>fail("unknown backend") }
+        if killing && phase=="promote" { child_env["MOONCDC_PROMOTION_BOUNDARY"]=boundary }
+        let output=@process.redirect_to_file(dir+"/"+phase+".log")
+        defer output.close()
+        @async.with_task_group(group => {
+          let child=@process.spawn(group,executable,[file+":0-1"],extra_env=child_env,inherit_env=false,stdout=output,stderr=output,cancel_handler=@process.hard_cancel())
+          let pid=child.pid.to_string()
+          pids.push(pid)
+          let code=@async.with_timeout(150000,()=>{
+            if killing && phase=="promote" {
+              while !@fs.exists(dir+"/boundary.ready") {
+                if child.try_wait() is Some(code) { fail("worker exited before durable boundary: "+code.to_string()+" "+@fs.read_file(dir+"/promote.log").text()) }
+                @async.sleep(25)
+              }
+              assert_eq(@fs.read_file(dir+"/boundary.ready").text(),boundary)
+              run(name+"-kill","kill",["-KILL",pid],repo,Map([])).check()
+            }
+            child.wait()
+          })
+          workers.push({"scenario":name.to_json(),"phase":phase.to_json(),"pid":pid.to_json(),"exit_code":code.to_json(),"boundary":(if killing && phase=="promote" { Some(boundary) } else { None }).to_json()})
+          @fs.write_file(evidence+"/workers.json",workers.to_json().stringify(indent=2))
+          if killing && phase=="promote" { assert_eq(code,-9) } else {
+          assert_eq(code,0)
+          let log=@fs.read_file(dir+"/"+phase+".log").text()
+          let mut passed=0
+          for line in log.split("\n") {
+            if line.has_prefix("{") && @json.parse(line) is {"type":"result","message":String(message),..} { assert_eq(message,"");passed+=1 }
+          }
+          assert_eq(passed,1,msg="worker assertion failed: "+log)
+          assert_true(log.contains("PROMOTION: "+phase+" passed; backend="+backend))
+          }
+          println("PROMOTION CHILD: "+name+" "+phase+" pid="+pid+" exit="+code.to_string())
+        })
+      }
+      println("PROMOTION scenario passed: "+name)
+    }
+  }
+  let stopped=run("workers-cleanup","ps",["-p",pids.join(","),"-o","pid=,comm="],repo,Map([]))
+  assert_eq(stopped.stdout().trim(),"")
+  for path in paths { assert_eq(@fs.read_file(repo+"/"+path).binary(),@fs.read_file(snapshot+"/"+path).binary(),msg="tested source changed: "+path) }
+  run("final-status","git",["status","--porcelain=v1"],repo,Map([])).check()
+  println("PROMOTION audit passed: "+workers.length().to_string()+" workers; source bytes unchanged; owned fixtures removed")
+}

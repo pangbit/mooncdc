@@ -1,0 +1,88 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "pangbit/mooncdc/internal/memory"
+
+import {
+  "moonbitlang/async/cond_var",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn batch_target(UInt64, Float, UInt64, UInt64) -> UInt64
+
+pub fn next_backpressure(Bool, UInt64, UInt64, Float, Float) -> Bool
+
+pub async fn sample(Snapshot?) -> Refresh
+
+pub fn valid_budget(Float, UInt64) -> Bool
+
+pub fn valid_thresholds(Float, Float) -> Bool
+
+pub async fn[T] with_monitor(Int, (Float, Float)?, async (Monitor) -> T) -> T
+
+pub async fn[T] with_sampler(Int, (Float, Float)?, async (Snapshot?) -> Refresh, async (Monitor) -> T) -> T
+
+// Errors
+pub suberror ConfigError {
+  ConfigError(String)
+}
+
+// Types and methods
+pub struct Governor {
+  monitor : Monitor
+  ratio : Float
+  maximum : UInt64
+  mut slots : UInt64
+  mut revision : UInt64
+  mut capacity : UInt64
+  mut target : UInt64
+}
+pub fn Governor::new(Monitor, Float, UInt64) -> Self raise
+pub fn Governor::registered_slots(Self) -> UInt64
+pub fn Governor::target_bytes(Self) -> UInt64
+pub async fn[T] Governor::with_slots(Self, UInt64, async () -> T) -> T
+
+pub struct Monitor {
+  mut snapshot : Snapshot
+  mut revision : UInt64
+  mut active : Bool
+  thresholds : (Float, Float)?
+  changed : @cond_var.Cond
+  mut activations : UInt64
+  mut resumes : UInt64
+}
+pub fn Monitor::capacity_revision(Self) -> UInt64
+pub fn Monitor::current(Self) -> Snapshot
+pub fn Monitor::is_paused(Self) -> Bool
+pub fn Monitor::transitions(Self) -> (UInt64, UInt64)
+pub async fn Monitor::wait_for_capacity(Self) -> Unit
+pub async fn Monitor::wait_for_pressure(Self) -> Unit
+
+pub(all) struct Refresh {
+  snapshot : Snapshot
+  fresh : Bool
+} derive(Eq, @debug.Debug)
+pub fn Refresh::equal(Self, Self) -> Bool
+pub fn Refresh::not_equal(Self, Self) -> Bool
+pub fn Refresh::to_repr(Self) -> @debug.Repr
+
+pub(all) struct Snapshot {
+  used : UInt64
+  total : UInt64
+  source : Source
+} derive(Eq, @debug.Debug)
+pub fn Snapshot::equal(Self, Self) -> Bool
+pub fn Snapshot::not_equal(Self, Self) -> Bool
+pub fn Snapshot::to_repr(Self) -> @debug.Repr
+
+pub(all) enum Source {
+  System
+  ProcessCgroup
+  RootCgroup
+} derive(Eq, @debug.Debug)
+pub fn Source::equal(Self, Self) -> Bool
+pub fn Source::not_equal(Self, Self) -> Bool
+pub fn Source::to_repr(Self) -> @debug.Repr
+
+// Type aliases
+
+// Traits

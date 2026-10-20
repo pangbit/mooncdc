@@ -1,0 +1,151 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let service = @env.get_env_var("MOONCDC_EXAMPLE_SERVICE").unwrap_or("pg18")
+  let failover = @env.get_env_var("MOONCDC_STANDBY_FAILOVER") == Some("true")
+  let image = match service {
+    "pg17" => "postgres:17.11"
+    "pg18" => "postgres:18.6"
+    _ => fail("MOONCDC_EXAMPLE_SERVICE must be pg17 or pg18")
+  }
+  let dir = @fs.tmpdir(prefix="mooncdc-standby-")
+  defer @fs.rmdir(dir, recursive=true)
+  let project = dir
+    .split("/")
+    .collect()
+    .last()
+    .unwrap()
+    .to_owned()
+    .to_lower()
+    .replace_all(old=".", new="-")
+  let prefix = [
+    "compose", "-p", project, "-f", "integration/standby.compose.yaml",
+  ]
+  let vars = {
+    "MOONCDC_STANDBY_IMAGE": image,
+    "MOONCDC_SYNC_SLOT": if failover {
+      "mooncdc_physical"
+    } else {
+      ""
+    },
+    "MOONCDC_SLOT_SYNC": if failover {
+      "on"
+    } else {
+      "off"
+    },
+  }
+  let compose = async fn(args : Array[String]) -> String {
+    let result = @shell.Cmd("docker", prefix + args, env=vars).output()
+    errdefer {
+      eprintln("standby fixture command failed: \{Repr(args)}")
+      eprintln(result.stdout())
+      eprintln(result.stderr())
+      let logs = @shell.Cmd(
+        "docker",
+        prefix + ["logs", "--no-color", "--tail", "30"],
+        env=vars,
+      ).output()
+      eprintln(logs.stdout())
+    }
+    result.check()
+    result.stdout().trim().to_owned()
+  }
+  assert_eq(compose(["ps", "--quiet"]), "")
+  defer @async.protect_from_cancel(() => {
+    ignore(compose(["down", "--volumes", "--remove-orphans"]))
+  })
+  ignore(compose(["up", "-d", "--wait", "primary"]))
+  ignore(
+    compose(
+      [
+        "run", "--rm", "--no-deps", "--entrypoint", "pg_basebackup", "standby", "--dbname=host=primary user=cdc password=mooncdc-test-only dbname=postgres",
+        "-D", "/var/lib/postgresql/data/pgdata", "-R", "-X", "stream", "--checkpoint=fast",
+      ] +
+      (if failover { ["-C", "-S", "mooncdc_physical"] } else { [] }),
+    ),
+  )
+  ignore(compose(["up", "-d", "--wait", "standby"]))
+  println(
+    "STANDBY: \{image} primary and physical standby are healthy; failover=\{failover}",
+  )
+  let port = compose(["port", "primary", "5432"])
+    .split(":")
+    .collect()
+    .last()
+    .unwrap()
+    .to_owned()
+  let standby_port = compose(["port", "standby", "5432"])
+    .split(":")
+    .collect()
+    .last()
+    .unwrap()
+    .to_owned()
+  let file = if failover {
+    "slot_failover_standby_wbtest.mbt"
+  } else {
+    "source_migrations_standby_wbtest.mbt"
+  }
+  let built = @shell.Cmd("moon", [
+    "test", file, "--target", "native", "--build-only",
+  ]).output()
+  errdefer eprintln(built.stderr())
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("one native whitebox executable required")
+  }
+  let run = async fn(phase : String) -> Unit {
+    let result = @shell.Cmd(executable, [file + ":0-1"], env={
+      "MOONCDC_TEST_PORT": port,
+      "MOONCDC_STANDBY_PORT": standby_port,
+      "MOONCDC_FAILOVER_DIR": dir,
+      "MOONCDC_FAILOVER_PHASE": phase,
+    }).output()
+    errdefer {
+      eprintln(result.stdout())
+      eprintln(result.stderr())
+      eprintln(compose(["logs", "--no-color", "--tail", "30"]))
+    }
+    result.check()
+    let mut passed = 0
+    for line in result.stdout().split("\n") {
+      if line.has_prefix("{") &&
+        @json.parse(line)
+        is { "type": "result", "message": String(message), .. } {
+        assert_eq(message, "")
+        passed += 1
+      }
+    }
+    assert_eq(passed, 1)
+    if failover {
+      assert_true(result.stdout().contains("FAILOVER: " + phase + " passed"))
+    } else {
+      assert_true(
+        result
+        .stdout()
+        .contains(
+          "STANDBY: migration skip before and after primary WAL replay passed",
+        ),
+      )
+    }
+  }
+  if failover {
+    run("prepare")
+    // Fence this fixture's old primary before promoting its standby.
+    ignore(compose(["stop", "--timeout", "30", "primary"]))
+    run("promote")
+  } else {
+    run("migrations")
+  }
+  println(
+    "STANDBY: \{image} physical primary/standby verification passed, failover=\{failover}",
+  )
+}

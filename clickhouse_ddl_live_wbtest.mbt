@@ -155,6 +155,9 @@ async test "ClickHouse pipeline live upstream DDL and publication projection" {
             )
             writer.wait()
           })
+          // Cleanup runs after the WAL checkpoint is durable, retaining the
+          // latest applied schema needed by the next process.
+          assert_eq(schemas.all().length(), 1)
           if engine == ReplacingMergeTree {
             assert_eq(
               http
@@ -209,11 +212,12 @@ async test "ClickHouse pipeline live upstream DDL and publication projection" {
             )
             writer.wait()
           })
+          assert_eq(schemas.all().length(), 1)
         },
       )
     }
     println(
-      "CLICKHOUSE DDL: upstream PG triggers, ordered changes, defaults, projection, source rename and durable restart passed",
+      "CLICKHOUSE DDL: upstream PG triggers, ordered changes, defaults, projection, source rename, checkpoint-bounded schema cleanup and durable restart passed",
     )
   })
 }

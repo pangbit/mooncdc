@@ -47,8 +47,14 @@ priv struct SchemaFile {
 } derive(ToJson, @json.FromJson)
 
 ///|
-priv struct FileSchemaStore {
-  path : String
+priv enum SchemaStorage {
+  OnDisk(String)
+  InState(StateSession)
+}
+
+///|
+priv struct DurableSchemaStore {
+  storage : SchemaStorage
   identity : String
   mut schemas : Array[SchemaSnapshot]
   mutex : @async.Mutex
@@ -107,24 +113,28 @@ fn read_schema_bytes(
       schema
     })
   } catch {
+    CheckpointError(message) => raise CheckpointError(message)
     e => raise CheckpointError("invalid schema store: \{e}")
   }
 }
 
 ///|
-async fn FileSchemaStore::save(
-  self : FileSchemaStore,
+async fn DurableSchemaStore::save(
+  self : DurableSchemaStore,
   schemas : Array[SchemaSnapshot],
 ) -> Unit {
   let bytes = schema_file_bytes(self.identity, schemas)
   @async.protect_from_cancel(() => {
-    save_atomic_file(self.path, bytes)
+    match self.storage {
+      OnDisk(path) => save_atomic_file(path, bytes)
+      InState(session) => session.save(Schemas, bytes)
+    }
     self.schemas = schemas
   })
 }
 
 ///|
-impl SchemaStore for FileSchemaStore with fn get(self, oid, bound) {
+impl SchemaStore for DurableSchemaStore with fn get(self, oid, bound) {
   if self.closed {
     raise Closed
   }
@@ -140,7 +150,7 @@ impl SchemaStore for FileSchemaStore with fn get(self, oid, bound) {
 }
 
 ///|
-impl SchemaStore for FileSchemaStore with fn all(self) {
+impl SchemaStore for DurableSchemaStore with fn all(self) {
   if self.closed {
     raise Closed
   }
@@ -148,7 +158,7 @@ impl SchemaStore for FileSchemaStore with fn all(self) {
 }
 
 ///|
-impl SchemaStore for FileSchemaStore with fn put(self, schema) {
+impl SchemaStore for DurableSchemaStore with fn put(self, schema) {
   self.mutex.acquire()
   defer self.mutex.release()
   if self.closed {
@@ -168,7 +178,7 @@ impl SchemaStore for FileSchemaStore with fn put(self, schema) {
 }
 
 ///|
-impl SchemaStore for FileSchemaStore with fn prune(self, bounds) {
+impl SchemaStore for DurableSchemaStore with fn prune(self, bounds) {
   self.mutex.acquire()
   defer self.mutex.release()
   if self.closed {
@@ -230,8 +240,8 @@ pub async fn[T] with_file_schema_store(
   } else {
     []
   }
-  let store : FileSchemaStore = {
-    path,
+  let store : DurableSchemaStore = {
+    storage: OnDisk(path),
     identity,
     schemas,
     mutex: @async.Mutex(),
@@ -244,4 +254,40 @@ pub async fn[T] with_file_schema_store(
     store.save([])
   }
   run(store)
+}
+
+///|
+/// Store schemas through an exclusively owned StateStore namespace. Use a
+/// different namespace from run_pipeline's state_store, since each scope owns
+/// its lease. File and PostgreSQL backends retain the same bounded, checksummed
+/// schema history. An escaped SchemaStore is closed when this callback exits.
+pub async fn[T] with_state_schema_store(
+  state : &StateStore,
+  identity~ : String,
+  run : async (&SchemaStore) -> T,
+) -> T {
+  if identity.is_empty() {
+    raise InvalidConfig("empty schema store identity")
+  }
+  with_state_store(state, session => {
+    let bytes = session.load(Schemas)
+    let schemas = match bytes {
+      Some(bytes) => read_schema_bytes(bytes, identity)
+      None => []
+    }
+    let store : DurableSchemaStore = {
+      storage: InState(session),
+      identity,
+      schemas,
+      mutex: @async.Mutex(),
+      closed: false,
+    }
+    defer {
+      store.closed = true
+    }
+    if bytes is None {
+      store.save([])
+    }
+    run(store)
+  })
 }

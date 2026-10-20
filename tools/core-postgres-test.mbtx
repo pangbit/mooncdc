@@ -1,0 +1,413 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+}
+
+///|
+fn verify_result(output : String) -> Unit raise {
+  let mut results = 0
+  for line in output.split("\n") {
+    if line.has_prefix("{") {
+      let event = @json.parse(line)
+      if event is { "type": "result", "message": String(message), .. } {
+        assert_eq(message, "")
+        results += 1
+      }
+    }
+  }
+  assert_eq(results, 1)
+}
+
+///|
+async fn main {
+  let repo = @env.current_dir().unwrap()
+  let root = @fs.tmpdir(prefix="mooncdc-core-postgres-")
+  let evidence = root + "/evidence"
+  let private_tls = root + "/private-tls"
+  @fs.mkdir(evidence)
+  @fs.mkdir(private_tls)
+  defer {
+    @fs.rmdir(private_tls, recursive=true)
+    assert_false(@fs.exists(private_tls))
+    @fs.write_file(evidence + "/private-tls-cleanup.json", "{\"removed\":true}")
+  }
+  let project = root
+    .split("/")
+    .last()
+    .unwrap()
+    .to_owned()
+    .to_lower()
+    .replace_all(old=".", new="-")
+  @fs.write_file("/tmp/mooncdc-core-postgres-root.txt", root)
+  println("EVIDENCE: " + root)
+  let vars = @env.get_env_vars()
+  for key in vars.keys().to_array() {
+    if key.has_prefix("APP_") || key.has_prefix("MOONCDC_") {
+      vars.remove(key)
+    }
+  }
+  vars["RUST_LOG"] = "error"
+  let records : Array[Json] = []
+  let run = async fn(
+    name : String,
+    program : String,
+    args : Array[String],
+    extra : Map[String, String],
+  ) -> @shell.Output {
+    let env = vars.copy()
+    for key, value in extra {
+      env[key] = value
+    }
+    let output = @shell.Cmd(program, args, cwd=repo, env~, inherit_env=false).output(
+      timeout_ms=180000,
+      max_output_bytes=20000000,
+    )
+    @fs.write_file(evidence + "/" + name + ".stdout", output.stdout_bytes())
+    @fs.write_file(evidence + "/" + name + ".stderr", output.stderr())
+    records.push({
+      "name": name.to_json(),
+      "program": program.to_json(),
+      "args": args.to_json(),
+      "env": extra.to_json(),
+      "exit_code": output.exit_code().to_json(),
+    })
+    @fs.write_file(
+      evidence + "/commands.json",
+      records.to_json().stringify(indent=2),
+    )
+    println("CHECK: \{name} exit=\{output.exit_code()}")
+    output
+  }
+  run("source", "git", ["rev-parse", "HEAD", "HEAD^{tree}"], Map([])).check()
+  run("source-status", "git", ["status", "--porcelain=v1"], Map([])).check()
+  run("source-diff", "git", ["diff", "--binary"], Map([])).check()
+  let files = @shell.Cmd(
+    "git",
+    [
+      "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".",
+      ":(exclude)docs/reports/evidence",
+    ],
+    cwd=repo,
+  ).output()
+  files.check()
+  let paths = files
+    .stdout()
+    .split("\u0000")
+    .filter(p => !p.is_empty())
+    .map(p => p.to_owned())
+    .to_array()
+  run("source-sha256", "shasum", ["-a", "256"] + paths, Map([])).check()
+  run("toolchain", "moon", ["version", "--all"], Map([])).check()
+  run("docker", "docker", ["version"], Map([])).check()
+  run("openssl", "openssl", ["version"], Map([])).check()
+  run(
+    "images",
+    "docker",
+    [
+      "image", "inspect", "postgres:17.11", "postgres:18.6", "--format", "{{.Id}} {{json .RepoDigests}}",
+    ],
+    Map([]),
+  ).check()
+  run(
+    "check",
+    "moon",
+    ["check", "--target", "native", "--frozen", "--deny-warn"],
+    Map([]),
+  ).check()
+  run(
+    "ordinary",
+    "moon",
+    ["test", "--target", "native", "--frozen", "--deny-warn"],
+    Map([]),
+  ).check()
+  run("debug", "moon", ["build", "--target", "native", "--frozen"], Map([])).check()
+  run(
+    "release",
+    "moon",
+    ["build", "--target", "native", "--release", "--frozen"],
+    Map([]),
+  ).check()
+  let built = run(
+    "build-tests",
+    "moon",
+    [
+      "test", "postgres_query_wbtest.mbt", "--target", "native", "--frozen", "--build-only",
+    ],
+    Map([]),
+  )
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("expected one whitebox executable")
+  }
+  let outline = run(
+    "outline",
+    "moon",
+    ["test", "--target", "native", "--frozen", "--filter", "live*", "--outline"],
+    Map([]),
+  )
+  outline.check()
+  let services : Map[String, Json] = Map([])
+  for
+    (name, image, mount) in [
+      ("pg17", "postgres:17.11", "/var/lib/postgresql/data"),
+      ("pg18", "postgres:18.6", "/var/lib/postgresql"),
+    ] {
+    services[name] = {
+      "image": image.to_json(),
+      "environment": {
+        "POSTGRES_USER": "cdc",
+        "POSTGRES_PASSWORD": "mooncdc-test-only",
+        "POSTGRES_DB": "postgres",
+        "POSTGRES_INITDB_ARGS": "--auth-host=scram-sha-256",
+      },
+      "ports": [{ "host_ip": "127.0.0.1", "target": 5432, "published": "0" }],
+      "tmpfs": [mount.to_json()],
+      "command": [
+        "postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=16",
+        "-c", "max_wal_senders=16", "-c", "wal_sender_timeout=5s", "-c", "logical_decoding_work_mem=64kB",
+      ],
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U cdc -d postgres"],
+        "start_period": "60s",
+        "interval": "1s",
+        "timeout": "3s",
+        "retries": 30,
+      },
+    }
+  }
+  let compose = evidence + "/compose.json"
+  @fs.write_file(
+    compose,
+    Json::object({ "services": services.to_json() }).stringify(indent=2),
+  )
+  let prefix = ["compose", "-p", project, "-f", compose]
+  defer {
+    ignore(
+      run("fixture-logs", "docker", prefix + ["logs", "--no-color"], Map([])),
+    )
+    run(
+      "fixture-down",
+      "docker",
+      prefix + ["down", "-v", "--remove-orphans"],
+      Map([]),
+    ).check()
+    let remaining = run(
+      "fixture-cleanup",
+      "docker",
+      [
+        "ps",
+        "-a",
+        "--filter",
+        "label=com.docker.compose.project=" + project,
+        "--format",
+        "{{.ID}} {{.Names}}",
+      ],
+      Map([]),
+    )
+    remaining.check()
+    assert_eq(remaining.stdout(), "")
+  }
+  run(
+    "fixture-up",
+    "docker",
+    prefix + ["up", "-d", "--wait", "--wait-timeout", "120", "--pull", "never"],
+    Map([]),
+  ).check()
+  run("fixture-ps", "docker", prefix + ["ps", "--format", "json"], Map([])).check()
+  for service in ["pg17", "pg18"] {
+    run(
+      service + "-version",
+      "docker",
+      prefix +
+      [
+        "exec", "-T", service, "psql", "-U", "cdc", "-d", "postgres", "-Atc", "SHOW server_version",
+      ],
+      Map([]),
+    ).check()
+    let address = @shell.Cmd("docker", prefix + ["port", service, "5432"]).output()
+    address.check()
+    let port = address.stdout().trim().split(":").last().unwrap().to_owned()
+    let ca = private_tls + "/" + service + ".crt"
+    let key = private_tls + "/" + service + ".key"
+    run(
+      service + "-tls-create",
+      "openssl",
+      [
+        "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=mooncdc-test",
+        "-addext", "subjectAltName=IP:127.0.0.1,DNS:mooncdc-test.invalid", "-keyout",
+        key, "-out", ca,
+      ],
+      Map([]),
+    ).check()
+    @fs.write_file(evidence + "/" + service + "-test-ca.crt", @fs.read_file(ca))
+    for (path, target) in [(ca, "crt"), (key, "key")] {
+      run(
+        service + "-tls-copy-" + target,
+        "docker",
+        prefix + ["cp", path, service + ":/tmp/mooncdc-server." + target],
+        Map([]),
+      ).check()
+    }
+    run(
+      service + "-tls-owner",
+      "docker",
+      prefix +
+      [
+        "exec", "-T", "-u", "root", service, "chown", "postgres:postgres", "/tmp/mooncdc-server.crt",
+        "/tmp/mooncdc-server.key",
+      ],
+      Map([]),
+    ).check()
+    run(
+      service + "-tls-mode",
+      "docker",
+      prefix +
+      [
+        "exec", "-T", "-u", "root", service, "chmod", "600", "/tmp/mooncdc-server.key",
+      ],
+      Map([]),
+    ).check()
+    let sql_args = prefix +
+      [
+        "exec", "-T", service, "psql", "-U", "cdc", "-d", "postgres", "-v", "ON_ERROR_STOP=1",
+        "-Atc",
+      ]
+    for
+      index, setting in [
+        "ssl_cert_file='/tmp/mooncdc-server.crt'", "ssl_key_file='/tmp/mooncdc-server.key'",
+        "ssl='on'",
+      ] {
+      run(
+        service + "-tls-setting-" + index.to_string(),
+        "docker",
+        sql_args + ["ALTER SYSTEM SET " + setting],
+        Map([]),
+      ).check()
+    }
+    run(
+      service + "-tls-reload",
+      "docker",
+      sql_args + ["SELECT pg_reload_conf()"],
+      Map([]),
+    ).check()
+    let tls_status = run(
+      service + "-tls-status",
+      "docker",
+      sql_args + ["SHOW ssl"],
+      Map([]),
+    )
+    tls_status.check()
+    assert_eq(tls_status.stdout(), "on\n")
+    let monitor_evidence = evidence + "/" + service + "-source-monitor"
+    @fs.mkdir(monitor_evidence)
+    let mut count = 0
+    for line in outline.stdout().split("\n") {
+      let words = line.split(" ").filter(word => !word.is_empty()).to_array()
+      if words.length() < 5 {
+        continue
+      }
+      let file = words[2].split(":").next().unwrap().to_owned()
+      guard file.has_suffix("_wbtest.mbt") && words[3].has_prefix("index=") else {
+        fail("unrecognized core live outline")
+      }
+      let index = @string.parse_int(words[3][6:])
+      let case = service + "-" + file + "-" + index.to_string()
+      run(
+        case + "-wal-retention",
+        "docker",
+        sql_args + ["ALTER SYSTEM SET max_slot_wal_keep_size='-1'"],
+        Map([]),
+      ).check()
+      run(
+        case + "-reload",
+        "docker",
+        sql_args + ["SELECT pg_reload_conf()"],
+        Map([]),
+      ).check()
+      run(
+        case + "-baseline",
+        "docker",
+        sql_args +
+        [
+          "CREATE TABLE items(id integer PRIMARY KEY,value text); CREATE TABLE extras(id integer PRIMARY KEY,value text); ALTER TABLE items REPLICA IDENTITY FULL; ALTER TABLE extras REPLICA IDENTITY FULL; CREATE PUBLICATION mooncdc_test FOR TABLE items,extras",
+        ],
+        Map([]),
+      ).check()
+      run(
+        case + "-slot",
+        "docker",
+        sql_args +
+        [
+          "SELECT * FROM pg_create_logical_replication_slot('mooncdc_test','pgoutput')",
+        ],
+        Map([]),
+      ).check()
+      let result = run(case, executable, ["\{file}:\{index}-\{index + 1}"], {
+        "MOONCDC_TEST_PORT": port,
+        "MOONCDC_TEST_CA": ca,
+        "MOONCDC_STREAMING_PORT": port,
+        "MOONCDC_STREAMING_EVIDENCE": evidence +
+        "/" +
+        service +
+        "-streaming.json",
+        "MOONCDC_SOURCE_MONITOR_PORT": port,
+        "MOONCDC_SOURCE_MONITOR_EVIDENCE": monitor_evidence,
+      })
+      result.check()
+      verify_result(result.stdout())
+      // Test bodies retire their own resources. Only the explicit two-table
+      // protocol baseline belongs to the harness and is removed here.
+      run(
+        case + "-baseline-down",
+        "docker",
+        sql_args +
+        [
+          "SELECT pg_drop_replication_slot('mooncdc_test'); DROP PUBLICATION mooncdc_test; DROP TABLE items,extras",
+        ],
+        Map([]),
+      ).check()
+      let clean = run(
+        case + "-resources",
+        "docker",
+        sql_args +
+        [
+          "SELECT 'slots=' || count(*) FROM pg_replication_slots; SELECT 'clients=' || count(*) FROM pg_stat_activity WHERE application_name LIKE 'mooncdc%'; SELECT 'publications=' || count(*) FROM pg_publication; SELECT 'tables=' || count(*) FROM pg_tables WHERE schemaname != 'pg_catalog' AND schemaname != 'information_schema'",
+        ],
+        Map([]),
+      )
+      clean.check()
+      assert_eq(
+        clean.stdout(),
+        "slots=0\nclients=0\npublications=0\ntables=0\n",
+      )
+      for output in result.stdout().split("\n") {
+        if output.has_prefix("LIVE:") {
+          println(output)
+        }
+      }
+      count += 1
+    }
+    assert_eq(count, 41)
+    run(
+      service + "-resources",
+      "docker",
+      prefix +
+      [
+        "exec", "-T", service, "psql", "-U", "cdc", "-d", "postgres", "-Atc", "SELECT 'slots=' || count(*) FROM pg_replication_slots; SELECT 'clients=' || count(*) FROM pg_stat_activity WHERE application_name LIKE 'mooncdc%'; SELECT 'publications=' || count(*) FROM pg_publication; SELECT 'tables=' || count(*) FROM pg_tables WHERE schemaname != 'pg_catalog' AND schemaname != 'information_schema'",
+      ],
+      Map([]),
+    ).check()
+    println("LIVE: \{service} \{count} independent scenarios passed")
+  }
+  run("final-source-sha256", "shasum", ["-a", "256"] + paths, Map([])).check()
+  assert_eq(
+    @fs.read_file(evidence + "/source-sha256.stdout").binary(),
+    @fs.read_file(evidence + "/final-source-sha256.stdout").binary(),
+  )
+}

@@ -161,12 +161,13 @@ async test "ClickHouse pipeline live snapshot DML and state restart" {
   guard live_config() is Some(config) else {
     fail("ClickHouse pipeline test requires MOONCDC_TEST_PORT")
   }
+  let endpoint = clickhouse_test_endpoint(
+    @env.get_env_var("MOONCDC_CLICKHOUSE_PORT"),
+  )
   @async.with_timeout(90000, () => {
     let sql = connect(config, 16777216, false)
     defer sql.close()
-    let http = ChHttp::new(
-      "http://127.0.0.1:18123", "cdc", "mooncdc-test-only", 10000,
-    )
+    let http = ChHttp::new(endpoint, "cdc", "mooncdc-test-only", 10000)
     let db = "mooncdc_pipeline_" + pipeline_nonce()
     ignore(http.query("CREATE DATABASE " + ch_quote(db, '"')))
     defer (ignore(http.query("DROP DATABASE " + ch_quote(db, '"'))) catch {
@@ -208,7 +209,7 @@ async test "ClickHouse pipeline live snapshot DML and state restart" {
         schemas => {
           let make_target = fn() -> ClickHouseDestination raise {
             ClickHouseDestination::new(
-              endpoint="http://127.0.0.1:18123",
+              endpoint~,
               user="cdc",
               password="mooncdc-test-only",
               database=db,
@@ -538,5 +539,37 @@ async test "ClickHouse default expressions pinned differential" {
       )
     }
     println("CHDEFAULT matched \{vectors.length()} vectors")
+  }
+}
+
+///|
+fn clickhouse_test_endpoint(port : String?) -> String raise {
+  let port = port.unwrap_or("18123")
+  let parsed = @string.parse_int(port)
+  assert_true(parsed > 0 && parsed <= 65535, msg="invalid ClickHouse test port")
+  assert_eq(
+    parsed.to_string(),
+    port,
+    msg="ClickHouse test port must be canonical decimal",
+  )
+  "http://127.0.0.1:" + port
+}
+
+///|
+test "ClickHouse test endpoint keeps default and validates explicit loopback port" {
+  assert_eq(clickhouse_test_endpoint(None), "http://127.0.0.1:18123")
+  for port in ["1", "60123", "65535"] {
+    assert_eq(clickhouse_test_endpoint(Some(port)), "http://127.0.0.1:" + port)
+  }
+  for
+    port in [
+      "", "0", "-1", "65536", "9999999999999999999999", "+1", "01", " 60123", "60123\n",
+      "1.0", "127.0.0.1:60123", "http://remote:60123",
+    ] {
+    try clickhouse_test_endpoint(Some(port)) catch {
+      _ => ()
+    } noraise {
+      _ => fail("invalid ClickHouse test port accepted")
+    }
   }
 }

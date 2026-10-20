@@ -44,6 +44,8 @@ async fn unsafe_slot_scenarios(reconnect : Bool) -> Unit {
       save_checkpoint(path, source, start)
       let original = checkpoint_bytes(source, start)
       let config : ConnectionConfig = {
+        hostaddr: None,
+        keepalive: TcpKeepaliveConfig::new(),
         host: "127.0.0.1",
         port: server.addr.port(),
         user: "user",

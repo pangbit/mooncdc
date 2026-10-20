@@ -4,38 +4,503 @@ import {
   "moonbitlang/async/fs",
   "moonbitlang/async/shell",
   "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+}
+
+///|
+enum PackagePhase {
+  Full
+  Consumers
+} derive(Eq, Debug)
+
+///|
+fn package_phase(args : Array[String]) -> PackagePhase raise {
+  match args {
+    [_] | [_, "--phase", "full"] => Full
+    [_, "--phase", "consumers"] => Consumers
+    _ => fail("usage: package-test.mbtx [--phase full|consumers]")
+  }
+}
+
+///|
+test "package phase defaults to full and accepts explicit stages" {
+  assert_eq(package_phase(["driver"]), Full)
+  assert_eq(package_phase(["driver", "--phase", "full"]), Full)
+  assert_eq(package_phase(["driver", "--phase", "consumers"]), Consumers)
+}
+
+///|
+test "package phase rejects unknown incomplete and extra arguments" {
+  for
+    args in [
+      [],
+      ["driver", "--phase"],
+      ["driver", "--phase", "consumer"],
+      ["driver", "consumers"],
+      ["driver", "--phase", "consumers", "extra"],
+      ["driver", "--phase", "full", "--phase", "consumers"],
+    ] {
+    try package_phase(args) catch {
+      _ => ()
+    } noraise {
+      _ => fail("invalid phase arguments accepted")
+    }
+  }
+}
+
+///|
+fn require_test_summary(output : String, count : Int) -> Unit raise {
+  assert_true(count >= 0)
+  let expected = "Total tests: \{count}, passed: \{count}, failed: 0."
+  let summaries = output
+    .split("\n")
+    .filter(line => line.has_prefix("Total tests:"))
+    .collect()
+  assert_eq(summaries.length(), 1)
+  assert_eq(summaries[0], expected)
+}
+
+///|
+fn test_identities(outline : String) -> Array[String] raise {
+  let identities : Array[String] = []
+  let seen : Map[String, Bool] = Map([])
+  for line in outline.split("\n").filter(line => !line.trim().is_empty()) {
+    guard line.trim().split_once(". ") is Some((ordinal, identity)) else {
+      fail("invalid test outline")
+    }
+    assert_eq(@string.parse_int(ordinal), identities.length() + 1)
+    let identity = identity.to_owned()
+    assert_true(identity.contains(" index="))
+    assert_false(seen.contains(identity), msg="duplicate test identity")
+    seen[identity] = true
+    identities.push(identity)
+  }
+  assert_true(!identities.is_empty(), msg="empty ordinary test discovery")
+  identities
+}
+
+///|
+fn require_same_tests(source : String, packaged : String) -> Int raise {
+  let expected = test_identities(source)
+  assert_eq(test_identities(packaged), expected)
+  expected.length()
+}
+
+///|
+fn ordinary_packages(identities : Array[String]) -> Array[String] raise {
+  let packages : Array[String] = []
+  for identity in identities {
+    guard identity.split_once(" ") is Some((name, _)) else {
+      fail("test package")
+    }
+    let name = name.to_owned()
+    if !packages.contains(name) {
+      packages.push(name)
+    }
+  }
+  assert_true(!packages.is_empty())
+  packages
+}
+
+///|
+async fn[T] watch_package_command(
+  command : async () -> T,
+  sample : async () -> Unit,
+) -> T {
+  sample()
+  @async.with_task_group() <| group => {
+    let child = group.spawn(no_wait=true, command)
+    let monitor = group.spawn(no_wait=true, () => {
+      while true {
+        @async.sleep(1000)
+        sample()
+      }
+    })
+    defer monitor.cancel()
+    let result = child.wait()
+    sample()
+    result
+  }
+}
+
+///|
+async test "package disk failure cancels and joins the running command" {
+  let joined = Ref(false)
+  let calls = Ref(0)
+  try
+    watch_package_command(
+      () => {
+        defer {
+          joined.val = true
+        }
+        @async.sleep(5000)
+      },
+      () => {
+        calls.val += 1
+        if calls.val > 1 {
+          fail("simulated disk breach")
+        }
+      },
+    )
+  catch {
+    _ => ()
+  } noraise {
+    _ => fail("expected sampler failure")
+  }
+  assert_true(joined.val)
+}
+
+///|
+test "ordinary package groups preserve every identity exactly once" {
+  let identities = test_identities(
+    "1. p a.mbt:1 index=0\n2. p b.mbt:1 index=0\n3. p/c c.mbt:1 index=0\n",
+  )
+  assert_eq(ordinary_packages(identities), ["p", "p/c"])
+  let grouped : Array[String] = []
+  for pkg in ordinary_packages(identities) {
+    for identity in identities.filter(s => s.has_prefix(pkg + " ")) {
+      grouped.push(identity)
+    }
+  }
+  assert_eq(grouped, identities)
+}
+
+///|
+test "ordinary coverage rejects omissions and equal-count substitutions" {
+  let source = "1. p a.mbt:2 index=0 name=\"a\"\n2. p b.mbt:2 index=0\n"
+  assert_eq(require_same_tests(source, source), 2)
+  for
+    invalid in [
+      "", "1. p a.mbt:2 index=0 name=\"a\"\n", "1. p a.mbt:2 index=0 name=\"a\"\n2. p c.mbt:2 index=0\n",
+      "1. p b.mbt:2 index=0\n2. p b.mbt:2 index=0\n", "2. p a.mbt:2 index=0\n",
+    ] {
+    try require_same_tests(source, invalid) catch {
+      _ => ()
+    } noraise {
+      _ => fail("expected coverage rejection")
+    }
+  }
+}
+
+///|
+test "ordinary summary rejects stale incomplete failed and duplicate results" {
+  require_test_summary("Total tests: 0, passed: 0, failed: 0.\n", 0)
+  for
+    invalid in [
+      "Total tests: 439, passed: 439, failed: 0.\n", "Total tests: 451, passed: 450, failed: 1.\n",
+      "Total tests: 451, passed: 450, failed: 0.\n", "prefix Total tests: 451, passed: 451, failed: 0.\n",
+      "Total tests: 451, passed: 451, failed: 0.\nTotal tests: 451, passed: 451, failed: 0.\n",
+    ] {
+    try require_test_summary(invalid, 451) catch {
+      _ => ()
+    } noraise {
+      _ => fail("expected summary rejection")
+    }
+  }
+}
+
+///|
+test "ordinary coverage follows current source instead of a historical total" {
+  require_test_summary("Total tests: 451, passed: 451, failed: 0.\n", 451)
 }
 
 ///|
 async fn main {
-  let root = @env.current_dir().unwrap()
-  @shell.Cmd("moon", ["package"]).run()
+  let phase = package_phase(@env.args())
+  let repo = @env.current_dir().unwrap()
+  let evidence = @fs.tmpdir(prefix="mooncdc-package-evidence-")
+  let owned = @fs.tmpdir(prefix="mooncdc-package-owned-")
+  defer @async.protect_from_cancel(() => @fs.rmdir(owned, recursive=true))
+  let root = owned + "/committed"
+  @fs.mkdir(root)
+  @fs.write_file(evidence + "/root.txt", evidence)
+  println("PACKAGE ROOT: " + evidence)
+  println("PACKAGE OWNED ROOT: " + owned)
+  let vars : Map[String, String] = Map([])
+  for
+    key in [
+      "PATH", "HOME", "TMPDIR", "MOON_HOME", "MOON_CACHE_DIR", "MOON_DEP_CACHE",
+      "XDG_CACHE_HOME", "LANG", "LC_ALL",
+    ] {
+    if @env.get_env_var(key) is Some(value) {
+      vars[key] = value
+    }
+  }
+  vars["RUST_LOG"] = "error"
+  @fs.mkdir(owned + "/tmp")
+  // Keep compiler scratch in the ledger where tools honor TMPDIR.
+  vars["TMPDIR"] = owned + "/tmp"
+  let commands : Array[Json] = []
+  let started = @async.now()
+  let retained : Array[String] = match
+    @env.get_env_var("MOONCDC_PACKAGE_RETAINED_EVIDENCE") {
+    None => []
+    Some(text) => {
+      guard @json.parse(text) is Array(values) else {
+        fail("retained evidence array")
+      }
+      values.map(v => {
+        guard v is String(path) &&
+          path.has_prefix("/tmp/mooncdc-package-evidence-") else {
+          fail("retained evidence path")
+        }
+        path
+      })
+    }
+  }
+  let sample = async fn(phase : String) -> Unit {
+    let size = @shell.Cmd("du", ["-sk", owned, evidence] + retained).output(
+      timeout_ms=5000,
+      max_output_bytes=16384,
+    )
+    size.check()
+    let mut kib = 0
+    for line in size.stdout().split("\n").filter(s => !s.is_empty()) {
+      kib += @string.parse_int(line.split("\t").next().unwrap())
+    }
+    let record : Json = {
+      "phase": phase.to_json(),
+      "elapsed_ms": (@async.now() - started).to_json(),
+      "allocated_kib": kib.to_json(),
+      "limit_kib": 524288,
+    }
+    @fs.write_file(
+      evidence + "/disk-samples.jsonl",
+      record.stringify() + "\n",
+      append=true,
+      create_mode=OpenOrCreate,
+    )
+    assert_true(kib <= 524288, msg="sampled package allocation exceeds 512 MiB")
+  }
+  let run_env = async fn(
+    name : String,
+    program : String,
+    args : Array[String],
+    cwd : String,
+    extra : Map[String, String],
+  ) -> @shell.Output {
+    assert_true(@async.now() - started < 1800000L)
+    let env = vars.copy()
+    for key, value in extra {
+      env[key] = value
+    }
+    let tick = @async.now()
+    let result = watch_package_command(
+      () => {
+        @shell.Cmd(program, args, cwd~, env~, inherit_env=false).output(
+          timeout_ms=300000,
+          max_output_bytes=20000000,
+        )
+      },
+      () => sample(name),
+    )
+    @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
+    @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
+    commands.push({
+      "name": name.to_json(),
+      "program": program.to_json(),
+      "args": args.to_json(),
+      "cwd": cwd.to_json(),
+      "extra_env_names": extra.keys().collect().to_json(),
+      "exit_code": result.exit_code().to_json(),
+      "elapsed_ms": (@async.now() - tick).to_json(),
+    })
+    @fs.write_file(
+      evidence + "/commands.json",
+      commands.to_json().stringify(indent=2),
+    )
+    println(
+      "PACKAGE AUDIT: " + name + " exit=" + result.exit_code().to_string(),
+    )
+    sample(name + "-recorded")
+    result
+  }
+  let run = async fn(
+    name : String,
+    program : String,
+    args : Array[String],
+    cwd : String,
+  ) -> @shell.Output {
+    run_env(name, program, args, cwd, Map([]))
+  }
+  let footprints : Array[Json] = []
+  let disk = async fn(phase : String) -> Unit {
+    let size = run(
+      "disk-" + phase,
+      "du",
+      ["-sk", owned, evidence] + retained,
+      repo,
+    )
+    size.check()
+    let mut kib = 0
+    for line in size.stdout().split("\n") {
+      if !line.is_empty() {
+        kib += @string.parse_int(line.split("\t").next().unwrap())
+      }
+    }
+    footprints.push({
+      "phase": phase.to_json(),
+      "owned_and_all_retained_evidence_kib": kib.to_json(),
+    })
+    @fs.write_file(
+      evidence + "/disk.json",
+      ({ "limit_kib": 524288, "measurements": footprints.to_json() } : Json).stringify(
+        indent=2,
+      ),
+    )
+    assert_true(kib <= 524288)
+  }
+  let source = run("source", "git", ["rev-parse", "HEAD", "HEAD^{tree}"], repo)
+  source.check()
+  let revision = source.stdout().split("\n").next().unwrap().to_owned()
+  let initial = run("initial-status", "git", ["status", "--porcelain=v1"], repo)
+  initial.check()
+  assert_eq(initial.stdout(), "")
+  run(
+    "tested-source",
+    "git",
+    ["diff", "--binary", "HEAD", "--", ".", ":(exclude)docs/reports/evidence"],
+    repo,
+  ).check()
+  run("toolchain", "moon", ["version", "--all"], repo).check()
+  run("host", "uname", ["-a"], repo).check()
+  let files = run(
+    "committed-files",
+    "git",
+    ["ls-tree", "-r", "--name-only", "-z", revision],
+    repo,
+  )
+  files.check()
+  let paths = files
+    .stdout()
+    .split("\u0000")
+    .filter(p => {
+      !p.is_empty() &&
+      !p.has_prefix("docs/reports/evidence/") &&
+      !p.has_prefix("extensions/") &&
+      p != "moon.work"
+    })
+    .map(p => p.to_owned())
+    .collect()
+  run(
+    "commit-archive",
+    "git",
+    [
+      "archive",
+      "--format=tar",
+      "--output=" + evidence + "/source.tar",
+      revision,
+    ] +
+    paths,
+    repo,
+  ).check()
+  run(
+    "commit-extract",
+    "tar",
+    ["-xf", evidence + "/source.tar", "-C", root],
+    owned,
+  ).check()
+  // Only the pre-existing third-party cache is copied from the checkout.
+  // Product source, native stubs and reference fixtures come from this commit.
+  run(
+    "stage-cache",
+    "cp",
+    ["-R", repo + "/.mooncakes", root + "/.mooncakes"],
+    owned,
+  ).check()
+  let original : Map[String, Bytes] = Map([])
+  for path in paths {
+    original[path] = @fs.read_file(root + "/" + path).binary()
+  }
+  run("source-sha256", "shasum", ["-a", "256"] + paths, root).check()
+  let source_outline = if phase is Full {
+    let result = run(
+      "source-ordinary-outline",
+      "moon",
+      ["test", "--outline", "--target", "native", "--frozen", "--deny-warn"],
+      root,
+    )
+    result.check()
+    @fs.write_file(
+      evidence + "/ordinary-test-identities.json",
+      test_identities(result.stdout()).to_json().stringify(indent=2),
+    )
+    run("doc", "moon", ["doc", "--frozen"], root).check()
+    Some(result.stdout())
+  } else {
+    None
+  }
+  run("package-list", "moon", ["package", "--list", "--frozen"], root).check()
+  run("package", "moon", ["package", "--frozen"], root).check()
   let archive = root + "/_build/publish/pangbit-mooncdc-0.1.0.zip"
-  let listing = @shell.Cmd("unzip", ["-Z1", archive]).output()
+  @fs.write_file(evidence + "/package.zip", @fs.read_file(archive))
+  let listing = run("package-contents", "unzip", ["-Z1", archive], root)
   listing.check()
   let contents = listing.stdout()
   for
     excluded in [
-      "_build/", ".test-artifacts/", ".mooncakes/", ".key", ".checkpoint",
+      "_build/", ".test-artifacts/", ".mooncakes/", ".git/", ".key", ".checkpoint",
+      "docs/reports/evidence/", "extensions/", "moon.work", ".github/workflows/extensions.yml",
+      "bigquery_auth.c", "snowflake_zstd.c",
     ] {
     assert_false(contents.contains(excluded))
   }
   for
     required in [
       "LICENSE", "README.mbt.md", "moon.mod", "moon.pkg", "subscription.mbt", "snapshot.mbt",
-      "destination.mbt", "pipeline.mbt", "state_store.mbt", "file_state_store.mbt",
-      "postgres_state_store.mbt", "schema_store.mbt", "schema_projection.mbt", "schema_plan.mbt",
-      "cell.mbt", "cell_float.c", "clickhouse_destination.mbt", "clickhouse_metadata.mbt",
-      "clickhouse_defaults.mbt", "clickhouse_rows.mbt", "clickhouse_http.mbt", "clickhouse_encoding.mbt",
-      "clickhouse_schema.mbt", "clickhouse_ddl.mbt", "examples/resume/main.mbt",
+      "destination.mbt", "pipeline.mbt", "pipeline_apply_retry.mbt", "pipeline_schema_cleanup.mbt",
+      "activity.mbt", "health_server.mbt", "health_errno.c", "table_sync_copy.mbt",
+      "memory.mbt", "batch.mbt", "snapshot_batch.mbt", "connection_options.c", "session_options.mbt",
+      "state_store.mbt", "file_state_store.mbt", "postgres_state_store.mbt", "schema_store.mbt",
+      "schema_projection.mbt", "schema_plan.mbt", "cell.mbt", "cell_float.c", "clickhouse_destination.mbt",
+      "clickhouse_metadata.mbt", "clickhouse_defaults.mbt", "clickhouse_rows.mbt",
+      "clickhouse_http.mbt", "clickhouse_encoding.mbt", "clickhouse_schema.mbt",
+      "clickhouse_ddl.mbt", "examples/resume/main.mbt", "cmd/replicator/main.mbt",
+      "cmd/replicator/config.mbt", "cmd/replicator/moon.pkg", "source_migrations.mbt",
+      "source_migrations_sql.mbt", "integration/reference/etl/LICENSE", "integration/reference/pglogrepl-expected.json",
+      "internal/yaml/LICENSE", "internal/yaml/README.md", "integration/reference/memory-expected.json",
+      "internal/memory/policy.mbt", "internal/memory/host_memory.c", "internal/memory/sampler.mbt",
+      "internal/memory/linux_memory.mbt", "internal/memory/LICENSE-sysinfo", "internal/memory/monitor.mbt",
+      "internal/memory/governor.mbt", "internal/memory/moon.pkg", "internal/yaml/config.mbt",
+      "internal/yaml/lexer.mbt", "internal/yaml/parser.mbt", "internal/yaml/moon.pkg",
+      "decoder_streaming.mbt", "streaming_subscription_wbtest.mbt", "integration/reference/pglogrepl-v2-expected.json",
+      "wal_batch.mbt", "timeline_recovery.mbt", "state_runtime.mbt", "metrics.mbt",
+      "metrics_server.mbt", "source_monitor.mbt", "copy_monitor.mbt", "snapshot_parallel.mbt",
+      "cmd/replicator/error_reports.mbt", "cmd/replicator/configcat.mbt", "cmd/replicator/configcat_wbtest.mbt",
+      "docs/REPLICATOR.md", "docs/METRICS.md", "docs/PIPELINE_CONFIG_MAPPING.md",
+      "docs/RELEASE_SCOPE.md", "destination_events.mbt", "pkg.generated.mbti", "tools/package-test.mbtx",
+      "tools/replicator-config-test.mbtx",
     ] {
     assert_true(contents.split("\n").any(path => path == required))
   }
-  let dir = @fs.tmpdir(prefix="mooncdc-package-")
-  defer @fs.rmdir(dir, recursive=true)
+  let dir = owned + "/extracted"
+  @fs.mkdir(dir)
   @fs.mkdir(dir + "/module")
   @fs.mkdir(dir + "/consumer")
   @shell.Cmd("unzip", ["-q", archive, "-d", dir + "/module"]).run()
+  // Frozen workspace resolution uses only the existing local dependency cache.
+  run(
+    "consumer-cache",
+    "cp",
+    ["-R", root + "/.mooncakes", dir + "/.mooncakes"],
+    owned,
+  ).check()
+  // Reject symlink escapes; workspace resolution must not point at the source checkout.
+  let links = run("workspace-symlinks", "find", [dir, "-type", "l"], owned)
+  links.check()
+  assert_eq(links.stdout(), "")
+  run(
+    "unpacked-sha256",
+    "shasum",
+    ["-a", "256"] +
+    contents
+    .split("\n")
+    .filter(p => !p.is_empty())
+    .map(p => p.to_owned())
+    .collect(),
+    dir + "/module",
+  ).check()
   @fs.write_file(dir + "/moon.work", "members = [\"module\", \"consumer\"]\n")
   let manifest =
     #|name = "validation/consumer"
@@ -44,7 +509,7 @@ async fn main {
     #|import { "pangbit/mooncdc@0.1.0", "moonbitlang/async@0.22.4" }
   @fs.write_file(dir + "/consumer/moon.mod", manifest)
   let package_manifest =
-    #|import { "pangbit/mooncdc" @cdc, "moonbitlang/async" }
+    #|import { "pangbit/mooncdc" @cdc, "moonbitlang/async", "moonbitlang/async/fs" }
     #|pkgtype(kind: "executable")
     #|supported_targets = "native"
   @fs.write_file(dir + "/consumer/moon.pkg", package_manifest)
@@ -55,42 +520,493 @@ async fn main {
     #|  assert_true(@cdc.Null != @cdc.UnchangedToast)
     #|  assert_true(@cdc.Binary(b"\x00\xff") != @cdc.Null)
     #|  assert_true(@cdc.Accepted != @cdc.Durable)
+    #|  assert_true(@cdc.V1 != @cdc.V2Streaming)
     #|  assert_eq(@cdc.Text("42").decode_text(23U), @cdc.I32(42))
     #|  assert_eq(@cdc.Null.decode_text(25U), @cdc.SqlNull)
     #|  assert_eq(@cdc.SchemaId::before_lsn(@cdc.Lsn::parse("1/0")).commit_lsn.to_string(), "0/FFFFFFFF")
+    #|  let _schema = @cdc.SchemaSnapshot::from_json({
+    #|    "commit_lsn":"0/30", "message_lsn":"0/20", "payload":{
+    #|      "command_tag":"CREATE TABLE", "nspname":"public", "relname":"t", "oid":42,
+    #|      "identity":{"primary_key_attnums":[1],"relreplident":"d","replica_identity_index_attnums":[]},
+    #|      "columns":[{"attname":"id","atttypid":23,"atttypmod":-1,"attnum":1,"attnotnull":true}]}}
+    #|  )
     #|  let control = @cdc.ApplyControl()
+    #|  assert_true(control.health().live)
+    #|  assert_false(control.health().ready)
+    #|  assert_eq(control.activities().length(), 0)
     #|  control.stop()
+    #|  assert_eq(control.health().status, "stopping")
+    #|  assert_true(control.prometheus(pipeline_id="consumer",destination="dummy",project="test").contains("mooncdc_lifecycle"))
+    #|  try @cdc.with_health_server(control, port=0, () => 42) catch {
+    #|    @cdc.InvalidConfig(_) => ()
+    #|    error => raise error
+    #|  } noraise { _ => fail("zero health port accepted") }
     #|  let config : @cdc.ConnectionConfig = {
+    #|    hostaddr: None, keepalive: @cdc.TcpKeepaliveConfig::new(),
     #|    host: "127.0.0.1", port: 5432, user: "test", password: "test",
     #|    database: "test", security: @cdc.LocalPlaintext, timeout_ms: 1000,
     #|  }
     #|  let state_store = @cdc.FileStateStore::new("unused")
-    #|  @cdc.run_pipeline(config, DummyDestination::{}, publication="p", destination_id="target", control~, state_store~)
-    #|  try @cdc.subscribe(config, slot="INVALID", publication="p", start=@cdc.At(lsn), checkpoint_path="unused", _ => ()) catch {
+    #|  let schema_directory = @fs.tmpdir(prefix="mooncdc-consumer-schemas-")
+    #|  defer @fs.rmdir(schema_directory, recursive=true)
+    #|  let schema_state = @cdc.FileStateStore::new(schema_directory)
+    #|  @cdc.with_state_store(schema_state, state => state.check())
+    #|  @cdc.with_state_schema_store(schema_state, identity="consumer", schemas => {
+    #|    let target = @cdc.ClickHouseDestination::new(endpoint="http://127.0.0.1:1",
+    #|      user="consumer",password="unused",database="test",publication="p",schema_store=schemas)
+    #|    assert_true(target.supports_wal_batches())
+    #|    @cdc.run_pipeline(config,target,publication="p",destination_id="clickhouse",control~,state_store~,schema_store=schemas)
+    #|  })
+    #|  @cdc.run_pipeline(config, DummyDestination::{}, publication="p", destination_id="target", control~, state_store~, table_sync_copy=@cdc.SkipAllTables, source_migrations=true, memory_backpressure=@cdc.MemoryBackpressureConfig::new(), batch=@cdc.BatchConfig::new(), memory_refresh_interval_ms=50, copy_connections_per_table=4, table_sync_monitor_refresh_interval_ms=10, slot_failover=true, invalidated_slot_behavior=@cdc.RecreateInvalidatedSlot)
+    #|  try @cdc.run_pipeline(config, DummyDestination::{}, publication="p", destination_id="target", control~, state_store~, batch=@cdc.BatchConfig::new(max_bytes=0UL)) catch {
+    #|    @cdc.InvalidConfig(_) => ()
+    #|    error => raise error
+    #|  } noraise { _ => fail("invalid batch config accepted before stopped control") }
+    #|  try @cdc.run_pipeline(config, DummyDestination::{}, publication="p", destination_id="target", control~, state_store~, memory_refresh_interval_ms=0) catch {
+    #|    @cdc.InvalidConfig(_) => ()
+    #|    error => raise error
+    #|  } noraise { _ => fail("invalid shared sampler interval accepted") }
+    #|  for policy in [@cdc.IncludeTables([1U, 1U]), @cdc.SkipTables([2U, 2U])] {
+    #|    try @cdc.run_pipeline(config, DummyDestination::{}, publication="p", destination_id="target", control~, state_store~, table_sync_copy=policy) catch {
+    #|      @cdc.InvalidConfig(_) => ()
+    #|      error => raise error
+    #|    } noraise { _ => fail("duplicate copy OID accepted") }
+    #|  }
+    #|  try @cdc.subscribe(config, slot="INVALID", publication="p", start=@cdc.At(lsn), checkpoint_path="unused", protocol=@cdc.V2Streaming, binary=true, messages=true, _ => ()) catch {
     #|    @cdc.InvalidConfig(_) => ()
     #|    e => raise e
     #|  } noraise { _ => fail("invalid config accepted") }
-    #|  try @cdc.copy_snapshot(config, slot="snapshot", publication="p", batch_rows=0, _ => ()) catch {
+    #|  try @cdc.copy_snapshot(config, slot="snapshot", publication="p", batch_rows=0, copy_connections=4, slot_failover=true, _ => ()) catch {
     #|    @cdc.InvalidConfig(_) => ()
     #|    e => raise e
     #|  } noraise { _ => fail("invalid snapshot limit accepted") }
-    #|  println("Extracted package consumer passed")
+    #|  println("Extracted core package consumer passed: PostgreSQL ClickHouse and generic destination APIs")
     #|}
     #|///|
     #|struct DummyDestination {}
     #|///|
     #|impl @cdc.Destination for DummyDestination with fn reset_table(_self, _relation, attempt~) { ignore(attempt) }
     #|///|
+    #|impl @cdc.Destination for DummyDestination with fn supports_wal_batches(_self) { true }
+    #|///|
+    #|impl @cdc.Destination for DummyDestination with fn write_wal_batch(_self, batch) { ignore(batch.replicated_schemas(0)); ignore(batch.destination_events().event_id(0)); @cdc.Durable }
+    #|///|
     #|impl @cdc.Destination for DummyDestination with fn write_rows(_self, _relation, _rows, _id) { @cdc.Durable }
     #|///|
-    #|impl @cdc.Destination for DummyDestination with fn write_transaction(_self, _tx) { @cdc.Durable }
+    #|impl @cdc.Destination for DummyDestination with fn write_transaction(_self, tx) { ignore(tx.replicated_schemas(0)); ignore(tx.destination_events().replicated_schemas(0)); @cdc.Durable }
     #|///|
     #|impl @cdc.Destination for DummyDestination with fn flush(_self) { () }
   @fs.write_file(dir + "/consumer/main.mbt", main_source)
-  @shell.Cmd(
+  for name in ["moon.mod", "moon.pkg", "main.mbt"] {
+    @fs.write_file(
+      evidence + "/consumer-" + name + ".txt",
+      @fs.read_file(dir + "/consumer/" + name),
+    )
+  }
+  @fs.write_file(
+    evidence + "/workspace.moon.work.txt",
+    @fs.read_file(dir + "/moon.work"),
+  )
+  run(
+    "consumer-check",
     "moon",
-    ["check", "--target", "native", "--deny-warn"],
-    cwd=dir + "/consumer",
-  ).run()
-  @shell.Cmd("moon", ["run", ".", "--target", "native"], cwd=dir + "/consumer").run()
+    ["check", "--target", "native", "--deny-warn", "--frozen", "--jobs", "1"],
+    dir + "/consumer",
+  ).check()
+  for mode in ["debug", "release"] {
+    let args = [
+      "run", ".", "--target", "native", "--frozen", "--deny-warn", "--jobs", "1",
+    ]
+    if mode == "release" {
+      args.push("--release")
+    }
+    let result = run("consumer-" + mode, "moon", args, dir + "/consumer")
+    result.check()
+    assert_true(
+      result.stdout().contains("Extracted core package consumer passed"),
+    )
+  }
+  let consumer_files = run(
+    "consumer-artifact-files",
+    "rg",
+    ["--files", "--hidden", "--no-ignore", dir + "/_build"],
+    owned,
+  )
+  consumer_files.check()
+  let consumers = consumer_files
+    .stdout()
+    .split("\n")
+    .filter(p => {
+      p.has_suffix("/consumer.exe") &&
+      !p.contains(".dSYM/") &&
+      (
+        p.contains("/native/debug/build/") ||
+        p.contains("/native/release/build/")
+      )
+    })
+    .map(p => p.to_owned())
+    .collect()
+  assert_eq(consumers.length(), 2)
+  run("consumer-executables-sha256", "shasum", ["-a", "256"] + consumers, owned).check()
+  disk("consumers")
+  @fs.rmdir(dir + "/_build/native/release", recursive=true)
+  // A missing shipped native stub must break a fresh consumer build. This
+  // negative control detects resolution accidentally falling back to checkout.
+  {
+    let path = dir + "/module/cell_float.c"
+    let bytes = @fs.read_file(path)
+    defer @fs.write_file(path, bytes)
+    @fs.remove(path)
+    let missing = run(
+      "consumer-missing-stub",
+      "moon",
+      [
+        "build",
+        "--target",
+        "native",
+        "--frozen",
+        "--deny-warn",
+        "--jobs",
+        "1",
+        "--target-dir",
+        dir + "/negative-build",
+      ],
+      dir + "/consumer",
+    )
+    assert_true(missing.exit_code() != 0)
+    assert_true((missing.stdout() + missing.stderr()).contains("cell_float.c"))
+  }
+  @fs.rmdir(dir + "/negative-build", recursive=true)
+  // Both consumers and the missing-stub control have already been verified.
+  // Their hashes/logs and source archives remain in evidence.
+  @fs.rmdir(dir + "/_build", recursive=true)
+  @fs.rmdir(root + "/_build", recursive=true)
+  if phase is Consumers {
+    for path in contents.split("\n").filter(p => !p.is_empty()) {
+      assert_eq(
+        @fs.read_file(root + "/" + path.to_owned()).binary(),
+        @fs.read_file(dir + "/module/" + path.to_owned()).binary(),
+      )
+    }
+    for path in paths {
+      assert_eq(@fs.read_file(root + "/" + path).binary(), original[path])
+    }
+    run("final-source-sha256", "shasum", ["-a", "256"] + paths, root).check()
+    let digest = run(
+      "package-sha256",
+      "shasum",
+      ["-a", "256", evidence + "/package.zip"],
+      owned,
+    )
+    digest.check()
+    assert_true(digest.stdout().length() >= 66)
+    disk("consumers-finish")
+    @fs.write_file(
+      evidence + "/summary.json",
+      (
+        {
+          "phase": "consumers",
+          "source_commit": revision.to_json(),
+          "package_sha256": digest.stdout()[:64].to_owned().to_json(),
+          "source_unchanged": true,
+          "consumer": "strict check, debug/release public core and ClickHouse assertions; missing native stub rejection",
+          "full_package_flow": false,
+          "packaged_ordinary": "not run",
+          "extracted_cli": "not run",
+          "script_test_mode": "not run",
+          "doc_info_fmt": "not run",
+          "runtime_services": false,
+          "package_entries": contents
+          .split("\n")
+          .filter(p => !p.is_empty())
+          .count()
+          .to_json(),
+          "cleanup": "owned module/consumer/build removed on scope exit; evidence retained",
+        } : Json).stringify(indent=2),
+    )
+    println("PACKAGE consumers complete: ordinary suite and CLI matrix not run")
+    return
+  }
+  let source_outline = source_outline.unwrap()
+  let source_tests = test_identities(source_outline)
+  let packaged_outline = run(
+    "packaged-ordinary-outline",
+    "moon",
+    ["test", "--outline", "--target", "native", "--frozen", "--deny-warn"],
+    dir + "/module",
+  )
+  packaged_outline.check()
+  let ordinary_count = require_same_tests(
+    source_outline,
+    packaged_outline.stdout(),
+  )
+  let ordinary_build = dir + "/ordinary-build"
+  let mut executed = 0
+  for i, pkg in ordinary_packages(source_tests) {
+    let expected = source_tests.filter(s => s.has_prefix(pkg + " "))
+    let args = [
+      "--package", pkg, "--target", "native", "--deny-warn", "--frozen", "--jobs",
+      "1", "--target-dir", ordinary_build,
+    ]
+    let prefix = "packaged-ordinary-" + i.to_string()
+    let outline = run(
+      prefix + "-outline",
+      "moon",
+      ["test", "--outline"] + args,
+      dir + "/module",
+    )
+    outline.check()
+    assert_eq(test_identities(outline.stdout()), expected)
+    let ordinary = run(
+      prefix,
+      "moon",
+      ["test", "--no-parallelize"] + args,
+      dir + "/module",
+    )
+    ordinary.check()
+    require_test_summary(ordinary.stdout(), expected.length())
+    executed += expected.length()
+    let files = run(
+      prefix + "-executables",
+      "find",
+      [ordinary_build, "-type", "f", "-name", "*.exe"],
+      owned,
+    )
+    files.check()
+    let executables = files
+      .stdout()
+      .split("\n")
+      .filter(s => !s.is_empty())
+      .map(s => s.to_owned())
+      .collect()
+    assert_true(!executables.is_empty())
+    run(
+      prefix + "-executables-sha256",
+      "shasum",
+      ["-a", "256"] + executables,
+      owned,
+    ).check()
+    disk("ordinary-" + i.to_string())
+    @fs.rmdir(ordinary_build, recursive=true)
+  }
+  assert_eq(executed, ordinary_count)
+  disk("ordinary")
+  let config_results = run_env(
+    "packaged-config-driver",
+    "moon",
+    [
+      "run", "tools/replicator-config-test.mbtx", "--target", "native", "--frozen",
+    ],
+    dir + "/module",
+    { "MOONCDC_PACKAGE_CONFIG_SCRATCH": owned + "/config-driver" },
+  )
+  config_results.check()
+  assert_true(
+    config_results
+    .stdout()
+    .contains("REPLICATOR CONFIG: 32 isolated CLI outcomes"),
+  )
+  // Moon 914d7da appends the standalone filename to --target-dir and test-mode
+  // uses that directory's .mooncakes rather than run-mode's shared source cache.
+  // Seed only the already cached dependency, in owned disposable directories.
+  // Run each script's discovered test blocks without executing its main or
+  // claiming an ASAN/database result.
+  let script_build = dir + "/script-test-build"
+  for name in ["package-test", "replicator-config-test"] {
+    let filename = name + ".mbtx"
+    let cache = script_build + "/" + filename + "/.mooncakes/moonbitlang"
+    @fs.mkdir(cache, recursive=true)
+    @shell.Cmd("cp", [
+      "-R",
+      root + "/.mooncakes/moonbitlang/async",
+      cache + "/async",
+    ]).run()
+    let outline = run(
+      "script-outline-" + name,
+      "moon",
+      [
+        "test",
+        "tools/" + filename,
+        "--outline",
+        "--target",
+        "native",
+        "--deny-warn",
+        "--frozen",
+        "--target-dir",
+        script_build,
+      ],
+      dir + "/module",
+    )
+    outline.check()
+    let count = if outline.stdout().trim().is_empty() {
+      0
+    } else {
+      test_identities(outline.stdout()).length()
+    }
+    let result = run(
+      "script-test-mode-" + name,
+      "moon",
+      [
+        "test",
+        "tools/" + filename,
+        "--target",
+        "native",
+        "--deny-warn",
+        "--frozen",
+        "--jobs",
+        "1",
+        "--target-dir",
+        script_build,
+      ],
+      dir + "/module",
+    )
+    result.check()
+    require_test_summary(result.stdout(), count)
+    disk("script-" + name)
+    @fs.rmdir(script_build, recursive=true)
+  }
+  run(
+    "extracted-cli-release",
+    "moon",
+    [
+      "build",
+      "cmd/replicator",
+      "--target",
+      "native",
+      "--release",
+      "--frozen",
+      "--deny-warn",
+      "--jobs",
+      "1",
+      "--target-dir",
+      dir + "/cli-build",
+    ],
+    dir + "/module",
+  ).check()
+  let built = @shell.Cmd("rg", [
+    "--files",
+    "--hidden",
+    "--no-ignore",
+    dir + "/cli-build",
+  ]).output()
+  built.check()
+  let executables = built
+    .stdout()
+    .split("\n")
+    .filter(p => p.has_suffix("/cmd/replicator/replicator.exe"))
+    .map(p => p.to_owned())
+    .collect()
+  assert_eq(executables.length(), 1)
+  let executable = executables[0]
+  // Parse the actual workflow through the shipped YAML parser. A configuration
+  // field rejection proves YAML parsing completed; this is not GitHub execution.
+  let ci = run(
+    "ci-yaml-parse",
+    executable,
+    ["--config", root + "/.github/workflows/ci.yml", "--check"],
+    dir + "/module",
+  )
+  assert_eq(ci.exit_code(), 1)
+  assert_true(ci.stderr().contains("config: unsupported field "))
+  assert_false(ci.stderr().contains("not valid YAML"))
+  assert_eq(ci.stdout(), "")
+  for format in ["json", "yaml"] {
+    let config = dir + "/offline." + format
+    if format == "json" {
+      @fs.write_file(
+        config,
+        (
+          {
+            "id": "package-consumer",
+            "publication": "unused",
+            "source": {
+              "host": "127.0.0.1",
+              "port": 1,
+              "user": "cdc",
+              "security": "local_plaintext",
+            },
+            "destination": {
+              "type": "clickhouse",
+              "url": "http://127.0.0.1:1",
+              "user": "cdc",
+              "database": "unused",
+            },
+            "metrics": Json::null(),
+            "supabase": {
+              "project_ref": "package-test",
+              "configcat_sdk_key": "abcdefghijklmnopqrstuv/ABCDEFGHIJKLMNOPQRSTUV",
+            },
+          } : Json).stringify(),
+      )
+    } else {
+      let yaml =
+        #|id: package-consumer
+        #|publication: unused
+        #|source: {host: 127.0.0.1, port: 1, user: cdc, security: local_plaintext}
+        #|destination: {type: clickhouse, url: http://127.0.0.1:1, user: cdc, database: unused}
+        #|metrics: null
+        #|supabase: {project_ref: package-test, configcat_sdk_key: abcdefghijklmnopqrstuv/ABCDEFGHIJKLMNOPQRSTUV}
+      @fs.write_file(config, yaml)
+    }
+    @fs.write_file(evidence + "/offline." + format, @fs.read_file(config))
+    run(
+      "extracted-cli-" + format,
+      executable,
+      ["--config", config, "--check"],
+      dir + "/module",
+    ).check()
+  }
+  run("executables-sha256", "shasum", ["-a", "256", executable], owned).check()
+  run(
+    "archive-sha256",
+    "shasum",
+    ["-a", "256", evidence + "/source.tar", evidence + "/package.zip"],
+    owned,
+  ).check()
+  run("packaged-info", "moon", ["info", "--frozen"], dir + "/module").check()
+  run("packaged-fmt", "moon", ["fmt"], dir + "/module").check()
+  for path in contents.split("\n").filter(p => !p.is_empty()) {
+    assert_eq(
+      @fs.read_file(root + "/" + path.to_owned()).binary(),
+      @fs.read_file(dir + "/module/" + path.to_owned()).binary(),
+    )
+  }
+  disk("release")
+  for path in paths {
+    if @fs.read_file(root + "/" + path).binary() != original[path] {
+      fail("source changed: " + path)
+    }
+  }
+  run("final-source-sha256", "shasum", ["-a", "256"] + paths, root).check()
+  disk("finish")
+  @fs.write_file(
+    evidence + "/summary.json",
+    (
+      {
+        "source_commit": revision.to_json(),
+        "dependency_policy": "all resolver/build commands frozen; only existing third-party .mooncakes copied; committed Git archive excludes historical evidence; module and consumer use an owned workspace with no symlinks",
+        "source_unchanged": true,
+        "consumer": "strict native check plus debug/release core assertions; missing packed native stub rejects fresh build",
+        "extracted_cli": "strict release build; ClickHouse JSON/YAML offline checks; other targets rejected by core CLI regression",
+        "packaged_ordinary": "\{ordinary_count}/\{ordinary_count} native ordinary entries; exact source/package identity equality; gated PG/cloud workers not enabled".to_json(),
+        "script_test_mode": "two packaged drivers strict native frozen tests against discovered counts; main not executed; existing async copied to disposable standalone target-dir/filename/.mooncakes",
+        "packaged_config_driver": "main executed separately; 32 offline configuration results",
+        "runtime_services": false,
+        "ci": "committed workflow YAML parsed by shipped parser; remote jobs not run",
+        "linux": (if @async.platform is Linux {
+          "executed on Linux; default-stack compilation and full acceptance remain separate"
+        } else {
+          "not executed on Linux; see host.stdout"
+        }).to_json(),
+        "cleanup": "disposable consumer/module/build directory removed on scope exit",
+        "package_entries": contents
+        .split("\n")
+        .filter(p => !p.is_empty())
+        .count()
+        .to_json(),
+      } : Json).stringify(indent=2),
+  )
+  println(
+    "PACKAGE complete: source archive,current independent consumer and extracted CLI passed offline with frozen cached dependencies",
+  )
 }

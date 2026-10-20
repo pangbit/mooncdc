@@ -71,7 +71,21 @@ pub struct Transaction {
   priv session : String
   priv sequence : Int
   priv projected_ids : ReadOnlyArray[String?]?
+  priv decoded_schemas : Map[Int, ReadOnlyArray[ReplicatedSchema]]?
 } derive(Debug)
+
+///|
+/// Exact per-event schemas resolved by a pipeline with a SchemaStore. Truncate
+/// returns one schema per relation; raw subscriptions and metadata return empty.
+pub fn Transaction::replicated_schemas(
+  self : Transaction,
+  index : Int,
+) -> ReadOnlyArray[ReplicatedSchema] {
+  match self.decoded_schemas {
+    Some(schemas) => schemas.get(index).unwrap_or([])
+    None => []
+  }
+}
 
 ///|
 /// Serialize the complete business transaction without ephemeral acknowledgement tokens.

@@ -1,0 +1,72 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+}
+
+///|
+async fn main {
+  if @async.platform is Windows {
+    fail("socket option ASan probe is supported on Linux/macOS")
+  }
+  let dir = @fs.tmpdir(prefix="mooncdc-socket-asan-")
+  defer @fs.rmdir(dir, recursive=true)
+  let source =
+    #|#include <assert.h>
+    #|#include <stdint.h>
+    #|#include <stdio.h>
+    #|#include <unistd.h>
+    #|#include <sys/socket.h>
+    #|#include <netinet/in.h>
+    #|#include <netinet/tcp.h>
+    #|extern int32_t mooncdc_keepalive_value(int32_t, int32_t);
+    #|int main(void) {
+    #|  int fd = socket(AF_INET, SOCK_STREAM, 0);
+    #|  assert(fd >= 0);
+    #|  int enabled = 1, idle = 7, interval = 4, count = 2;
+    #|  assert(setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &enabled, sizeof(enabled)) == 0);
+    #|#ifdef __APPLE__
+    #|  int idle_option = TCP_KEEPALIVE;
+    #|#else
+    #|  int idle_option = TCP_KEEPIDLE;
+    #|#endif
+    #|  assert(setsockopt(fd, IPPROTO_TCP, idle_option, &idle, sizeof(idle)) == 0);
+    #|  assert(setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval)) == 0);
+    #|  assert(setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count)) == 0);
+    #|  int enabled_value = mooncdc_keepalive_value(fd, 0);
+    #|  printf("SO_KEEPALIVE enabled value: %d\n", enabled_value);
+    #|  fflush(stdout);
+    #|  assert(enabled_value > 0);
+    #|  assert(mooncdc_keepalive_value(fd, 1) == idle);
+    #|  assert(mooncdc_keepalive_value(fd, 2) == interval);
+    #|  assert(mooncdc_keepalive_value(fd, 3) == count);
+    #|  assert(mooncdc_keepalive_value(fd, 99) < 0);
+    #|  close(fd);
+    #|  assert(mooncdc_keepalive_value(-1, 0) < 0);
+    #|  return 0;
+    #|}
+  @fs.write_file(dir + "/probe.c", source)
+  let moon_home = @env.get_env_var("MOON_HOME").unwrap_or(
+    @env.get_env_var("HOME").unwrap() + "/.moon",
+  )
+  @shell.Cmd("cc", [
+    "-std=c11",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-fsanitize=address",
+    "-fno-omit-frame-pointer",
+    "-g",
+    "-I" + moon_home + "/include",
+    "connection_options.c",
+    dir + "/probe.c",
+    "-o",
+    dir + "/probe",
+  ]).run()
+  @shell.Cmd(dir + "/probe", []).run()
+  println(
+    "ASAN: socket keepalive readback, invalid selector and descriptor passed",
+  )
+}

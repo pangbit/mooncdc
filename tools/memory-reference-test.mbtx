@@ -1,0 +1,110 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let root = @env.current_dir().unwrap()
+  let artifacts = root + "/.test-artifacts/memory-reference"
+  if !@fs.exists(artifacts) {
+    @fs.mkdir(artifacts, recursive=true)
+  }
+  let archive = artifacts + "/etl.tar.gz"
+  if !@fs.exists(archive) {
+    @shell.Cmd("curl", [
+      "--fail", "--location", "--retry", "3", "https://codeload.github.com/supabase/etl/tar.gz/c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4",
+      "--output", archive,
+    ]).run()
+  }
+  let digest = @shell.Cmd("shasum", ["-a", "256", archive]).output()
+  digest.check()
+  assert_true(
+    digest
+    .stdout()
+    .has_prefix(
+      "b1a05f0cd6486e7954920dc756298fbba93fc6f39975e8895780d94d2a7c5536  ",
+    ),
+  )
+  let checkout = @fs.tmpdir(prefix="mooncdc-memory-reference-")
+  defer @fs.rmdir(checkout, recursive=true)
+  @shell.Cmd("tar", ["xzf", archive, "--strip-components=1", "-C", checkout]).run()
+  let source = checkout + "/crates/etl/src/runtime/memory_monitor.rs"
+  @fs.write_file(
+    source,
+    @fs.read_file(source).text() +
+    "\n" +
+    @fs.read_file(root + "/integration/reference/memory_driver.rs").text(),
+  )
+  let built = @shell.Cmd("moon", [
+    "test", "internal/memory/reference_wbtest.mbt", "--target", "native", "--build-only",
+  ]).output()
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("one memory executable required")
+  }
+  let run = async fn(phase : String, path : String) -> Unit {
+    let result = @shell.Cmd(executable, ["reference_wbtest.mbt:0-1"], env={
+      "MOONCDC_MEMORY_PHASE": phase,
+      "MOONCDC_MEMORY_FILE": path,
+    }).output()
+    result.check()
+    let mut passed = 0
+    for line in result.stdout().split("\n") {
+      if line.has_prefix("{") &&
+        @json.parse(line)
+        is { "type": "result", "message": String(message), .. } {
+        if message != "" {
+          fail(result.stdout())
+        }
+        passed += 1
+      }
+      if line.has_prefix("MEMORY ") {
+        println(line)
+      }
+    }
+    assert_eq(passed, 1)
+  }
+  let input = artifacts + "/input.json"
+  let output = artifacts + "/output.json"
+  run("generate", input)
+  println("MEMORY building pinned ETL test adapter")
+  let reference = @shell.Cmd(
+    "cargo",
+    [
+      "+stable",
+      "test",
+      "--manifest-path",
+      checkout + "/crates/etl/Cargo.toml",
+      "--locked",
+      "--lib",
+      "--target-dir",
+      root + "/.test-artifacts/codec-reference/target",
+      "runtime::memory_monitor::mooncdc_memory_reference",
+      "--",
+      "--exact",
+    ],
+    env={ "MOONCDC_MEMORY_INPUT": input, "MOONCDC_MEMORY_OUTPUT": output },
+  ).output()
+  errdefer {
+    eprintln(reference.stdout())
+    eprintln(reference.stderr())
+  }
+  reference.check()
+  assert_true(reference.stdout().contains("1 passed; 0 failed"))
+  let expected = root + "/integration/reference/memory-expected.json"
+  if @env.args().contains("--record") {
+    @fs.write_file(expected, @fs.read_file(output))
+  } else {
+    assert_eq(
+      @json.parse(@fs.read_file(output).text()),
+      @json.parse(@fs.read_file(expected).text()),
+    )
+  }
+  run("verify", output)
+}

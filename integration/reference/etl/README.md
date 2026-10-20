@@ -9,6 +9,9 @@ Unmodified source migrations from Supabase ETL commit
 Upstream: https://github.com/supabase/etl/tree/c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4
 
 Apache-2.0; the upstream LICENSE is retained alongside these fixtures.
-Used only by the isolated PostgreSQL compatibility test. These migrations require an
-`etl` schema and install a database-wide event trigger. The library never installs them
-automatically. Test ownership and cleanup must be explicit.
+Embedded byte-for-byte by `tools/embed-source-migrations.mbtx` for the optional
+`run_source_migrations` API and used by isolated compatibility tests. The migrator
+creates schema `etl`, validates SQLx history and installs a database-wide event
+trigger. Library pipelines opt in with `source_migrations=true`; the standalone
+replicator defaults `run_source_migrations` to true, matching the reference.
+Test ownership and cleanup must be explicit.

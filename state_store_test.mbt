@@ -1,4 +1,20 @@
 ///|
+async test "external destinations can fence an escaped state session" {
+  let store : ConsumerStore = { owner: None, records: Map([]), }
+  let escaped = @mooncdc.with_state_store(store, session => {
+    session.check()
+    session
+  })
+  try escaped.check() catch {
+    @mooncdc.CheckpointError(message) =>
+      assert_eq(message, "state session is closed")
+    error => raise error
+  } noraise {
+    _ => fail("closed session accepted an external side effect")
+  }
+}
+
+///|
 priv struct ConsumerStore {
   mut owner : String?
   records : Map[String, Bytes]
@@ -9,6 +25,7 @@ fn record_key(key : @mooncdc.StateRecord) -> String {
   match key {
     Pipeline => "pipeline"
     ReplicationCheckpoint => "checkpoint"
+    Schemas => "schemas"
     TableMetadata(oid) => oid.to_string()
   }
 }
@@ -51,4 +68,16 @@ async test "custom StateStore implements public ownership and durable metadata A
     )
   })
   assert_true(@mooncdc.state_store_status(store) is None)
+  let escaped = @mooncdc.with_state_schema_store(store, identity="test", schemas => {
+    assert_eq(schemas.all().length(), 0)
+    schemas
+  })
+  assert_true(store.records.contains("schemas"))
+  assert_true(store.owner is None)
+  try escaped.all() catch {
+    @mooncdc.Closed => ()
+    error => raise error
+  } noraise {
+    _ => fail("escaped schema store remained open")
+  }
 }

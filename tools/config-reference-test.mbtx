@@ -1,0 +1,64 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let root = @env.current_dir().unwrap()
+  let dir = @fs.tmpdir(prefix="mooncdc-config-reference-")
+  defer @fs.rmdir(dir, recursive=true)
+  @fs.mkdir(dir + "/src")
+  let manifest =
+    #|[package]
+    #|name = "mooncdc-config-reference"
+    #|version = "0.0.0"
+    #|edition = "2021"
+    #|[dependencies]
+    #|config = { version = "=0.14.1", default-features = false, features = ["yaml"] }
+    #|yaml-rust2 = "=0.8.1"
+    #|serde_json = "1"
+  @fs.write_file(dir + "/Cargo.toml", manifest)
+  @fs.write_file(
+    dir + "/src/main.rs",
+    @fs.read_file("integration/reference/config_driver.rs"),
+  )
+  let output = dir + "/actual.json"
+  @shell.Cmd("cargo", [
+    "+stable",
+    "run",
+    "--quiet",
+    "--manifest-path",
+    dir + "/Cargo.toml",
+    "--target-dir",
+    root + "/.test-artifacts/config-reference/target",
+    "--",
+    root + "/integration/reference/yaml-cases.json",
+    output,
+  ]).run()
+  let actual = @json.parse(@fs.read_file(output).text())
+  let expected = root + "/integration/reference/yaml-expected.json"
+  if @env.args().contains("--record") {
+    @fs.write_file(expected, @fs.read_file(output))
+  } else {
+    assert_eq(actual, @json.parse(@fs.read_file(expected).text()))
+  }
+  let compared = @shell.Cmd("moon", [
+    "test", "--target", "native", "cmd/replicator/yaml_reference_wbtest.mbt",
+  ]).output()
+  println(compared.stdout())
+  if !compared.stderr().is_empty() {
+    println(compared.stderr())
+  }
+  compared.check()
+  assert_true(
+    compared.stdout().contains("Total tests: 1, passed: 1, failed: 0."),
+  )
+  println(
+    "CONFIG: pinned Rust YAML outcomes and MoonCDC fixture comparisons passed",
+  )
+}

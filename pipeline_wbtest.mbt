@@ -12,9 +12,11 @@ fn pipeline_fixture() -> PipelineState {
     destination_id: "target",
     initial_lsn: Some("0/10"),
     checkpoint_initialized: true,
+    write_horizon: None,
+    promotion: None,
     tables: [
-      { oid: 1U, phase: Catchup("0/50"), },
-      { oid: 2U, phase: Ready("0/70"), },
+      { oid: 1U, phase: Catchup("0/50"), decoding: None, },
+      { oid: 2U, phase: Ready("0/70"), decoding: None, },
     ],
   }
 }
@@ -33,8 +35,14 @@ test "pipeline state integrity rejects invalid progress and duplicate tables" {
       tables: [original.tables[0], original.tables[0]],
     }),
     state_bytes({ ..original, initial_lsn: None, }),
-    state_bytes({ ..original, tables: [{ oid: 1U, phase: Catchup("0/0"), }], }),
-    state_bytes({ ..original, tables: [{ oid: 1U, phase: Ready("0/1"), }], }),
+    state_bytes({
+      ..original,
+      tables: [{ oid: 1U, phase: Catchup("0/0"), decoding: None, }],
+    }),
+    state_bytes({
+      ..original,
+      tables: [{ oid: 1U, phase: Ready("0/1"), decoding: None, }],
+    }),
   ]
   for bytes in invalid {
     try parse_pipeline_state(bytes) catch {
@@ -80,7 +88,11 @@ async test "live pipeline holds three independent snapshot exporters concurrentl
         state_path=path,
         copy_concurrency=3,
         batch_rows=1,
+        batch=BatchConfig::new(max_bytes=1UL, max_fill_ms=0),
       )
+      assert_eq(control.activities().length(), 0)
+      assert_eq(control.health().status, "stopping")
+      assert_false(control.pipeline_active)
       for name in ["a", "b", "d"] {
         assert_eq(probe.data.resets.get(name), Some(1))
         assert_probe_table(probe, name)
@@ -144,6 +156,7 @@ test "table cutoff projection preserves original event ids and splits truncate" 
     session: "test",
     sequence: 1,
     projected_ids: None,
+    decoded_schemas: None,
   }
   let store : PipelineStore = {
     path: "unused",
@@ -255,11 +268,44 @@ impl Destination for PipelineProbe with fn startup(self) {
 impl Destination for PipelineProbe with fn reset_table(self, relation, attempt~) {
   assert_true(!attempt.is_empty())
   if self.data.resets.is_empty() && self.parallel_state is Some(path) {
-    let prefix = copy_slot_prefix(read_pipeline_state(path).source.slot)
+    let state = read_pipeline_state(path)
+    let prefix = copy_slot_prefix(state.source.slot)
     let query = "SELECT count(*)::text FROM pg_replication_slots WHERE left(slot_name,\{prefix.length()})='\{prefix}'"
     while cell(self.sql.query(query), 0, 0) != "3" {
       @async.sleep(20)
     }
+    // Slots can exist just before registration; wait until all workers have
+    // entered the actual copy phase, then stall only the current target call.
+    while self.control
+          .activities()
+          .filter(item => item.kind == InitialTableCopy)
+          .length() !=
+          3 {
+      @async.sleep(5)
+    }
+    let names = [Replication.settings(worker=ApplyWorker(state.source.slot)).0]
+    for table in state.tables {
+      let worker = TableWorker(state.source.slot, table.oid)
+      names.push(SnapshotReader.settings(worker~).0)
+      names.push(SnapshotExporter.settings(worker~).0)
+    }
+    let selected = names.map(name => "'\{name}'").join(",")
+    let query = "SELECT application_name FROM pg_stat_activity WHERE application_name IN (\{selected})"
+    let mut rows = self.sql.query(query)
+    while rows.length() < names.length() {
+      @async.sleep(5)
+      rows = self.sql.query(query)
+    }
+    assert_eq(rows.length(), 7)
+    for name in names {
+      assert_eq(rows.filter(row => row == [Some(name)]).length(), 1)
+    }
+    assert_true(self.control.health().ready)
+    @async.sleep(30)
+    assert_eq(self.control.health(stall_timeout_ms=10).status, "inactive")
+    assert_true(
+      self.control.activities().any(item => item.kind is WalApply(..)),
+    )
   }
   self.data.rows[relation.name] = Map([])
   self.data.resets[relation.name] = self.data.resets
@@ -360,9 +406,14 @@ async fn run_probe_pipeline(
   destination_id~ : String,
   state_path~ : String,
   copy_concurrency? : Int = 2,
+  copy_connections_per_table? : Int = 1,
   batch_rows? : Int = 256,
   stop_on_error? : Bool = false,
   retry_oid? : UInt,
+  schema_store? : &SchemaStore,
+  table_sync_copy? : TableSyncCopy = IncludeAllTables,
+  slot_failover? : Bool = false,
+  batch? : BatchConfig,
 ) -> Unit {
   @async.with_task_group(group => {
     group.spawn_bg(() => {
@@ -398,7 +449,12 @@ async fn run_probe_pipeline(
       state_path~,
       control=probe.control,
       copy_concurrency~,
+      copy_connections_per_table~,
       batch_rows~,
+      schema_store?,
+      table_sync_copy~,
+      slot_failover~,
+      batch?,
     )
     group.return_immediately(())
   })
@@ -423,7 +479,7 @@ async test "live pipeline resumes only unfinished tables and copies newly publis
       defer sql.close()
       ignore(
         sql.query(
-          "CREATE SCHEMA pipeline_fixture; CREATE TABLE pipeline_fixture.a(id int PRIMARY KEY,value text); CREATE TABLE pipeline_fixture.b(id int PRIMARY KEY,value text); INSERT INTO pipeline_fixture.a VALUES(1,'before'),(2,NULL); INSERT INTO pipeline_fixture.b VALUES(1,'before'),(2,NULL); CREATE PUBLICATION pipeline_fixture FOR TABLE pipeline_fixture.a,pipeline_fixture.b",
+          "CREATE SCHEMA pipeline_fixture; CREATE TABLE pipeline_fixture.a(id int PRIMARY KEY,value text); CREATE TABLE pipeline_fixture.b(id int PRIMARY KEY,value text); INSERT INTO pipeline_fixture.a VALUES(1,'before'),(2,NULL); INSERT INTO pipeline_fixture.b VALUES(1,'before'),(2,NULL); INSERT INTO pipeline_fixture.a SELECT i,repeat('a',512) FROM generate_series(500,1499) i; INSERT INTO pipeline_fixture.b SELECT i,repeat('b',512) FROM generate_series(500,1499) i; CREATE PUBLICATION pipeline_fixture FOR TABLE pipeline_fixture.a,pipeline_fixture.b",
         ),
       )
       let dir = @fs.tmpdir(prefix="mooncdc-pipeline-")
@@ -446,7 +502,8 @@ async test "live pipeline resumes only unfinished tables and copies newly publis
         destination_id="probe",
         state_path=path,
         copy_concurrency=1,
-        batch_rows=1,
+        copy_connections_per_table=3,
+        batch_rows=32,
         stop_on_error=true,
       )
       let interrupted = read_pipeline_state(path)
@@ -478,7 +535,8 @@ async test "live pipeline resumes only unfinished tables and copies newly publis
         destination_id="probe",
         state_path=path,
         copy_concurrency=2,
-        batch_rows=1,
+        copy_connections_per_table=3,
+        batch_rows=32,
         retry_oid=interrupted.tables[1].oid,
       )
       assert_eq(second.data.resets.get("a"), Some(1))
@@ -503,6 +561,7 @@ async test "live pipeline resumes only unfinished tables and copies newly publis
         publication="pipeline_fixture",
         destination_id="probe",
         state_path=path,
+        copy_connections_per_table=3,
       )
       assert_eq(third.data.resets.get("a"), Some(1))
       assert_eq(third.data.resets.get("b"), Some(2))

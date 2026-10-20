@@ -65,7 +65,9 @@ async fn main {
   let version = manifest_string(manifest, "version")
   let backend = @shell.Cmd("mooncake", ["--version"]).output()
   backend.check()
-  // Never invoke real publication; authentication remains inside the official CLI.
+  // This uploads the archive for server-side validation: explicit authorization
+  // is required. It does not publish or reserve a version; authentication stays
+  // inside the official CLI. Local package checks must not invoke this main.
   let result = @shell.Cmd("moon", ["publish", "--dry-run"]).output()
   let output = result.stdout() + "\n" + result.stderr()
   println(output)

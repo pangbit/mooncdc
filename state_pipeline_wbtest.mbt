@@ -55,6 +55,7 @@ async fn run_stored_probe(
   config : ConnectionConfig,
   store : &StateStore,
   target : PipelineProbe,
+  schema_store? : &SchemaStore,
 ) -> StoredProbe {
   let probe : StoredProbe = { target, session: None, restored: 0, }
   @async.with_task_group(group => {
@@ -78,6 +79,7 @@ async fn run_stored_probe(
       control=target.control,
       copy_concurrency=1,
       batch_rows=1,
+      schema_store?,
     )
     group.return_immediately(())
   })
@@ -99,6 +101,19 @@ async test "live external state stores drive pipeline checkpoints metadata and r
         let dir = @fs.tmpdir(prefix="mooncdc-state-pipeline-")
         defer @fs.rmdir(dir, recursive=true)
         @fs.mkdir(dir + "/records")
+        @fs.mkdir(dir + "/schema-records")
+        let make_schemas = fn() -> &StateStore raise {
+          if backend == "file" {
+            (FileStateStore::new(dir + "/schema-records") : &StateStore)
+          } else {
+            (
+              PostgresStateStore::new(
+                config,
+                store_id="pipeline/schemas",
+                schema="cdc_store_pipeline",
+              ) : &StateStore)
+          }
+        }
         let make_store = fn() -> &StateStore raise {
           if backend == "file" {
             (FileStateStore::new(dir + "/records") : &StateStore)
@@ -122,7 +137,13 @@ async test "live external state stores drive pipeline checkpoints metadata and r
           None,
           schema="cdc_store_pipeline",
         )
-        assert_eq(run_stored_probe(config, first_store, first).restored, 0)
+        with_state_schema_store(make_schemas(), identity="pipeline-fixture", schemas => {
+          assert_eq(
+            run_stored_probe(config, first_store, first, schema_store=schemas).restored,
+            0,
+          )
+          assert_eq(schemas.all().length(), 2)
+        })
         assert_probe_table(first, "a")
         assert_probe_table(first, "b")
         let saved = parse_pipeline_state(first_store.load(Pipeline).unwrap())
@@ -149,7 +170,14 @@ async test "live external state stores drive pipeline checkpoints metadata and r
           Some("INSERT INTO cdc_store_pipeline.a VALUES(100,'stop')"),
           schema="cdc_store_pipeline",
         )
-        let resumed = run_stored_probe(config, next_store, next)
+        let resumed = with_state_schema_store(
+          make_schemas(),
+          identity="pipeline-fixture",
+          schemas => {
+            assert_eq(schemas.all().length(), 2)
+            run_stored_probe(config, next_store, next, schema_store=schemas)
+          },
+        )
         assert_eq(resumed.restored, 2)
         assert_eq(next.data.resets["a"], 1)
         assert_eq(next.data.resets["b"], 1)

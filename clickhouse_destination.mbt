@@ -27,11 +27,14 @@ pub struct ClickHouseDestination {
 ///|
 pub extend ClickHouseDestination with Destination::{
   bind_state,
+  release_state,
   bind_snapshot_schema,
   startup,
   shutdown,
+  schema_retention,
   reset_table,
   write_rows,
+  finish_table_copy,
   write_transaction,
   flush,
 }
@@ -289,6 +292,41 @@ pub impl Destination for ClickHouseDestination with fn write_transaction(
   self.mutex.acquire()
   defer self.mutex.release()
   self.check()
+  // Admission happens under the destination lock. A failed source attempt may
+  // cancel its caller, but later replay/reset/shutdown must wait for this batch.
+  // Per-request deadlines still apply; client timeout is not remote fencing.
+  @async.protect_from_cancel(() => self.write_events(tx))
+}
+
+///|
+pub impl Destination for ClickHouseDestination with fn supports_wal_batches(
+  _self,
+) {
+  true
+}
+
+///|
+pub impl Destination for ClickHouseDestination with fn write_wal_batch(
+  self,
+  batch,
+) {
+  self.mutex.acquire()
+  defer self.mutex.release()
+  self.check()
+  @async.protect_from_cancel(() => self.write_events(batch.internal_events()))
+}
+
+///|
+pub extend ClickHouseDestination with Destination::{
+  supports_wal_batches,
+  write_wal_batch,
+}
+
+///|
+async fn ClickHouseDestination::write_events(
+  self : ClickHouseDestination,
+  tx : Transaction,
+) -> WriteStatus {
   let current : Map[UInt, SchemaSnapshot] = Map([])
   for index, change in tx.changes {
     if change is Message(message) {
@@ -303,9 +341,21 @@ pub impl Destination for ClickHouseDestination with fn write_transaction(
     }
     match change {
       RelationChanged(relation) =>
-        ignore(self.resolve_table(relation, tx.commit_lsn, current))
+        ignore(
+          self.resolve_table(
+            relation,
+            tx.commit_lsn,
+            current,
+            resolved?=tx.replicated_schemas(index).get(0),
+          ),
+        )
       Insert(relation, values) | Update(relation, _, values) => {
-        let table = self.resolve_table(relation, tx.commit_lsn, current)
+        let table = self.resolve_table(
+          relation,
+          tx.commit_lsn,
+          current,
+          resolved?=tx.replicated_schemas(index).get(0),
+        )
         let rows = match change {
           Update(_, old, _) => ch_update_rows(table.schema, old, values)
           _ => [("INSERT", table.schema.decode_row(values))]
@@ -318,7 +368,12 @@ pub impl Destination for ClickHouseDestination with fn write_transaction(
         )
       }
       Delete(relation, old) => {
-        let table = self.resolve_table(relation, tx.commit_lsn, current)
+        let table = self.resolve_table(
+          relation,
+          tx.commit_lsn,
+          current,
+          resolved?=tx.replicated_schemas(index).get(0),
+        )
         self.insert_events(
           table,
           [("DELETE", ch_old_row(table.schema, old))],
@@ -327,8 +382,13 @@ pub impl Destination for ClickHouseDestination with fn write_transaction(
         )
       }
       Truncate(relations, ..) =>
-        for relation in relations {
-          let table = self.resolve_table(relation, tx.commit_lsn, current)
+        for relation_index, relation in relations {
+          let table = self.resolve_table(
+            relation,
+            tx.commit_lsn,
+            current,
+            resolved?=tx.replicated_schemas(index).get(relation_index),
+          )
           ignore(
             self.http.query("TRUNCATE TABLE " + self.qualified(table.name)),
           )

@@ -1,0 +1,403 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/process",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+enum CliBuildMode {
+  Debug
+  Release
+} derive(Eq, Debug)
+
+///|
+fn cli_build_mode(args : Array[String]) -> CliBuildMode raise {
+  match args {
+    [_] | [_, "--build-mode", "debug"] => Debug
+    [_, "--build-mode", "release"] => Release
+    _ => fail("usage: replicator-config-test.mbtx [--build-mode debug|release]")
+  }
+}
+
+///|
+fn CliBuildMode::label(self : CliBuildMode) -> String {
+  match self {
+    Debug => "debug"
+    Release => "release"
+  }
+}
+
+///|
+fn cli_build_args(mode : CliBuildMode, build : String) -> Array[String] {
+  let args = [
+    "build", "cmd/replicator", "--target", "native", "--frozen", "--deny-warn", "--jobs",
+    "1", "--target-dir", build,
+  ]
+  if mode is Release {
+    args.push("--release")
+  }
+  args
+}
+
+///|
+fn cli_build_executable(
+  mode : CliBuildMode,
+  build : String,
+  paths : Array[String],
+) -> String raise {
+  assert_eq(paths.length(), 1)
+  let expected = build +
+    "/native/" +
+    mode.label() +
+    "/build/cmd/replicator/replicator.exe"
+  assert_eq(paths[0], expected)
+  expected
+}
+
+///|
+test "CLI build mode preserves debug default and selects release explicitly" {
+  assert_eq(cli_build_mode(["driver"]), Debug)
+  assert_eq(cli_build_mode(["driver", "--build-mode", "debug"]), Debug)
+  assert_eq(cli_build_mode(["driver", "--build-mode", "release"]), Release)
+  assert_false(cli_build_args(Debug, "/owned").contains("--release"))
+  assert_true(cli_build_args(Release, "/owned").contains("--release"))
+  for
+    args in [
+      [],
+      ["driver", "--build-mode"],
+      ["driver", "--build-mode", "unknown"],
+      ["driver", "release"],
+      ["driver", "--build-mode", "release", "extra"],
+    ] {
+    try cli_build_mode(args) catch {
+      _ => ()
+    } noraise {
+      _ => fail("invalid build mode accepted")
+    }
+  }
+}
+
+///|
+test "CLI executable must belong to the requested build mode and owned output" {
+  for mode in [Debug, Release] {
+    let expected = "/owned/native/" +
+      mode.label() +
+      "/build/cmd/replicator/replicator.exe"
+    assert_eq(cli_build_executable(mode, "/owned", [expected]), expected)
+  }
+  for
+    paths in [
+      [],
+      ["/owned/native/debug/build/cmd/replicator/replicator.exe"],
+      ["/foreign/native/release/build/cmd/replicator/replicator.exe"],
+      [
+        "/owned/native/release/build/cmd/replicator/replicator.exe", "/owned/native/debug/build/cmd/replicator/replicator.exe",
+      ],
+    ] {
+    try cli_build_executable(Release, "/owned", paths) catch {
+      _ => ()
+    } noraise {
+      _ => fail("wrong or ambiguous CLI artifact accepted")
+    }
+  }
+}
+
+///|
+fn package_config_scratch(path : String) -> String raise {
+  let parts = path.split("/").collect()
+  assert_eq(parts.length(), 4)
+  assert_eq(parts[0], "")
+  assert_eq(parts[1], "tmp")
+  assert_true(parts[2].has_prefix("mooncdc-package-owned-"))
+  assert_eq(parts[3], "config-driver")
+  path
+}
+
+///|
+test "packaged config scratch is restricted to its owned workspace" {
+  assert_eq(
+    package_config_scratch("/tmp/mooncdc-package-owned-abc/config-driver"),
+    "/tmp/mooncdc-package-owned-abc/config-driver",
+  )
+  for
+    bad in [
+      "/tmp/foreign/config-driver", "/tmp/mooncdc-package-owned-abc/../config-driver",
+      "/tmp/mooncdc-package-owned-abc/other",
+    ] {
+    try package_config_scratch(bad) catch {
+      _ => ()
+    } noraise {
+      _ => fail("foreign scratch")
+    }
+  }
+}
+
+///|
+async fn main {
+  let mode = cli_build_mode(@env.args())
+  let dir = match @env.get_env_var("MOONCDC_PACKAGE_CONFIG_SCRATCH") {
+    None => @fs.tmpdir(prefix="mooncdc-cli-config-")
+    Some(path) => {
+      let path = package_config_scratch(path)
+      @fs.mkdir(path, permission=0o700)
+      path
+    }
+  }
+  defer @fs.rmdir(dir, recursive=true)
+  let build = dir + "/build"
+  let build_args = cli_build_args(mode, build)
+  @shell.Cmd("moon", build_args).run()
+  let files = @shell.Cmd("rg", ["--files", "--hidden", "--no-ignore", build]).output()
+  files.check()
+  let executables = files
+    .stdout()
+    .split("\n")
+    .filter(p => p.has_suffix("/cmd/replicator/replicator.exe"))
+    .map(p => p.to_owned())
+    .collect()
+  let executable = cli_build_executable(mode, build, executables)
+  let executable_digest = @shell.Cmd("shasum", ["-a", "256", executable]).output()
+  executable_digest.check()
+  let executable_hash = executable_digest.stdout()[:64].to_owned()
+  let identity : Json = {
+    "mode": mode.label().to_json(),
+    "build_args": build_args.to_json(),
+    "executable": executable.to_json(),
+    "sha256": executable_hash.to_json(),
+  }
+  println("REPLICATOR BUILD: " + identity.stringify())
+  let secret = "DO_NOT_PRINT_TEST_PASSWORD"
+  let path = dir + "/config.json"
+  let config : Json = {
+    "id": "offline",
+    "publication": "test",
+    "source": {
+      "host": "127.0.0.1",
+      "port": 1,
+      "user": "test",
+      "password": secret.to_json(),
+      "security": "local_plaintext",
+    },
+    "destination": {
+      "type": "clickhouse",
+      "url": "http://127.0.0.1:1",
+      "user": "test",
+      "password": secret.to_json(),
+      "database": "test",
+    },
+  }
+  @fs.write_file(path, config.stringify())
+  let mut count = 0
+  let run = async fn(
+    args : Array[String],
+    vars : Map[String, String],
+    expected : Int,
+    diagnostic : String,
+  ) -> Unit {
+    let (code, stdout, stderr) = @process.collect_output(
+      executable,
+      args,
+      extra_env=vars,
+      inherit_env=false,
+    )
+    assert_eq(code, expected)
+    assert_false(stdout.text().contains(secret))
+    assert_false(stderr.text().contains(secret))
+    if expected == 0 {
+      assert_true(stdout.text().contains(diagnostic))
+      assert_eq(stderr.text(), "")
+    } else {
+      assert_true(stderr.text().contains(diagnostic))
+      assert_eq(stdout.text(), "")
+    }
+    count += 1
+  }
+  run(["--help"], Map([]), 0, "Usage:")
+  run(["--config", path, "--check"], Map([]), 0, "connectivity not checked")
+  run(
+    ["--config", path, "--check"],
+    {
+      "APP_MEMORY_REFRESH_INTERVAL_MS": "25",
+      "APP_MEMORY_BACKPRESSURE__ACTIVATE_THRESHOLD": "0.9",
+      "APP_MEMORY_BACKPRESSURE__RESUME_THRESHOLD": "0.7",
+    },
+    0,
+    "connectivity not checked",
+  )
+  run(
+    ["--config", path, "--check"],
+    { "APP_MEMORY_REFRESH_INTERVAL_MS": "0" },
+    1,
+    "memory_refresh_interval_ms: must be positive",
+  )
+  run(
+    ["--config", path, "--check"],
+    {
+      "APP_MEMORY_BACKPRESSURE__ACTIVATE_THRESHOLD": secret,
+      "APP_MEMORY_BACKPRESSURE__RESUME_THRESHOLD": "0.7",
+    },
+    1,
+    "memory_backpressure.activate_threshold: expected number",
+  )
+  run(
+    ["--config", path, "--check"],
+    {
+      "APP_MEMORY_BACKPRESSURE__ACTIVATE_THRESHOLD": "0.8",
+      "APP_MEMORY_BACKPRESSURE__RESUME_THRESHOLD": "0.8",
+    },
+    1,
+    "invalid memory backpressure configuration",
+  )
+  guard config is Object(fields) else { fail("config object required") }
+  let disabled = fields.copy()
+  disabled["memory_backpressure"] = Json::null()
+  @fs.write_file(path, Json::object(disabled).stringify())
+  run(["--config", path, "--check"], Map([]), 0, "connectivity not checked")
+  @fs.write_file(path, config.stringify())
+  let batched = fields.copy()
+  batched["batch"] = Json::object(Map([]))
+  @fs.write_file(path, Json::object(batched).stringify())
+  run(["--config", path, "--check"], Map([]), 0, "connectivity not checked")
+  batched["batch"] = Json::null()
+  @fs.write_file(path, Json::object(batched).stringify())
+  run(["--config", path, "--check"], Map([]), 0, "connectivity not checked")
+  batched["batch"] = @json.parse(
+    "{\"memory_budget_ratio\":0.4,\"max_bytes\":1048576,\"max_fill_ms\":0}",
+  )
+  batched["memory_backpressure"] = Json::null()
+  batched["memory_refresh_interval_ms"] = Json::number(37.0)
+  @fs.write_file(path, Json::object(batched).stringify())
+  run(["--config", path, "--check"], Map([]), 0, "connectivity not checked")
+  @fs.write_file(path, config.stringify())
+  run(
+    ["--config", path, "--check"],
+    {
+      "APP_BATCH__MEMORY_BUDGET_RATIO": "2.5e-1",
+      "APP_BATCH__MAX_BYTES": "18446744073709551615",
+      "APP_BATCH__MAX_FILL_MS": "0",
+      "APP_MEMORY_REFRESH_INTERVAL_MS": "41",
+    },
+    0,
+    "connectivity not checked",
+  )
+  for
+    (vars, diagnostic) in [
+      (
+        { "APP_BATCH__MAX_BYTES": secret },
+        "batch.max_bytes: expected unsigned decimal integer",
+      ),
+      (
+        { "APP_BATCH__MEMORY_BUDGET_RATIO": secret },
+        "batch.memory_budget_ratio: expected number",
+      ),
+      (
+        { "APP_BATCH__MAX_FILL_MS": secret },
+        "batch.max_fill_ms: expected integer",
+      ),
+      (
+        { "APP_BATCH__MAX_BYTES": "18446744073709551616" },
+        "batch.max_bytes: expected unsigned decimal integer",
+      ),
+      (
+        { "APP_BATCH__MAX_BYTES": "0" },
+        "invalid batch memory budget or fill interval",
+      ),
+      (
+        { "APP_BATCH__MEMORY_BUDGET_RATIO": "2" },
+        "invalid batch memory budget or fill interval",
+      ),
+      (
+        { "APP_BATCH__MAX_FILL_MS": "-1" },
+        "invalid batch memory budget or fill interval",
+      ),
+    ] {
+    run(["--config", path, "--check"], vars, 1, diagnostic)
+  }
+  run(
+    ["--config", path, "--check"],
+    { "APP_SOURCE__PORT": "0" },
+    1,
+    "Configuration: port or timeout",
+  )
+  run(
+    ["--config", path, "--check"],
+    { "APP_SOURCE__HOSTADDR": secret },
+    1,
+    "hostaddr must be a numeric IP address",
+  )
+  run(
+    ["--config", path, "--check"],
+    { "APP_SOURCE__KEEPALIVE__IDLE_SECS": "0" },
+    1,
+    "TCP keepalive values must be positive",
+  )
+  run(
+    ["--config", path, "--check"],
+    { "APP_BATCH_ROWS": secret },
+    1,
+    "Configuration: config.batch_rows: expected integer",
+  )
+  run(
+    ["--config", path, "--check"],
+    { "APP_RUN_SOURCE_MIGRATIONS": secret },
+    1,
+    "Configuration: run_source_migrations: expected boolean",
+  )
+  run(
+    ["--config", path, "--check"],
+    { "APP_DESTINATION__TYPE": "unsupported" },
+    1,
+    "destination.type: only clickhouse is supported by the core module; other targets require the unpublished extensions module",
+  )
+  run(["--config"], Map([]), 1, "invalid arguments")
+  @fs.write_file(path, "{\"password\":" + secret)
+  run(
+    ["--config", path, "--check"],
+    Map([]),
+    1,
+    "configuration file is not valid JSON",
+  )
+  let yaml = dir + "/config.yaml"
+  @fs.write_file(yaml, config.stringify())
+  run(["--config", yaml, "--check"], Map([]), 0, "connectivity not checked")
+  let yaml_batch =
+    #|id: offline
+    #|publication: test
+    #|source: {host: 127.0.0.1, port: 1, user: test, security: local_plaintext}
+    #|destination: {type: clickhouse, url: 'http://127.0.0.1:1', user: test, database: test}
+    #|memory_backpressure: null
+    #|memory_refresh_interval_ms: 23
+    #|batch:
+    #|  memory_budget_ratio: 0.5
+    #|  max_bytes: '18446744073709551615'
+    #|  max_fill_ms: 0
+  @fs.write_file(yaml, yaml_batch)
+  run(["--config", yaml, "--check"], Map([]), 0, "connectivity not checked")
+  for
+    invalid in [
+      "password: [" + secret,
+      "password: " + secret + "\npassword: duplicate",
+      "a: !<broken" + secret,
+    ] {
+    @fs.write_file(yaml, invalid)
+    run(
+      ["--config", yaml, "--check"],
+      Map([]),
+      1,
+      "configuration file is not valid YAML",
+    )
+  }
+  @fs.write_file(dir + "/base.yaml", config.stringify())
+  @fs.write_file(dir + "/prod.yml", "batch_rows: 2\n")
+  run(["--check"], { "APP_CONFIG_DIR": dir }, 0, "connectivity not checked")
+  let final_digest = @shell.Cmd("shasum", ["-a", "256", executable]).output()
+  final_digest.check()
+  assert_eq(final_digest.stdout(), executable_digest.stdout())
+  println(
+    "REPLICATOR CONFIG: \{count} isolated CLI outcomes preserve diagnostics without password values",
+  )
+}

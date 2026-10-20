@@ -2,6 +2,8 @@
 async test "live SCRAM startup IDENTIFY_SYSTEM and COPY BOTH" {
   if @env.get_env_var("MOONCDC_TEST_PORT") is Some(port) {
     let cfg : ConnectionConfig = {
+      hostaddr: None,
+      keepalive: TcpKeepaliveConfig::new(),
       host: "127.0.0.1",
       port: @string.parse_int(port),
       user: "cdc",

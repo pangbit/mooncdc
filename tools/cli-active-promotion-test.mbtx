@@ -1,0 +1,3858 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/http",
+  "moonbitlang/async/socket",
+  "moonbitlang/async/process",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/x/crypto",
+}
+
+///|
+fn audit_rows(text : String) -> Array[Json] raise {
+  let rows : Array[Json] = []
+  for line in text.split("\n") {
+    if !line.is_empty() {
+      rows.push(@json.parse(line.to_owned()))
+    }
+  }
+  rows
+}
+
+///|
+fn audit_lsn(text : String) -> UInt64 raise {
+  let parts = text.split("/").collect()
+  assert_eq(parts.length(), 2)
+  (@string.parse_uint64(parts[0], base=16) << 32) +
+  @string.parse_uint64(parts[1], base=16)
+}
+
+///|
+fn audit_metric(text : String, name : String) -> UInt64 raise {
+  let mut total = 0UL
+  for line in text.split("\n") {
+    if line.has_prefix(name + "{") || line.has_prefix(name + " ") {
+      total += @string.parse_uint64(line.split(" ").last().unwrap())
+    }
+  }
+  total
+}
+
+///|
+fn audit_packet_length(bytes : Bytes) -> Int raise {
+  assert_eq(bytes.length(), 4)
+  let length = bytes[0].to_int() * 16777216 +
+    bytes[1].to_int() * 65536 +
+    bytes[2].to_int() * 256 +
+    bytes[3].to_int()
+  assert_true(length >= 4 && length <= 16777216)
+  length
+}
+
+///|
+fn audit_hold_copy_preflight(
+  startup : String,
+  copy_gate : Bool,
+  copy_release : Bool,
+) -> Bool {
+  copy_gate &&
+  !copy_release &&
+  startup.contains("mooncdc_replication:table_sync:")
+}
+
+///|
+async fn audit_wait_copy_cutover(released : () -> Bool) -> Unit {
+  while !released() {
+    @async.sleep(5)
+  }
+}
+
+///|
+fn audit_preflight_completed(
+  identified : Bool,
+  queries : Int,
+  client_closed : Bool,
+) -> Bool {
+  identified && queries == 1 && client_closed
+}
+
+///|
+enum CopyMode {
+  Full
+  Runtime(String, String, String, verify_only~ : Bool)
+  OfflineConfig(String, String, Int)
+  OfflineGenerateConfigs(String)
+}
+
+///|
+fn runtime_args(args : Array[String]) -> CopyMode raise {
+  if args.is_empty() {
+    return Full
+  }
+  if args[0] == "--offline-config-verify-only" {
+    guard args.length() == 5 && args[3] == "--metrics-port" else {
+      fail(
+        "use --offline-config-verify-only SCENARIO CONFIG_PATH --metrics-port PORT",
+      )
+    }
+    ignore(runtime_scenario(args[1]))
+    let port = @string.parse_int(args[4])
+    assert_true(port > 0 && port <= 65535)
+    return OfflineConfig(args[1], args[2], port)
+  }
+  if args[0] == "--offline-generate-configs" {
+    guard args.length() == 2 else {
+      fail("use --offline-generate-configs OUTPUT_DIRECTORY")
+    }
+    return OfflineGenerateConfigs(args[1])
+  }
+  guard args.length() == 6 &&
+    (args[0] == "--runtime-only" || args[0] == "--runtime-verify-only") &&
+    args[2] == "--manifest-sha256" &&
+    args[4] == "--scenario" else {
+    fail(
+      "use explicit --runtime-only/--runtime-verify-only MANIFEST --manifest-sha256 SHA256 --scenario SINGLE_REMAINING_CASE",
+    )
+  }
+  runtime_hash_text(args[3])
+  ignore(runtime_scenario(args[5]))
+  Runtime(
+    args[1],
+    args[3],
+    args[5],
+    verify_only=args[0] == "--runtime-verify-only",
+  )
+}
+
+///|
+struct CopyScenario {
+  id : String
+  service : String
+  format : String
+  engine : String
+}
+
+///|
+fn runtime_scenario(id : String) -> CopyScenario raise {
+  let (service, format, engine) = match id {
+    "pg17-yaml-replacing_merge_tree" => ("pg17", "yaml", "replacing_merge_tree")
+    "pg17-yaml-merge_tree" => ("pg17", "yaml", "merge_tree")
+    "pg18-json-replacing_merge_tree" => ("pg18", "json", "replacing_merge_tree")
+    "pg18-json-merge_tree" => ("pg18", "json", "merge_tree")
+    "pg18-yaml-replacing_merge_tree" => ("pg18", "yaml", "replacing_merge_tree")
+    "pg18-yaml-merge_tree" => ("pg18", "yaml", "merge_tree")
+    _ => fail("expected exactly one of the six remaining runtime cases")
+  }
+  { id, service, format, engine, }
+}
+
+///|
+fn runtime_image_gate(manifest : Json) -> String raise {
+  guard manifest is { "postgres_image_id": String(id), .. } else {
+    fail("sealed PostgreSQL image identity required")
+  }
+  assert_true(
+    id.has_prefix("sha256:"),
+    msg="PG18 image identity is unverified; execution blocked",
+  )
+  runtime_hash_text(id[7:].to_owned())
+  assert_false(id == "sha256:" + "0".repeat(64))
+  id
+}
+
+///|
+fn runtime_hash_text(text : String) -> Unit raise {
+  assert_true(
+    text.length() == 64 &&
+    text.iter().all(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')),
+  )
+}
+
+///|
+fn runtime_digest(bytes : Bytes) -> String {
+  @crypto.bytes_to_hex_string(@crypto.sha256(bytes))
+}
+
+///|
+fn runtime_fields(
+  value : Json,
+  keys : Array[String],
+) -> Map[String, Json] raise {
+  guard value is Object(fields) else { fail("manifest object required") }
+  assert_eq(fields.length(), keys.length())
+  for key in keys {
+    assert_true(fields.contains(key), msg="missing manifest field: " + key)
+  }
+  fields
+}
+
+///|
+fn runtime_text(fields : Map[String, Json], key : String) -> String raise {
+  guard fields[key] is String(value) else {
+    fail("manifest string required: " + key)
+  }
+  value
+}
+
+///|
+fn runtime_budget_json() -> Json {
+  {
+    "wall_ms": 900000,
+    "work_ms": 720000,
+    "evidence_ms": 60000,
+    "cleanup_ms": 120000,
+    "cpu_cores": 4,
+    "memory_bytes": 6442450944.0,
+    "swap_bytes": 0,
+    "tasks": 384,
+    "disk_bytes": 536870912,
+    "disk_enforcement": "sampled-assertion",
+    "disk_scope": "new-owned-writable",
+    "stack": "inherit-unchanged",
+  }
+}
+
+///|
+fn runtime_target_json() -> Json {
+  {
+    "os": "linux",
+    "arch": "x86_64",
+    "elf_class": 64,
+    "elf_machine": 62,
+    "endian": "little",
+  }
+}
+
+///|
+fn runtime_path_compare(left : String, right : String) -> Int {
+  for i in 0..<left.length().min(right.length()) {
+    let a = left.code_unit_at(i).to_int()
+    let b = right.code_unit_at(i).to_int()
+    if a != b {
+      return a - b
+    }
+  }
+  left.length() - right.length()
+}
+
+///|
+fn runtime_input_seal(inputs : Map[String, Json]) -> String raise {
+  let names = inputs.keys().to_array()
+  names.sort_by(runtime_path_compare)
+  let mut text = ""
+  for name in names {
+    assert_false(
+      name.has_prefix("/") ||
+      name.split("/").any(p => p.is_empty() || p == "." || p == ".."),
+    )
+    guard inputs[name] is String(hash) else {
+      fail("product hash string required")
+    }
+    runtime_hash_text(hash)
+    text += hash + "  " + name + "\n"
+  }
+  runtime_digest(@utf8.encode(text))
+}
+
+///|
+fn runtime_cli_identity(
+  path : String,
+  run_id : String,
+) -> (String, String, Int) raise {
+  let input = "/tmp/mooncdc-copy-runtime-input." + run_id
+  assert_eq(
+    path,
+    "/tmp/mooncdc-parser-fixture/replicator.exe",
+    msg="unknown prebuilt CLI path",
+  )
+  (
+    input + "/product-source",
+    "2222222222222222222222222222222222222222222222222222222222222222",
+    6848168,
+  )
+}
+
+///|
+fn runtime_elf_header(bytes : Bytes) -> Unit raise {
+  assert_true(bytes.length() >= 20)
+  assert_eq(bytes[:6], b"\x7fELF\x02\x01")
+  assert_eq(bytes[18], b'\x3e')
+  assert_eq(bytes[19], b'\x00')
+}
+
+///|
+struct CopyRuntime {
+  manifest : Json
+  scenario : CopyScenario
+  run_id : String
+  input_root : String
+  product_root : String
+  cli : String
+  cli_hash : String
+  cli_size : Int
+  inputs : Map[String, Json]
+  parent : String
+  loader : String
+  started_ms : Int64
+  mut cleaning : Bool
+  mut disk_roots : Array[String]
+  mut disk_storage : String
+  mut disk_layer_bytes : Int64
+  mut disk_containers : Array[Json]
+  mut disk_peak_kib : Int
+  mut disk_samples : Int
+  mut baseline : String
+  mut project : String
+}
+
+///|
+fn decode_runtime(value : Json, now : Int64) -> CopyRuntime raise {
+  let fields = runtime_fields(value, [
+    "schema", "run_id", "proxy_version", "target", "product_source_root", "cli_path",
+    "cli_sha256", "cli_size_bytes", "product_files", "fixture_files", "harness_sha256",
+    "cgroup_parent", "loader_path", "budget", "source_commit", "scenario", "postgres_image_id",
+  ])
+  assert_eq(fields["schema"], "mooncdc-copy-runtime-v8".to_json())
+  let scenario = runtime_scenario(runtime_text(fields, "scenario"))
+  if scenario.service == "pg17" {
+    assert_eq(
+      runtime_text(fields, "postgres_image_id"),
+      "sha256:d18fea728d846038da867214da83fb71ecfc8ca0a5e93a9cb8404b6f6f5070f0",
+    )
+  } else if runtime_text(fields, "postgres_image_id") != "unverified" {
+    ignore(runtime_image_gate(value))
+    assert_false(
+      runtime_text(fields, "postgres_image_id") ==
+      "sha256:d18fea728d846038da867214da83fb71ecfc8ca0a5e93a9cb8404b6f6f5070f0",
+    )
+  }
+  assert_eq(
+    fields["source_commit"],
+    "1111111111111111111111111111111111111111".to_json(),
+  )
+  assert_eq(fields["proxy_version"], "copy-cutover-client-eof-v1".to_json())
+  assert_eq(fields["target"], runtime_target_json())
+  assert_eq(fields["budget"], runtime_budget_json())
+  let id = runtime_text(fields, "run_id")
+  assert_true(
+    id.length() == 16 &&
+    id.iter().all(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')),
+  )
+  let cli = runtime_text(fields, "cli_path")
+  let (product_root, hash, size) = runtime_cli_identity(cli, id)
+  assert_eq(runtime_text(fields, "product_source_root"), product_root)
+  assert_eq(runtime_text(fields, "cli_sha256"), hash)
+  assert_eq(fields["cli_size_bytes"], size.to_json())
+  guard fields["product_files"] is Object(inputs) else {
+    fail("product files required")
+  }
+  assert_eq(inputs.length(), 137)
+  assert_eq(
+    runtime_input_seal(inputs),
+    "e095d2dbfe74847e87b711339b909c3ac4a0879f81cc0a346183f880b0b5a2d0",
+  )
+  assert_eq(fields["fixture_files"], {
+    "integration/standby.compose.yaml": "9ed1c42f489a849736379156e8a6e421acdf22585302ff469e6da33a2a7d6cda",
+    "integration/standby-pg_hba.conf": "2abf61d7b71919ae7affcbc9eb460f72904201b3f2ec45a8474a30aa1d14f27e",
+  })
+  runtime_hash_text(runtime_text(fields, "harness_sha256"))
+  let parent = "mooncdccopy" + id + ".slice"
+  assert_eq(runtime_text(fields, "cgroup_parent"), parent)
+  let loader = "/tmp/mooncdc-parser-fixture/lib"
+  assert_eq(runtime_text(fields, "loader_path"), loader)
+  {
+    manifest: value,
+    scenario,
+    run_id: id,
+    input_root: "/tmp/mooncdc-copy-runtime-input." + id,
+    product_root,
+    cli,
+    cli_hash: hash,
+    cli_size: size,
+    inputs,
+    parent,
+    loader,
+    started_ms: now,
+    cleaning: false,
+    disk_roots: [],
+    disk_storage: "",
+    disk_layer_bytes: 0L,
+    disk_containers: [],
+    disk_peak_kib: 0,
+    disk_samples: 0,
+    baseline: "",
+    project: "mooncdccopy-" + id,
+  }
+}
+
+///|
+async fn runtime_file_hash(
+  path : String,
+  expected : String,
+  maximum : Int,
+) -> Unit {
+  assert_eq(@fs.kind(path, follow_symlink=false), @fs.FileKind::Regular)
+  assert_eq(@fs.realpath(path), path)
+  assert_true(@fs.file_size(path) <= maximum.to_int64())
+  assert_eq(runtime_digest(@fs.read_file(path).binary()), expected)
+}
+
+///|
+async fn verify_runtime_inputs(runtime : CopyRuntime) -> Unit {
+  for path, expected in runtime.inputs {
+    guard expected is String(hash) else { fail("input hash") }
+    runtime_file_hash(runtime.product_root + "/" + path, hash, 2097152)
+  }
+  runtime_file_hash(runtime.cli, runtime.cli_hash, runtime.cli_size)
+  assert_eq(@fs.file_size(runtime.cli), runtime.cli_size.to_int64())
+  runtime_elf_header(@fs.read_file(runtime.cli).binary())
+}
+
+///|
+fn runtime_cpu_limit(text : String) -> Unit raise {
+  let words = text.trim().split(" ").collect()
+  assert_eq(words.length(), 2)
+  let quota = @string.parse_int64(words[0])
+  let period = @string.parse_int64(words[1])
+  assert_true(period > 0L && quota == 4L * period)
+}
+
+///|
+async fn verify_runtime_group(runtime : CopyRuntime) -> Unit {
+  let path = "/sys/fs/cgroup/" + runtime.parent
+  let membership = @fs.read_file("/proc/self/cgroup").text()
+  assert_true(membership.has_prefix("0::/" + runtime.parent + "/"))
+  assert_eq(@fs.read_file(path + "/memory.max").text().trim(), "6442450944")
+  assert_eq(@fs.read_file(path + "/memory.swap.max").text().trim(), "0")
+  assert_eq(@fs.read_file(path + "/pids.max").text().trim(), "384")
+  runtime_cpu_limit(@fs.read_file(path + "/cpu.max").text())
+}
+
+///|
+async fn load_runtime(
+  path : String,
+  seal : String,
+  scenario : String,
+) -> CopyRuntime {
+  assert_true(@async.platform is Linux)
+  assert_true(
+    path.has_prefix("/tmp/mooncdc-copy-runtime-input.") &&
+    path.has_suffix("/runtime-manifest.json"),
+  )
+  assert_false(path.split("/").any(part => part == "." || part == ".."))
+  runtime_file_hash(path, seal, 131072)
+  let runtime = decode_runtime(
+    @json.parse(@fs.read_file(path).text()),
+    @async.now(),
+  )
+  assert_eq(runtime.scenario.id, scenario)
+  // Fail before cgroup checks, Docker inspection or fixture creation.
+  ignore(runtime_image_gate(runtime.manifest))
+  assert_eq(path, runtime.input_root + "/runtime-manifest.json")
+  let fields = match runtime.manifest {
+    Object(fields) => fields
+    _ => panic()
+  }
+  let harness = runtime.input_root + "/harness.wasm"
+  runtime_file_hash(harness, runtime_text(fields, "harness_sha256"), 33554432)
+  assert_eq(@fs.realpath(@env.args()[0]), harness)
+  let fixtures = match fields["fixture_files"] {
+    Object(f) => f
+    _ => panic()
+  }
+  for name, hash in fixtures {
+    guard hash is String(hash) else { fail("fixture hash") }
+    runtime_file_hash(runtime.input_root + "/" + name, hash, 65536)
+  }
+  assert_eq(@fs.kind(runtime.loader), @fs.FileKind::Directory)
+  verify_runtime_inputs(runtime)
+  verify_runtime_group(runtime)
+  runtime
+}
+
+///|
+fn runtime_command_allowed(program : String) -> Bool {
+  ["uname", "docker", "ps", "kill", "du"].contains(program)
+}
+
+///|
+fn runtime_timeout(runtime : CopyRuntime, now : Int64) -> Int raise {
+  let limit = if runtime.cleaning { 900000L } else { 720000L }
+  let remaining = runtime.started_ms + limit - now
+  assert_true(remaining > 0L)
+  remaining.min(if runtime.cleaning { 120000L } else { 180000L }).to_int()
+}
+
+///|
+async fn runtime_output(
+  runtime : CopyRuntime,
+  program : String,
+  args : Array[String],
+) -> String {
+  assert_true(runtime_command_allowed(program))
+  let out = @shell.Cmd(program, args).output(
+    timeout_ms=runtime_timeout(runtime, @async.now()).min(10000),
+    max_output_bytes=1048576,
+  )
+  out.check()
+  out.stdout().trim().to_owned()
+}
+
+///|
+fn runtime_lines(text : String) -> Array[String] {
+  text.split("\n").filter(s => !s.is_empty()).map(s => s.to_owned()).collect()
+}
+
+///|
+async fn runtime_baseline(runtime : CopyRuntime) -> String {
+  let text = runtime_output(runtime, "docker", [
+    "ps", "-a", "--no-trunc", "--format", "{{.ID}} {{.Image}} {{.State}}",
+  ])
+  let lines = runtime_lines(text)
+  assert_eq(lines.length(), 7)
+  assert_true(lines.iter().all(s => s.has_suffix(" running")))
+  lines.sort()
+  lines.join("\n")
+}
+
+///|
+async fn runtime_preflight(runtime : CopyRuntime, evidence : String) -> Unit {
+  assert_eq(runtime_output(runtime, "uname", ["-m"]), "x86_64")
+  runtime.disk_storage = runtime_storage(
+    @json.parse(
+      runtime_output(runtime, "docker", [
+        "info", "--format", "{\"cgroup_driver\":{{json .CgroupDriver}},\"cgroup_version\":{{json .CgroupVersion}},\"driver\":{{json .Driver}},\"root\":{{json .DockerRootDir}},\"driver_status\":{{json .DriverStatus}}}",
+      ]),
+    ),
+  )
+  for
+    args in [
+      [
+        "ps",
+        "-a",
+        "--filter",
+        "label=com.docker.compose.project=" + runtime.project,
+        "--format",
+        "{{.ID}}",
+      ],
+      [
+        "volume",
+        "ls",
+        "--filter",
+        "label=com.docker.compose.project=" + runtime.project,
+        "--format",
+        "{{.Name}}",
+      ],
+    ] {
+    assert_eq(
+      runtime_output(runtime, "docker", args),
+      "",
+      msg="owned project collision",
+    )
+  }
+  let images = runtime_output(
+    runtime,
+    "docker",
+    runtime_image_inspect_args(runtime),
+  )
+  assert_eq(
+    images,
+    runtime_image_gate(runtime.manifest) +
+    " amd64\nsha256:cbd8e2ffefbb08c4d38a3a32227eb33eb33ea33db8164b8561c30aa7171691f1 amd64",
+  )
+  runtime.baseline = runtime_baseline(runtime)
+  @fs.write_file(
+    evidence + "/runtime-limits.json",
+    (
+      {
+        "budget": runtime_budget_json(),
+        "baseline_identity_digest": runtime_digest(
+          @utf8.encode(runtime.baseline),
+        ).to_json(),
+        "actual_inherited_limits": @fs.read_file("/proc/self/limits")
+        .text()
+        .to_json(),
+        "compilation_gates_executed": false,
+      } : Json).stringify(indent=2),
+  )
+}
+
+///|
+fn runtime_image_inspect_args(runtime : CopyRuntime) -> Array[String] raise {
+  [
+    "image",
+    "inspect",
+    runtime_image_gate(runtime.manifest),
+    "clickhouse/clickhouse-server:26.4",
+    "--format",
+    "{{.Id}} {{.Architecture}}",
+  ]
+}
+
+///|
+fn runtime_standby_compose(service : String, text : String) -> String raise {
+  assert_true(service == "pg17" || service == "pg18")
+  if service == "pg17" {
+    return text
+  }
+  // The fixed PG18 config declares VOLUME /var/lib/postgresql. Cover it
+  // explicitly so Docker does not create an unowned anonymous parent volume.
+  let mut result = text
+  for volume in ["primary", "standby"] {
+    let old = volume + ":/var/lib/postgresql/data"
+    assert_eq(result.split(old).count(), 2)
+    result = result.replace_all(old~, new=volume + ":/var/lib/postgresql")
+  }
+  result
+}
+
+///|
+fn audit_basebackup_options(
+  runtime : CopyRuntime?,
+  project : String,
+) -> Array[String] {
+  match runtime {
+    None => ["run", "--rm"]
+    Some(r) =>
+      ["run", "--name", project + "-basebackup"] +
+      (if r.scenario.service == "pg18" { ["--user", "postgres"] } else { [] })
+  }
+}
+
+///|
+fn runtime_storage(value : Json) -> String raise {
+  let fields = runtime_fields(value, [
+    "cgroup_driver", "cgroup_version", "driver", "root", "driver_status",
+  ])
+  assert_eq(fields["cgroup_driver"], "systemd".to_json())
+  assert_eq(fields["cgroup_version"], "2".to_json())
+  assert_eq(fields["root"], "/var/lib/docker".to_json())
+  guard fields["driver_status"] is Array(status) else {
+    fail("driver status required")
+  }
+  let driver = runtime_text(fields, "driver")
+  if driver == "overlayfs" {
+    assert_eq(status, [["driver-type", "io.containerd.snapshotter.v1"]])
+  } else if driver == "overlay2" {
+    assert_false(status.iter().any(row => row is ["driver-type", ..]))
+  } else {
+    fail("unsupported Docker storage driver")
+  }
+  driver
+}
+
+///|
+struct RuntimeDiskPlan {
+  roots : Array[String]
+  volumes : Array[String]
+  containers : Array[Json]
+  mut layer_bytes : Int64
+}
+
+///|
+fn runtime_disk_root(plan : RuntimeDiskPlan, path : String) -> Unit raise {
+  assert_true(path.has_prefix("/"))
+  assert_false(path.split("/").any(p => p == "." || p == ".."))
+  if plan.roots.contains(path) {
+    return
+  }
+  assert_false(
+    plan.roots
+    .iter()
+    .any(p => path.has_prefix(p + "/") || p.has_prefix(path + "/")),
+  )
+  plan.roots.push(path)
+}
+
+///|
+fn runtime_size_bytes(value : Json) -> Int64 raise {
+  guard value is Number(size, ..) else { fail("numeric SizeRw required") }
+  assert_true(size >= 0.0 && size <= 9007199254740991.0)
+  let integer = size.to_int64()
+  assert_eq(integer.to_double(), size)
+  integer
+}
+
+///|
+fn runtime_container_disk(
+  plan : RuntimeDiskPlan,
+  storage : String,
+  project : String,
+  parent : String,
+  root : String,
+  id : String,
+  value : Json,
+) -> Unit raise {
+  runtime_hash_text(id)
+  let fields = runtime_fields(value, [
+    "id", "project", "service", "parent", "log", "size_rw", "upper", "mounts",
+  ])
+  assert_eq(fields["id"], id.to_json())
+  assert_eq(fields["project"], project.to_json())
+  assert_eq(fields["parent"], parent.to_json())
+  assert_true(
+    ["primary", "standby", "state", "clickhouse"].contains(
+      runtime_text(fields, "service"),
+    ),
+  )
+  assert_false(
+    plan.containers
+    .iter()
+    .any(row => row is { "id": String(previous), .. } && previous == id),
+  )
+  let directory = "/var/lib/docker/containers/" + id
+  assert_eq(runtime_text(fields, "log"), directory + "/" + id + "-json.log")
+  runtime_disk_root(plan, directory)
+  let bytes = runtime_size_bytes(fields["size_rw"])
+  if storage == "overlayfs" {
+    assert_eq(fields["upper"], Json::null())
+    plan.layer_bytes += bytes
+  } else if storage == "overlay2" {
+    let upper = runtime_text(fields, "upper")
+    assert_true(
+      upper.has_prefix("/var/lib/docker/overlay2/") && upper.has_suffix("/diff"),
+    )
+    runtime_disk_root(plan, upper)
+    // Legacy SizeRw may describe logical diff bytes. Count allocated upper blocks instead.
+  } else {
+    fail("unsupported storage plan")
+  }
+  guard fields["mounts"] is Array(mounts) else {
+    fail("mount inventory required")
+  }
+  for mount in mounts {
+    guard mount
+      is {
+        "Type": String(kind),
+        "Destination": String(destination),
+        "RW": rw,
+        ..
+      } else {
+      fail("mount fields required")
+    }
+    let writable = match rw {
+      True => true
+      False => false
+      _ => fail("boolean RW required")
+    }
+    match kind {
+      "volume" => {
+        guard mount is { "Source": String(source), .. } else {
+          fail("volume source required")
+        }
+        guard mount is { "Name": String(name), .. } else {
+          fail("volume name required")
+        }
+        assert_true([project + "_primary", project + "_standby"].contains(name))
+        assert_eq(source, "/var/lib/docker/volumes/" + name + "/_data")
+        assert_true(
+          ["/var/lib/postgresql/data", "/var/lib/postgresql"].contains(
+            destination,
+          ),
+        )
+        assert_true(writable)
+        if !plan.volumes.contains(name) {
+          plan.volumes.push(name)
+        }
+      }
+      "bind" => {
+        guard mount is { "Source": String(source), .. } else {
+          fail("bind source required")
+        }
+        assert_false(writable)
+        assert_eq(source, root + "/source/integration/standby-pg_hba.conf")
+        assert_eq(destination, "/etc/mooncdc/pg_hba.conf")
+      }
+      "tmpfs" => {
+        guard mount is Object(fields) else { fail("tmpfs object required") }
+        assert_true(
+          fields.get("Source") is None ||
+          fields.get("Source") is Some(String("")),
+        )
+        assert_true(
+          [
+            "/var/lib/postgresql/data", "/var/lib/postgresql", "/var/lib/clickhouse",
+          ].contains(destination),
+        )
+      }
+      _ => fail("unknown or unowned mount")
+    }
+  }
+  plan.containers.push(value)
+}
+
+///|
+fn runtime_volume_disk(
+  plan : RuntimeDiskPlan,
+  project : String,
+  name : String,
+  value : Json,
+) -> Unit raise {
+  assert_true([project + "_primary", project + "_standby"].contains(name))
+  let fields = runtime_fields(value, ["name", "project", "driver", "mountpoint"])
+  assert_eq(fields["name"], name.to_json())
+  assert_eq(fields["project"], project.to_json())
+  assert_eq(fields["driver"], "local".to_json())
+  let path = "/var/lib/docker/volumes/" + name + "/_data"
+  assert_eq(fields["mountpoint"], path.to_json())
+  runtime_disk_root(plan, path)
+}
+
+///|
+fn runtime_disk_assert(bytes : Int64) -> Unit raise {
+  assert_true(
+    bytes >= 0L && bytes <= 536870912L,
+    msg="owned writable sample exceeds 512 MiB",
+  )
+}
+
+///|
+async fn runtime_inventory(runtime : CopyRuntime, root : String) -> Unit {
+  let plan : RuntimeDiskPlan = {
+    roots: [],
+    volumes: [],
+    containers: [],
+    layer_bytes: 0L,
+  }
+  runtime_disk_root(plan, root)
+  runtime_disk_root(plan, runtime.input_root)
+  let ids = runtime_lines(
+    runtime_output(runtime, "docker", [
+      "ps",
+      "-a",
+      "--no-trunc",
+      "--filter",
+      "label=com.docker.compose.project=" + runtime.project,
+      "--format",
+      "{{.ID}}",
+    ]),
+  )
+  let seen : Array[String] = []
+  for id in ids {
+    runtime_hash_text(id)
+    assert_false(seen.contains(id))
+    seen.push(id)
+  }
+  if !ids.is_empty() {
+    let upper = if runtime.disk_storage == "overlay2" {
+      "{{json (index .GraphDriver.Data \"UpperDir\")}}"
+    } else {
+      "null"
+    }
+    let format = "{\"id\":{{json .Id}},\"project\":{{json (index .Config.Labels \"com.docker.compose.project\")}},\"service\":{{json (index .Config.Labels \"com.docker.compose.service\")}},\"parent\":{{json .HostConfig.CgroupParent}},\"log\":{{json .LogPath}},\"size_rw\":{{json .SizeRw}},\"upper\":" +
+      upper +
+      ",\"mounts\":{{json .Mounts}}}"
+    let rows = runtime_lines(
+      runtime_output(
+        runtime,
+        "docker",
+        ["container", "inspect", "--size", "--format", format] + ids,
+      ),
+    )
+    assert_eq(rows.length(), ids.length())
+    for i in 0..<ids.length() {
+      runtime_container_disk(
+        plan,
+        runtime.disk_storage,
+        runtime.project,
+        runtime.parent,
+        root,
+        ids[i],
+        @json.parse(rows[i]),
+      )
+    }
+  }
+  let volumes = runtime_lines(
+    runtime_output(runtime, "docker", [
+      "volume",
+      "ls",
+      "--filter",
+      "label=com.docker.compose.project=" + runtime.project,
+      "--format",
+      "{{.Name}}",
+    ]),
+  )
+  for name in volumes {
+    assert_true(
+      [runtime.project + "_primary", runtime.project + "_standby"].contains(
+        name,
+      ),
+    )
+    let row = runtime_output(runtime, "docker", [
+      "volume", "inspect", "--format", "{\"name\":{{json .Name}},\"project\":{{json (index .Labels \"com.docker.compose.project\")}},\"driver\":{{json .Driver}},\"mountpoint\":{{json .Mountpoint}}}",
+      name,
+    ])
+    runtime_volume_disk(plan, runtime.project, name, @json.parse(row))
+  }
+  assert_true(
+    plan.volumes.iter().all(name => volumes.contains(name)),
+    msg="mounted volume missing owned labels",
+  )
+  for path in plan.roots {
+    assert_eq(@fs.kind(path, follow_symlink=false), @fs.FileKind::Directory)
+    assert_eq(@fs.realpath(path), path)
+  }
+  runtime.disk_roots = plan.roots
+  runtime.disk_layer_bytes = plan.layer_bytes
+  runtime.disk_containers = plan.containers
+}
+
+///|
+fn runtime_disk_total(text : String, roots? : Array[String] = []) -> Int raise {
+  let lines = runtime_lines(text)
+  if !roots.is_empty() {
+    assert_eq(lines.length(), roots.length())
+  }
+  let seen : Array[String] = []
+  let mut total = 0
+  for line in lines {
+    let parts = line.split("\t").collect()
+    assert_eq(parts.length(), 2)
+    if !roots.is_empty() {
+      assert_true(roots.contains(parts[1].to_owned()))
+    }
+    assert_false(seen.contains(parts[1].to_owned()))
+    seen.push(parts[1].to_owned())
+    let size = @string.parse_int(parts[0])
+    assert_true(size >= 0 && size <= 2097151)
+    total += size
+    assert_true(total <= 2097151)
+  }
+  total
+}
+
+///|
+async fn runtime_disk(runtime : CopyRuntime, evidence : String) -> Unit {
+  verify_runtime_group(runtime)
+  runtime_inventory(runtime, runtime.disk_roots[0])
+  runtime.disk_roots.push("/tmp/mooncdc-copy-runtime-serial.lock")
+  let output = runtime_output(runtime, "du", ["-skx"] + runtime.disk_roots)
+  let host_kib = runtime_disk_total(output, roots=runtime.disk_roots)
+  let bytes = host_kib.to_int64() * 1024L + runtime.disk_layer_bytes
+  let total = ((bytes + 1023L) / 1024L).min(2147483647L).to_int()
+  runtime.disk_peak_kib = runtime.disk_peak_kib.max(total)
+  runtime.disk_samples += 1
+  let sample = (
+    {
+      "limit_bytes": 536870912,
+      "sampled_at_ms": @async.now().to_double().to_json(),
+      "host_du_readback": output.to_json(),
+      "current_bytes": bytes.to_double().to_json(),
+      "observed_peak_kib": runtime.disk_peak_kib.to_json(),
+      "host_allocated_kib": host_kib.to_json(),
+      "docker_size_rw_bytes": runtime.disk_layer_bytes.to_double().to_json(),
+      "storage": runtime.disk_storage.to_json(),
+      "accounted_roots": runtime.disk_roots.to_json(),
+      "owned_container_readbacks": runtime.disk_containers.to_json(),
+      "scope": "new owned input/scratch, container metadata/logs, unique volumes and writable layers; shared images/history excluded",
+      "enforcement": "sampled assertion; not hard quota or continuous peak proof",
+      "within_budget": (bytes <= 536870912L).to_json(),
+    } : Json).stringify(indent=2)
+  @fs.write_file(
+    evidence + "/runtime-disk-" + runtime.disk_samples.to_string() + ".json",
+    sample,
+  )
+  @fs.write_file(evidence + "/runtime-disk.json", sample)
+  runtime_disk_assert(bytes)
+}
+
+///|
+async fn runtime_cleanup_attempts(
+  actions : Array[async () -> Unit],
+) -> Array[String] {
+  let failures : Array[String] = []
+  for action in actions {
+    action() catch {
+      error => failures.push(error.to_string())
+    }
+  }
+  failures
+}
+
+///|
+async fn runtime_cleanup(
+  runtime : CopyRuntime,
+  root : String,
+  evidence : String,
+  prefix : Array[String],
+  cwd : String,
+  environment : Map[String, String],
+) -> Unit {
+  runtime.cleaning = true
+  @async.with_timeout(120000, () => {
+    let cleanup_command = async fn(
+      name : String,
+      args : Array[String],
+    ) -> Unit {
+      let output = @shell.Cmd(
+        "docker",
+        args,
+        cwd~,
+        env=environment,
+        inherit_env=false,
+      ).output(
+        timeout_ms=runtime_timeout(runtime, @async.now()).min(30000),
+        max_output_bytes=1048576,
+      )
+      @fs.write_file(
+        evidence + "/runtime-cleanup-" + name + ".stdout",
+        output.stdout(),
+      )
+      @fs.write_file(
+        evidence + "/runtime-cleanup-" + name + ".stderr",
+        output.stderr(),
+      )
+      output.check()
+    }
+    // Always attempt down even if logs failed. Only this generated project is addressed.
+    let failures = runtime_cleanup_attempts([
+      () => cleanup_command("logs", prefix + ["logs", "--no-color"]),
+      () => cleanup_command("stopped", prefix + ["rm", "--force"]),
+      () => {
+        cleanup_command(
+          "down",
+          prefix + ["down", "--volumes", "--remove-orphans"],
+        )
+      },
+    ])
+    let containers = runtime_output(runtime, "docker", [
+      "ps",
+      "-a",
+      "--filter",
+      "label=com.docker.compose.project=" + runtime.project,
+      "--format",
+      "{{.ID}}",
+    ])
+    let volumes = runtime_output(runtime, "docker", [
+      "volume",
+      "ls",
+      "--filter",
+      "label=com.docker.compose.project=" + runtime.project,
+      "--format",
+      "{{.Name}}",
+    ])
+    let unchanged = runtime_baseline(runtime) == runtime.baseline
+    @fs.write_file(
+      evidence + "/runtime-fixtures-cleaned.json",
+      (
+        {
+          "owned_project_removed": containers.is_empty() && volumes.is_empty(),
+          "baseline_unchanged": unchanged,
+          "cleanup_budget_ms": 120000,
+          "cleanup_command_failures": failures.to_json(),
+        } : Json).stringify(indent=2),
+    )
+    runtime.disk_roots = [root, runtime.input_root]
+    runtime.disk_layer_bytes = 0L
+    runtime.disk_containers = []
+    assert_eq(containers, "")
+    assert_eq(volumes, "")
+    assert_true(unchanged)
+    assert_true(
+      failures.is_empty(),
+      msg="runtime cleanup command failure; inspect evidence",
+    )
+  })
+}
+
+///|
+async fn main {
+  let mode = runtime_args(@env.args()[1:].to_owned())
+  match mode {
+    Full => run_audit(None)
+    OfflineGenerateConfigs(out) => {
+      runtime_generate_configs(out)
+      println("COPY CONFIG OFFLINE generated: filesystem only")
+    }
+    OfflineConfig(id, path, port) => {
+      runtime_verify_config_file(path, runtime_scenario(id), port)
+      println(
+        (
+          {
+            "scenario": id.to_json(),
+            "config_sha256": runtime_digest(@fs.read_file(path).binary()).to_json(),
+            "semantic_validation": true,
+            "containers": 0,
+            "network": 0,
+            "workers": 0,
+          } : Json).stringify(),
+      )
+    }
+    Runtime(path, seal, scenario, verify_only~) => {
+      assert_true(verify_only, msg="historical runtime-only execution is retired; use the portable full audit")
+      let runtime = load_runtime(path, seal, scenario)
+      if verify_only {
+        println("COPY RUNTIME verified: no compiler or scenario executed")
+      } else {
+        // Atomic host-wide exclusion. The external controller may release this
+        // only after independent cleanup, including result retrieval/removal.
+        // A crash leaves the lease in place; never automatically steal it.
+        let lease = "/tmp/mooncdc-copy-runtime-serial.lock"
+        acquire_runtime_lease(lease, runtime.run_id, runtime.scenario.id)
+        let remaining = runtime.started_ms + 720000L - @async.now()
+        assert_true(remaining > 0L)
+        @async.with_timeout(remaining.to_int(), () => run_audit(Some(runtime)))
+      }
+    }
+  }
+}
+
+///|
+async fn acquire_runtime_lease(
+  path : String,
+  run_id : String,
+  scenario : String,
+) -> Unit {
+  @fs.mkdir(path)
+  @fs.write_file(
+    path + "/owner.json",
+    ({ "run_id": run_id.to_json(), "scenario": scenario.to_json() } : Json).stringify(),
+  )
+}
+
+///|
+async test "runtime serial lease rejects another owner and retains the original" {
+  let root = @fs.tmpdir(prefix="mooncdc-serial-lease-test-")
+  defer @async.protect_from_cancel(() => @fs.rmdir(root, recursive=true))
+  let lease = root + "/lease"
+  acquire_runtime_lease(lease, "first", "pg17-yaml-merge_tree")
+  try acquire_runtime_lease(lease, "second", "pg18-yaml-merge_tree") catch {
+    _ => ()
+  } noraise {
+    _ => fail("concurrent owner accepted")
+  }
+  assert_eq(@json.parse(@fs.read_file(lease + "/owner.json").text()), {
+    "run_id": "first",
+    "scenario": "pg17-yaml-merge_tree",
+  })
+}
+
+///|
+async fn run_audit(runtime : CopyRuntime?) -> Unit {
+  let repo = runtime
+    .map(r => r.product_root)
+    .unwrap_or(@env.current_dir().unwrap())
+  let root = @fs.tmpdir(
+    prefix=if runtime is Some(_) {
+      "mooncdc-copy-runtime-"
+    } else {
+      "mooncdc-cli-active-promotion-"
+    },
+  )
+  if runtime is Some(_) {
+    @fs.chmod(root, 0o700)
+  }
+  let evidence = root + "/evidence"
+  let snapshot = root + "/source"
+  let lose_owner = runtime is None &&
+    @env.get_env_var("MOONCDC_ACTIVE_LOSE_STATE_OWNER") == Some("true")
+  let active_copy = runtime is Some(_) ||
+    @env.get_env_var("MOONCDC_ACTIVE_COPY") == Some("true")
+  assert_false(
+    active_copy && lose_owner,
+    msg="active COPY and owner-loss matrices are separate",
+  )
+  @fs.mkdir(evidence)
+  @fs.mkdir(snapshot)
+  let vars : Map[String, String] = if runtime is Some(r) {
+    let env : Map[String, String] = Map([])
+    for key in ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"] {
+      if @env.get_env_var(key) is Some(value) {
+        env[key] = value
+      }
+    }
+    env["LD_LIBRARY_PATH"] = r.loader
+    // Limit Go-based Docker/Compose clients to the runtime CPU budget.
+    // This controls execution parallelism, not their total OS thread count.
+    env["GOMAXPROCS"] = "4"
+    println("COPY RUNTIME ROOT: " + root)
+    env
+  } else {
+    @fs.write_file("/tmp/mooncdc-cli-active-promotion-root.txt", root)
+    if active_copy {
+      @fs.write_file("/tmp/mooncdc-cli-active-copy-promotion-root.txt", root)
+    }
+    @fs.write_file(
+      if lose_owner {
+        "/tmp/mooncdc-cli-active-promotion-owner-lost-root.txt"
+      } else {
+        "/tmp/mooncdc-cli-active-promotion-positive-root.txt"
+      },
+      root,
+    )
+    println("CLI ACTIVE PROMOTION ROOT: " + root)
+    let env = @env.get_env_vars()
+    for key in env.keys().to_array() {
+      if key.has_prefix("APP_") || key.has_prefix("MOONCDC_") {
+        env.remove(key)
+      }
+    }
+    env
+  }
+  vars["RUST_LOG"] = "error"
+  let commands : Array[Json] = []
+  let workers : Array[Json] = []
+  let pids : Array[String] = []
+  let run = async fn(
+    name : String,
+    program : String,
+    args : Array[String],
+    cwd : String,
+    extra : Map[String, String],
+  ) -> @shell.Output {
+    if runtime is Some(_) {
+      assert_true(
+        runtime_command_allowed(program) ||
+        program == snapshot + "/bin/replicator.exe",
+        msg="runtime mode refuses non-runtime command: " + program,
+      )
+      if program == "kill" {
+        assert_true(
+          args.length() == 2 && args[0] == "-TERM" && pids.contains(args[1]),
+        )
+      }
+      if program == "ps" {
+        assert_eq(args, ["-p", pids.join(","), "-o", "pid=,comm="])
+      }
+    }
+    let env = vars.copy()
+    for key, value in extra {
+      env[key] = value
+    }
+    let result = @shell.Cmd(program, args, cwd~, env~, inherit_env=false).output(
+      timeout_ms=runtime
+        .map(r => runtime_timeout(r, @async.now()))
+        .unwrap_or(180000),
+      max_output_bytes=20000000,
+    )
+    @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
+    @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
+    commands.push({
+      "name": name.to_json(),
+      "program": program.to_json(),
+      "args": args.to_json(),
+      "cwd": cwd.to_json(),
+      "env": extra.to_json(),
+      "exit_code": result.exit_code().to_json(),
+    })
+    @fs.write_file(
+      evidence + "/commands.json",
+      commands.to_json().stringify(indent=2),
+    )
+    result
+  }
+  defer @async.protect_from_cancel(() => {
+    if runtime is Some(r) {
+      r.cleaning = true
+    }
+    if !pids.is_empty() {
+      let stopped = run(
+        "workers-cleanup",
+        "ps",
+        ["-p", pids.join(","), "-o", "pid=,comm="],
+        repo,
+        Map([]),
+      )
+      assert_eq(stopped.exit_code(), 1)
+      assert_eq(stopped.stdout().trim(), "")
+    }
+  })
+  let mut paths : Array[String] = []
+  let executable = if runtime is Some(r) {
+    @fs.mkdir(snapshot + "/bin", permission=0o700)
+    @fs.mkdir(snapshot + "/integration")
+    @fs.write_file(
+      snapshot + "/bin/replicator.exe",
+      @fs.read_file(r.cli),
+      permission=0o700,
+      create_mode=CreateNew,
+    )
+    runtime_file_hash(snapshot + "/bin/replicator.exe", r.cli_hash, r.cli_size)
+    for file in ["standby.compose.yaml", "standby-pg_hba.conf"] {
+      let text = @fs.read_file(r.input_root + "/integration/" + file).text()
+      @fs.write_file(
+        snapshot + "/integration/" + file,
+        if file == "standby.compose.yaml" {
+          runtime_standby_compose(r.scenario.service, text)
+        } else {
+          text
+        },
+      )
+    }
+    runtime_preflight(r, evidence)
+    r.disk_roots = [root, r.input_root]
+    @fs.write_file(
+      evidence + "/runtime-scope.json",
+      (
+        {
+          "mode": "prebuilt-runtime-only",
+          "compilation_gates_executed": false,
+          "default_stack_compilation_closed": false,
+          "linux_e1_closed": false,
+          "package_budget_closed": false,
+          "runtime_scenarios_executed": 0,
+          "scenario": r.scenario.id.to_json(),
+          "cli_sha256": r.cli_hash.to_json(),
+          "proxy_version": "copy-cutover-client-eof-v1",
+        } : Json).stringify(indent=2),
+    )
+    snapshot + "/bin/replicator.exe"
+  } else {
+    run("source", "git", ["rev-parse", "HEAD", "HEAD^{tree}"], repo, Map([])).check()
+    run("initial-status", "git", ["status", "--porcelain=v1"], repo, Map([])).check()
+    run("tested-source", "git", ["diff", "--binary", "HEAD"], repo, Map([])).check()
+    run("toolchain", "moon", ["version", "--all"], repo, Map([])).check()
+    run("host", "uname", ["-a"], repo, Map([])).check()
+    run("docker", "docker", ["version"], repo, Map([])).check()
+    run(
+      "images",
+      "docker",
+      [
+        "image", "inspect", "postgres:17.11", "postgres:18.6", "clickhouse/clickhouse-server:26.4",
+        "--format", "{{.Id}} {{json .RepoDigests}}",
+      ],
+      repo,
+      Map([]),
+    ).check()
+    let tracked = @shell.Cmd(
+      "git",
+      [
+        "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".",
+        ":(exclude)docs/reports/evidence",
+      ],
+      cwd=repo,
+    ).output()
+    tracked.check()
+    paths = tracked
+      .stdout()
+      .split("\u0000")
+      .filter(p => !p.is_empty() && !p.has_prefix("docs/reports/evidence/"))
+      .map(p => p.to_owned())
+      .collect()
+    for path in paths {
+      let parts = path.split("/").collect()
+      if parts.length() > 1 {
+        @fs.mkdir(
+          snapshot + "/" + parts[:parts.length() - 1].join("/"),
+          recursive=true,
+          allow_exist=true,
+        )
+      }
+      @fs.write_file(snapshot + "/" + path, @fs.read_file(repo + "/" + path))
+    }
+    @shell.Cmd("cp", ["-R", repo + "/.mooncakes", snapshot + "/.mooncakes"]).run()
+    run("tracked-sha256", "shasum", ["-a", "256"] + paths, repo, Map([])).check()
+    for
+      (name, args) in [
+        ("check", ["check", "--target", "native", "--frozen", "--deny-warn"]),
+        ("ordinary", ["test", "--target", "native", "--frozen", "--deny-warn"]),
+        ("debug", ["build", "--target", "native", "--frozen"]),
+        ("release", ["build", "--target", "native", "--release", "--frozen"]),
+      ] {
+      run(name, "moon", args, snapshot, Map([])).check()
+      println("CLI ACTIVE PROMOTION CHECK: " + name + " passed")
+    }
+    snapshot + "/_build/native/debug/build/cmd/replicator/replicator.exe"
+  }
+  let services = if runtime is Some(r) {
+    [r.scenario.service]
+  } else {
+    match @env.get_env_var("MOONCDC_EXAMPLE_SERVICE") {
+      Some(s) => [s]
+      None => ["pg17", "pg18"]
+    }
+  }
+  let formats = if runtime is Some(r) {
+    [r.scenario.format]
+  } else {
+    match @env.get_env_var("MOONCDC_REPLICATOR_FORMAT") {
+      Some(s) => [s]
+      None => ["json", "yaml"]
+    }
+  }
+  let engines = if runtime is Some(r) {
+    [r.scenario.engine]
+  } else {
+    match @env.get_env_var("MOONCDC_CLICKHOUSE_ENGINE") {
+      Some(s) => [s]
+      None => ["replacing_merge_tree", "merge_tree"]
+    }
+  }
+  for service in services {
+    let image = if runtime is Some(r) {
+      runtime_image_gate(r.manifest)
+    } else {
+      match service {
+        "pg17" => "postgres:17.11"
+        "pg18" => "postgres:18.6"
+        _ => fail("expected pg17 or pg18")
+      }
+    }
+    for format in formats {
+      for engine in engines {
+        assert_true(format == "json" || format == "yaml")
+        assert_true(engine == "replacing_merge_tree" || engine == "merge_tree")
+        let name = service + "-" + format + "-" + engine
+        let dir = evidence + "/" + name
+        @fs.mkdir(dir)
+        let project = if runtime is Some(r) {
+          "mooncdccopy-" + r.run_id
+        } else {
+          root
+          .split("/")
+          .last()
+          .unwrap()
+          .to_owned()
+          .to_lower()
+          .replace_all(old=".", new="-") +
+          "-" +
+          name.replace_all(old="_", new="-")
+        }
+        if runtime is Some(r) {
+          r.project = project
+        }
+        let extra_compose = dir + "/clickhouse.compose.json"
+        let ch_fixture : Json = {
+          "services": {
+            "state": {
+              "image": image.to_json(),
+              "environment": {
+                "POSTGRES_USER": "cdc",
+                "POSTGRES_PASSWORD": "mooncdc-test-only",
+                "POSTGRES_DB": "postgres",
+                "PGDATA": "/var/lib/postgresql/data/pgdata",
+              },
+              "ports": [
+                { "host_ip": "127.0.0.1", "target": 5432, "published": "0" },
+              ],
+              "tmpfs": ["/var/lib/postgresql"],
+              "healthcheck": {
+                "test": [
+                  "CMD", "pg_isready", "-h", "127.0.0.1", "-U", "cdc", "-d", "postgres",
+                ],
+                "start_period": "30s",
+                "interval": "1s",
+                "timeout": "3s",
+                "retries": 30,
+              },
+            },
+            "clickhouse": {
+              "image": "clickhouse/clickhouse-server:26.4",
+              "environment": {
+                "CLICKHOUSE_USER": "cdc",
+                "CLICKHOUSE_PASSWORD": "mooncdc-test-only",
+                "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT": "1",
+              },
+              "ports": [
+                { "host_ip": "127.0.0.1", "target": 8123, "published": "0" },
+              ],
+              "tmpfs": ["/var/lib/clickhouse"],
+              "healthcheck": {
+                "test": [
+                  "CMD", "clickhouse-client", "--user", "cdc", "--password", "mooncdc-test-only",
+                  "--query", "SELECT 1",
+                ],
+                "start_period": "30s",
+                "interval": "1s",
+                "timeout": "5s",
+                "retries": 30,
+              },
+            },
+          },
+        }
+        if runtime is Some(r) {
+          guard ch_fixture is { "services": Object(services), .. } else {
+            fail("fixture services")
+          }
+          for service in ["primary", "standby", "state", "clickhouse"] {
+            let values : Map[String, Json] = match services.get(service) {
+              Some(Object(v)) => v
+              None => Map([])
+              _ => fail("fixture service object")
+            }
+            values["cgroup_parent"] = r.parent.to_json()
+            values["container_name"] = (r.project + "-" + service).to_json()
+            if service == "state" {
+              values["tmpfs"] = if r.scenario.service == "pg18" {
+                ["/var/lib/postgresql"]
+              } else {
+                ["/var/lib/postgresql/data"]
+              }
+            }
+            if service == "clickhouse" {
+              // 26.4.5.143 eagerly creates 512 scheduler workers by default,
+              // independently of CPU quota. Keep the runtime fixture within
+              // the prepared TasksMax=384 budget without disabling background work.
+              values["command"] = ["--", "--background_schedule_pool_size=8"]
+            }
+            values["logging"] = {
+              "driver": "json-file",
+              "options": { "max-size": "1m", "max-file": "1" },
+            }
+            services[service] = Json::object(values)
+          }
+        }
+        @fs.write_file(extra_compose, ch_fixture.stringify(indent=2))
+        let prefix = [
+          "compose",
+          "-p",
+          project,
+          "-f",
+          snapshot + "/integration/standby.compose.yaml",
+          "-f",
+          extra_compose,
+        ]
+        let fixture_env = {
+          "MOONCDC_STANDBY_IMAGE": image,
+          "MOONCDC_SYNC_SLOT": "mooncdc_physical",
+          "MOONCDC_SLOT_SYNC": "on",
+        }
+        let compose = async fn(stage : String, args : Array[String]) -> String {
+          let result = run(
+            name + "-" + stage,
+            "docker",
+            prefix + args,
+            snapshot,
+            fixture_env,
+          )
+          result.check()
+          if runtime is Some(r) &&
+            (
+              stage.has_suffix("-up") ||
+              stage == "basebackup" ||
+              stage == "fixture-down"
+            ) {
+            runtime_disk(r, evidence)
+          }
+          result.stdout().trim().to_owned()
+        }
+        defer @async.protect_from_cancel(() => {
+          if runtime is Some(r) {
+            let env = vars.copy()
+            for key, value in fixture_env {
+              env[key] = value
+            }
+            runtime_cleanup(r, root, evidence, prefix, snapshot, env)
+          } else {
+            ignore(compose("fixture-logs", ["logs", "--no-color"]))
+            ignore(
+              compose("fixture-down", ["down", "--volumes", "--remove-orphans"]),
+            )
+            for
+              (kind, args) in [
+                (
+                  "containers",
+                  [
+                    "ps",
+                    "-a",
+                    "--filter",
+                    "label=com.docker.compose.project=" + project,
+                    "--format",
+                    "{{.ID}} {{.Names}}",
+                  ],
+                ),
+                (
+                  "volumes",
+                  [
+                    "volume",
+                    "ls",
+                    "--filter",
+                    "label=com.docker.compose.project=" + project,
+                    "--format",
+                    "{{.Name}}",
+                  ],
+                ),
+              ] {
+              let result = run(
+                name + "-cleanup-" + kind,
+                "docker",
+                args,
+                repo,
+                Map([]),
+              )
+              result.check()
+              assert_eq(result.stdout().trim(), "")
+            }
+          }
+        })
+        ignore(
+          compose("primary-up", [
+            "up", "-d", "--wait", "--pull", "never", "primary", "clickhouse", "state",
+          ]),
+        )
+        ignore(
+          compose(
+            "basebackup",
+            audit_basebackup_options(runtime, project) +
+            [
+              "--no-deps", "--pull", "never", "--entrypoint", "pg_basebackup", "standby",
+              "--dbname=host=primary user=cdc password=mooncdc-test-only dbname=postgres",
+              "-D", "/var/lib/postgresql/data/pgdata", "-R", "-X", "stream", "--checkpoint=fast",
+              "-C", "-S", "mooncdc_physical",
+            ],
+          ),
+        )
+        ignore(
+          compose("standby-up", [
+            "up", "-d", "--wait", "--pull", "never", "standby",
+          ]),
+        )
+        let port = @string.parse_int(
+          compose("primary-port", ["port", "primary", "5432"])
+          .split(":")
+          .last()
+          .unwrap(),
+        )
+        let standby_port = @string.parse_int(
+          compose("standby-port", ["port", "standby", "5432"])
+          .split(":")
+          .last()
+          .unwrap(),
+        )
+        let state_port = @string.parse_int(
+          compose("state-port", ["port", "state", "5432"])
+          .split(":")
+          .last()
+          .unwrap(),
+        )
+        let ch_port = @string.parse_int(
+          compose("clickhouse-port", ["port", "clickhouse", "8123"])
+          .split(":")
+          .last()
+          .unwrap(),
+        )
+        let mut query_index = 0
+        let sql = async fn(server : String, query : String) -> String {
+          query_index += 1
+          @async.with_timeout(10000, () => {
+            compose("sql-" + query_index.to_string(), [
+              "exec", "-T", server, "psql", "-U", "cdc", "-d", "postgres", "-v",
+              "ON_ERROR_STOP=1", "-Atc", query,
+            ])
+          })
+        }
+        let ch = async fn(query : String) -> String {
+          query_index += 1
+          @async.with_timeout(10000, () => {
+            compose("ch-" + query_index.to_string(), [
+              "exec", "-T", "clickhouse", "clickhouse-client", "--user", "cdc", "--password",
+              "mooncdc-test-only", "--query", query,
+            ])
+          })
+        }
+        ignore(
+          sql(
+            "primary", "CREATE SCHEMA cli_promotion; CREATE TABLE cli_promotion.a(id integer PRIMARY KEY,value text); CREATE TABLE cli_promotion.b(id integer PRIMARY KEY,value text); INSERT INTO cli_promotion.a SELECT i,CASE WHEN i%2=0 THEN NULL ELSE '中文-'||i::text END FROM generate_series(1,64) i; INSERT INTO cli_promotion.b SELECT * FROM cli_promotion.a; CREATE PUBLICATION cli_promotion FOR TABLE cli_promotion.a,cli_promotion.b",
+          ),
+        )
+        ignore(sql("state", "CREATE SCHEMA cli_promotion_state"))
+        ignore(ch("CREATE DATABASE cli_promotion"))
+        let a_oid = @json.parse(
+          sql("primary", "SELECT 'cli_promotion.a'::regclass::oid::text"),
+        )
+        let b_oid = @json.parse(
+          sql("primary", "SELECT 'cli_promotion.b'::regclass::oid::text"),
+        )
+        let proxy = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+        defer proxy.close()
+        let listener = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+        let metrics_port = listener.addr.port()
+        listener.close()
+        let mut upstream = port
+        let mut active_connections = 0
+        let mut copy_gate = false
+        let mut copy_release = false
+        let mut copy_preflight_observed = false
+        let mut main_identify_held = false
+        let config = audit_configuration(
+          proxy.addr.port(),
+          state_port,
+          ch_port,
+          metrics_port,
+          engine,
+          active_copy,
+        )
+        if runtime is Some(_) {
+          runtime_metrics_config(config, metrics_port)
+        }
+        let config_path = dir + "/config." + format
+        @fs.write_file(config_path, audit_config_text(config, format))
+        let record = async fn(_server : String, kind : String) -> String {
+          sql(
+            "state",
+            "SELECT convert_from(decode(content,'base64'),'UTF8') FROM cli_promotion_state.mooncdc_state WHERE namespace='cli-promotion/state' AND record='\{kind}'",
+          )
+        }
+        let record_json = fn(raw : String) -> Json raise {
+          @json.parse(raw[65:].to_owned())
+        }
+        let ready = fn(raw : String) -> Bool raise {
+          guard record_json(raw) is { "tables": Array(tables), .. } else {
+            return false
+          }
+          tables.length() == 2 &&
+          (if active_copy && !copy_release {
+            copy_gate &&
+            tables.any(table => {
+              table is { "oid": oid, "phase": ["Ready", String(_)], .. } &&
+              oid == a_oid
+            }) &&
+            tables.any(table => {
+              table is { "oid": oid, "phase": "Copying", .. } && oid == b_oid
+            })
+          } else {
+            tables.all(table => table is { "phase": ["Ready", String(_)], .. })
+          })
+        }
+        let caught_up = fn(raw : String) -> Bool raise {
+          guard record_json(raw) is { "tables": Array(tables), .. } else {
+            return false
+          }
+          tables.length() == 2 &&
+          (if active_copy && !copy_release {
+            copy_gate &&
+            tables.any(table => {
+              table
+              is { "oid": oid, "phase": ["Ready" | "Catchup", String(_)], .. } &&
+              oid == a_oid
+            }) &&
+            tables.any(table => {
+              table is { "oid": oid, "phase": "Copying", .. } && oid == b_oid
+            })
+          } else {
+            tables.all(table => {
+              table is { "phase": ["Ready", String(_)], .. } ||
+              table is { "phase": ["Catchup", String(_)], .. }
+            })
+          })
+        }
+        let matches = async fn(server : String, label : String) -> Bool {
+          let mut same = true
+          for table in ["a", "b"] {
+            if active_copy && !copy_release && label == "active" && table == "b" {
+              assert_eq(
+                ch("SELECT count() FROM cli_promotion.cli__promotion_b"),
+                "8",
+              )
+              continue
+            }
+            let expected = sql(
+              server,
+              "SELECT json_build_object('id',id,'value',value)::text FROM cli_promotion.\{table} ORDER BY id",
+            )
+            let query = if engine == "replacing_merge_tree" {
+              "SELECT id,value FROM cli_promotion.cli__promotion_\{table}__current ORDER BY id FORMAT JSONEachRow"
+            } else {
+              "SELECT id,tupleElement(last,1) AS value FROM(SELECT id,argMax(tuple(value,cdc_operation),tuple(cdc_lsn,cdc_tx_ordinal)) AS last FROM cli_promotion.cli__promotion_\{table} GROUP BY id) WHERE tupleElement(last,2)!='DELETE' ORDER BY id FORMAT JSONEachRow"
+            }
+            let actual = ch(query) catch { _ => return false }
+            @fs.write_file(
+              dir + "/" + label + "-" + table + ".source.jsonl",
+              expected,
+            )
+            @fs.write_file(
+              dir + "/" + label + "-" + table + ".target.jsonl",
+              actual,
+            )
+            if audit_rows(expected) != audit_rows(actual) {
+              same = false
+            }
+          }
+          same
+        }
+        let uuids = async fn() -> String {
+          ch(
+            "SELECT name,toString(uuid) FROM system.tables WHERE database='cli_promotion' AND name IN('cli__promotion_a','cli__promotion_b') ORDER BY name",
+          )
+        }
+        @async.with_task_group(proxy_group => {
+          proxy_group.spawn_bg(() => {
+            proxy.run_forever(
+              (client, _) => {
+                defer client.close()
+                // Keep the next old-state COPY preflight pending while the
+                // fixture fences primary. Dial only after cutover, so a slow
+                // shutdown cannot consume the product's finite table retries.
+                let startup_frame = if active_copy {
+                  let header = client.read_exactly(4)
+                  let body = client.read_exactly(
+                    audit_packet_length(header) - 4,
+                  )
+                  if audit_hold_copy_preflight(
+                      @utf8.decode_lossy(body),
+                      copy_gate,
+                      copy_release,
+                    ) {
+                    @fs.write_file(
+                      dir + "/copy-preflight-cutover-held.json",
+                      (
+                        {
+                          "before_upstream_connect": true,
+                          "reason": "preserve old-state COPY retry until fixture cutover",
+                        } : Json).stringify(indent=2),
+                    )
+                    audit_wait_copy_cutover(() => copy_release)
+                    @fs.write_file(
+                      dir + "/copy-preflight-cutover-released.json",
+                      (
+                        {
+                          "endpoint": "promoted standby",
+                          "before_upstream_connect": true,
+                        } : Json).stringify(indent=2),
+                    )
+                  }
+                  Some((header, body))
+                } else {
+                  None
+                }
+                let connection_port = upstream
+                let remote = @socket.Tcp::connect_to_host(
+                  "127.0.0.1",
+                  port=connection_port,
+                )
+                defer remote.close()
+                active_connections += 1
+                defer {
+                  active_connections -= 1
+                }
+                let forward = async fn(
+                  input : @socket.Tcp,
+                  output : @socket.Tcp,
+                ) -> Unit {
+                  while input.read_some(max_len=65536) is Some(data) {
+                    output.write(data)
+                  }
+                }
+                let forward_frontend = async fn() -> Unit {
+                  guard startup_frame is Some((startup, startup_body)) else {
+                    forward(client, remote)
+                    return
+                  }
+                  let startup_text = @utf8.decode_lossy(startup_body)
+                  let main_worker = startup_text.contains(
+                    "mooncdc_replication:apply:",
+                  )
+                  let copy_preflight = startup_text.contains(
+                    "mooncdc_replication:table_sync:",
+                  )
+                  let mut preflight_identified = false
+                  let mut preflight_queries = 0
+                  let mut preflight_client_closed = false
+                  defer @async.protect_from_cancel(() => {
+                    if preflight_identified && !copy_preflight_observed {
+                      // Cancellation or backend EOF alone does not prove that
+                      // the product closed its preflight before a slot query.
+                      if !audit_preflight_completed(
+                          preflight_identified, preflight_queries, preflight_client_closed,
+                        ) {
+                        @fs.write_file(
+                          dir + "/copy-preflight-incomplete.json",
+                          (
+                            {
+                              "queries": preflight_queries.to_json(),
+                              "client_eof_observed": preflight_client_closed.to_json(),
+                              "main_gate_released": false,
+                            } : Json).stringify(indent=2),
+                        )
+                        return
+                      }
+                      copy_preflight_observed = true
+                      @fs.write_file(
+                        dir + "/copy-preflight-first.json",
+                        (
+                          {
+                            "endpoint": "promoted standby",
+                            "query": "IDENTIFY_SYSTEM",
+                            "queries": preflight_queries.to_json(),
+                            "client_closed_before_slot_query": true,
+                            "main_identify_held": main_identify_held.to_json(),
+                          } : Json).stringify(indent=2),
+                      )
+                    }
+                  })
+                  remote.write(startup)
+                  remote.write(startup_body)
+                  let mut b_reader = false
+                  let mut fetches = 0
+                  while client.read_some(max_len=1) is Some(tag) {
+                    let header = client.read_exactly(4)
+                    let body = client.read_exactly(
+                      audit_packet_length(header) - 4,
+                    )
+                    if tag[0] == b'Q' {
+                      let query = @utf8.decode_lossy(body)
+                      if connection_port == standby_port && copy_release {
+                        if main_worker &&
+                          query.has_prefix("IDENTIFY_SYSTEM") &&
+                          !copy_preflight_observed {
+                          main_identify_held = true
+                          @fs.write_file(
+                            dir + "/main-identify-held.json",
+                            (
+                              {
+                                "reason": "force old-state COPY preflight to observe promoted timeline first",
+                                "before_forward": true,
+                              } : Json).stringify(indent=2),
+                          )
+                          while !copy_preflight_observed {
+                            @async.sleep(5)
+                          }
+                        }
+                        if copy_preflight && !copy_preflight_observed {
+                          preflight_queries += 1
+                          if query.has_prefix("IDENTIFY_SYSTEM") {
+                            preflight_identified = true
+                          }
+                        }
+                      }
+                      if query.has_prefix("DECLARE ") &&
+                        query.contains("\"cli_promotion\".\"b\"") {
+                        b_reader = true
+                      }
+                      if b_reader && query.has_prefix("FETCH ") {
+                        fetches += 1
+                        if fetches == 2 && !copy_gate && !copy_release {
+                          copy_gate = true
+                          @fs.write_file(
+                            dir + "/copy-fetch-gate.json",
+                            (
+                              {
+                                "table": "b",
+                                "fetch": fetches.to_json(),
+                                "query": query.to_json(),
+                                "before_forward": true,
+                              } : Json).stringify(indent=2),
+                          )
+                          while !copy_release {
+                            @async.sleep(5)
+                          }
+                        }
+                      }
+                    }
+                    remote.write(tag)
+                    remote.write(header)
+                    remote.write(body)
+                  }
+                  preflight_client_closed = true
+                }
+                ignore(
+                  @async.any(
+                    [forward_frontend, () => forward(remote, client)],
+                    allow_failure=false,
+                  ),
+                )
+              },
+              allow_failure=true,
+            )
+          })
+          if runtime is Some(_) {
+            runtime_verify_config_file(
+              config_path,
+              runtime_scenario(name),
+              metrics_port,
+            )
+          }
+          run(
+            name + "-offline",
+            executable,
+            ["--config", config_path, "--check"],
+            snapshot,
+            Map([]),
+          ).check()
+          let run_cli = async fn(phase : String, server : String) -> String {
+            let mut current_server = server
+            let output = @process.redirect_to_file(dir + "/" + phase + ".log")
+            defer output.close()
+            if runtime is Some(r) {
+              if phase == "active" {
+                assert_true(@async.now() - r.started_ms <= 360000L)
+              }
+              runtime_file_hash(executable, r.cli_hash, r.cli_size)
+              runtime_disk(r, evidence)
+            }
+            @async.with_timeout(180000, () => {
+              @async.with_task_group(group => {
+                let child = @process.spawn(
+                  group,
+                  executable,
+                  ["--config", config_path],
+                  stdout=output,
+                  stderr=output,
+                  extra_env=vars,
+                  inherit_env=false,
+                  cancel_handler=@process.hard_cancel(),
+                )
+                let pid = child.pid.to_string()
+                pids.push(pid)
+                @fs.write_file(
+                  dir + "/" + phase + ".worker.json",
+                  {
+                    "pid": pid.to_json(),
+                    "executable": executable.to_json(),
+                    "args": ["--config", config_path].to_json(),
+                    "expected_exit": (if phase == "active" && lose_owner {
+                      1
+                    } else {
+                      0
+                    }).to_json(),
+                    "upstream_port": upstream.to_json(),
+                  }
+                  .to_json()
+                  .stringify(indent=2),
+                )
+                let mut initial_commit = false
+                let mut synchronized_slot = false
+                let mut polls = 0
+                while true {
+                  if child.try_wait() is Some(code) {
+                    fail(
+                      "CLI exited before ready: " +
+                      code.to_string() +
+                      " " +
+                      @fs.read_file(dir + "/" + phase + ".log").text(),
+                    )
+                  }
+                  let current = record(server, "pipeline") catch { _ => "" }
+                  polls += 1
+                  if runtime is Some(r) && polls % 5 == 0 {
+                    runtime_disk(r, evidence)
+                  }
+                  if polls <= 600 && polls % 5 == 0 {
+                    @async.with_timeout(1000, () => {
+                      let (response, body) = @http.get(
+                        "http://127.0.0.1:\{metrics_port}/metrics",
+                      )
+                      @fs.write_file(
+                        dir +
+                        "/" +
+                        phase +
+                        "-waiting-" +
+                        polls.to_string() +
+                        ".metrics",
+                        body.text(),
+                      )
+                      assert_eq(response.code, 200)
+                    }) catch {
+                      _ => ()
+                    }
+                  }
+                  if phase == "active" &&
+                    !initial_commit &&
+                    current.length() >= 66 &&
+                    caught_up(current) {
+                    // A real published Commit lets main WAL cross both private COPY
+                    // cutoffs. This fixture has otherwise produced no published WAL.
+                    ignore(
+                      sql(
+                        current_server, "UPDATE cli_promotion.a SET value=value WHERE id=1",
+                      ),
+                    )
+                    initial_commit = true
+                  }
+                  if current.length() >= 66 &&
+                    ready(current) &&
+                    matches(current_server, phase) {
+                    if phase == "active" {
+                      guard record_json(current)
+                        is { "source": { "slot": String(slot), .. }, .. } else {
+                        fail("main slot required")
+                      }
+                      guard record_json(record(server, "checkpoint"))
+                        is { "lsn": String(position), .. } else {
+                        fail("main checkpoint required")
+                      }
+                      let copied = sql(
+                        "standby",
+                        "SELECT failover::text||','||synced::text||','||temporary::text||','||COALESCE(invalidation_reason,'')||','||confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name='\{slot}'",
+                      )
+                      @fs.write_file(dir + "/prepare-slot-sync.txt", copied)
+                      @fs.write_file(
+                        dir + "/prepare-primary-slot.txt",
+                        sql(
+                          server,
+                          "SELECT restart_lsn::text,confirmed_flush_lsn::text,catalog_xmin::text FROM pg_replication_slots WHERE slot_name='\{slot}'",
+                        ),
+                      )
+                      if copied == "true,true,false,," + position {
+                        break
+                      }
+                      if copied.has_prefix("true,true,false,,") {
+                        synchronized_slot = true
+                      }
+                      if !synchronized_slot {
+                        // Keep decoding alive until PostgreSQL advances the slot's
+                        // catalog xmin enough to make the standby slot persistent.
+                        ignore(
+                          sql(
+                            current_server, "UPDATE cli_promotion.a SET value=value WHERE id=1; SELECT pg_log_standby_snapshot()",
+                          ),
+                        )
+                      }
+                    } else {
+                      break
+                    }
+                  }
+                  @async.sleep(100)
+                }
+                if phase == "active" {
+                  let before = record("state", "pipeline")
+                  let old_cp = record("state", "checkpoint")
+                  guard record_json(before)
+                    is {
+                      "source": {
+                        "timeline": String(old_timeline),
+                        "slot": String(slot),
+                        ..
+                      },
+                      ..
+                    } else {
+                    fail("old source required")
+                  }
+                  guard record_json(old_cp)
+                    is { "lsn": String(old_position), .. } else {
+                    fail("old checkpoint required")
+                  }
+                  let old_uuids = uuids()
+                  @fs.write_file(dir + "/before.uuids", old_uuids)
+                  @fs.write_file(dir + "/before.state.raw.txt", before)
+                  @fs.write_file(dir + "/before.checkpoint.raw.txt", old_cp)
+                  let (_, initial_body) = @http.get(
+                    "http://127.0.0.1:\{metrics_port}/metrics",
+                  )
+                  let initial_metrics = initial_body.text()
+                  assert_eq(
+                    audit_metric(
+                      initial_metrics, "mooncdc_copy_rows_completed_total",
+                    ),
+                    if active_copy {
+                      64UL
+                    } else {
+                      128UL
+                    },
+                  )
+                  if active_copy {
+                    assert_true(copy_gate && !copy_release)
+                    assert_eq(
+                      audit_metric(
+                        initial_metrics, "mooncdc_copy_rows_written_total",
+                      ),
+                      72UL,
+                    )
+                    @fs.write_file(
+                      dir + "/before-partial-copy.json",
+                      (
+                        {
+                          "completed_a": 64,
+                          "partial_b": 8,
+                          "b_phase": "Copying",
+                          "blocked_second_fetch": true,
+                        } : Json).stringify(indent=2),
+                    )
+                  }
+                  @fs.write_file(dir + "/before.metrics", initial_metrics)
+                  let owners = sql(
+                    "state", "SELECT pid,application_name FROM pg_stat_activity WHERE application_name LIKE 'mooncdc%' ORDER BY pid",
+                  )
+                  assert_false(owners.is_empty())
+                  @fs.write_file(dir + "/before-state-owners.txt", owners)
+                  if lose_owner {
+                    ignore(
+                      sql(
+                        "state", "SELECT pg_terminate_backend(pid)::text FROM pg_stat_activity WHERE application_name LIKE 'mooncdc%'",
+                      ),
+                    )
+                  }
+                  ignore(
+                    compose("fence-primary", [
+                      "stop", "--timeout", "30", "primary",
+                    ]),
+                  )
+                  assert_eq(
+                    sql("standby", "SELECT pg_promote(true,30)::text"),
+                    "true",
+                  )
+                  assert_eq(
+                    sql("standby", "SELECT pg_is_in_recovery()::text"),
+                    "false",
+                  )
+                  upstream = standby_port
+                  current_server = "standby"
+                  copy_release = true
+                  ignore(
+                    sql(
+                      "standby", "BEGIN; UPDATE cli_promotion.a SET value='promoted' WHERE id=1; DELETE FROM cli_promotion.a WHERE id=2; INSERT INTO cli_promotion.a VALUES(99,'promoted'); UPDATE cli_promotion.b SET value=NULL WHERE id=1; DELETE FROM cli_promotion.b WHERE id=2; INSERT INTO cli_promotion.b VALUES(99,'中文'); COMMIT",
+                    ),
+                  )
+                  if lose_owner {
+                    let code = child.wait()
+                    workers.push({
+                      "scenario": name.to_json(),
+                      "phase": phase.to_json(),
+                      "pid": pid.to_json(),
+                      "exit_code": code.to_json(),
+                    })
+                    @fs.write_file(
+                      evidence + "/workers.json",
+                      workers.to_json().stringify(indent=2),
+                    )
+                    assert_eq(
+                      code,
+                      1,
+                      msg=@fs.read_file(dir + "/active.log").text(),
+                    )
+                    assert_eq(record("state", "pipeline"), before)
+                    assert_eq(record("state", "checkpoint"), old_cp)
+                    assert_eq(uuids(), old_uuids)
+                    assert_false(matches("standby", "owner-lost"))
+                    for table in ["a", "b"] {
+                      assert_eq(
+                        @fs.read_file(
+                          dir + "/owner-lost-" + table + ".target.jsonl",
+                        ).binary(),
+                        @fs.read_file(
+                          dir + "/active-" + table + ".target.jsonl",
+                        ).binary(),
+                      )
+                    }
+                    @fs.write_file(dir + "/after.uuids", uuids())
+                    return
+                  }
+                  let mut recovery_commit = false
+                  while true {
+                    if runtime is Some(r) {
+                      runtime_disk(r, evidence)
+                    }
+                    if child.try_wait() is Some(code) {
+                      fail(
+                        "active CLI exited during promotion: " +
+                        code.to_string() +
+                        " " +
+                        @fs.read_file(dir + "/active.log").text(),
+                      )
+                    }
+                    let after = record("state", "pipeline")
+                    if active_copy &&
+                      !recovery_commit &&
+                      caught_up(after) &&
+                      record_json(after)
+                      is { "source": { "timeline": String(timeline), .. }, .. } &&
+                      timeline != old_timeline {
+                      // The new snapshot cutoff can be after the first promoted
+                      // transaction. A later real Commit advances main apply
+                      // across that cutoff; keepalives alone cannot confirm it.
+                      ignore(
+                        sql(
+                          "standby", "UPDATE cli_promotion.a SET value=value WHERE id=1",
+                        ),
+                      )
+                      recovery_commit = true
+                      @fs.write_file(
+                        dir + "/recovery-cutoff-commit.json",
+                        (
+                          {
+                            "timeline": timeline.to_json(),
+                            "observed_tables": record_json(after),
+                            "action": "published no-op UPDATE after both tables Ready/Catchup",
+                            "feedback": "Commit only; no synthetic acknowledgement",
+                          } : Json).stringify(indent=2),
+                      )
+                    }
+                    if ready(after) &&
+                      record_json(after)
+                      is {
+                        "source": {
+                          "timeline": String(new_timeline),
+                          "slot": String(new_slot),
+                          ..
+                        },
+                        ..
+                      } &&
+                      new_timeline != old_timeline &&
+                      matches("standby", "promote") {
+                      assert_true(
+                        @string.parse_uint(new_timeline) >
+                        @string.parse_uint(old_timeline),
+                      )
+                      assert_eq(new_slot, slot)
+                      guard record_json(record("state", "checkpoint"))
+                        is {
+                          "source": { "timeline": String(cp_timeline), .. },
+                          "lsn": String(new_position),
+                          ..
+                        } else {
+                        fail("new checkpoint binding required")
+                      }
+                      if cp_timeline == new_timeline &&
+                        audit_lsn(new_position) > audit_lsn(old_position) {
+                        break
+                      }
+                    }
+                    @async.sleep(100)
+                  }
+                  if active_copy {
+                    assert_true(
+                      copy_preflight_observed,
+                      msg="COPY preflight must trigger promotion before main IDENTIFY",
+                    )
+                    let old_ids = old_uuids.split("\n").collect()
+                    let new_ids = uuids().split("\n").collect()
+                    assert_eq(old_ids.length(), 2)
+                    assert_eq(new_ids.length(), 2)
+                    assert_eq(new_ids[0], old_ids[0])
+                    assert_true(
+                      new_ids[1] != old_ids[1],
+                      msg="partial B must reset its physical table",
+                    )
+                  } else {
+                    assert_eq(uuids(), old_uuids)
+                  }
+                  let recovered_uuids = uuids()
+                  assert_eq(child.try_wait(), None)
+                  let after_owners = sql(
+                    "state", "SELECT pid,application_name FROM pg_stat_activity WHERE application_name LIKE 'mooncdc%' ORDER BY pid",
+                  )
+                  assert_eq(after_owners, owners)
+                  @fs.write_file(dir + "/after-state-owners.txt", after_owners)
+                  @fs.write_file(
+                    dir + "/active-still-running.json",
+                    (
+                      {
+                        "pid": pid.to_json(),
+                        "old_timeline": old_timeline.to_json(),
+                        "exit_code": Json::null(),
+                        "state_owner": "independent PostgreSQL connection; same scope throughout cutover",
+                      } : Json).stringify(indent=2),
+                  )
+                  ignore(
+                    sql(
+                      "standby", "BEGIN; UPDATE cli_promotion.a SET value='same-process' WHERE id=1; INSERT INTO cli_promotion.a VALUES(199,'same-process'); INSERT INTO cli_promotion.b VALUES(199,NULL); COMMIT",
+                    ),
+                  )
+                  while !matches("standby", "same-process") {
+                    if child.try_wait() is Some(_) {
+                      fail("active CLI exited before next transaction")
+                    }
+                    @async.sleep(100)
+                  }
+                  @fs.write_file(dir + "/after.uuids", uuids())
+                  assert_eq(uuids(), recovered_uuids)
+                }
+                let (response, body) = @http.get(
+                  "http://127.0.0.1:\{metrics_port}/metrics",
+                )
+                assert_eq(response.code, 200)
+                let metrics = body.text()
+                @fs.write_file(dir + "/" + phase + ".metrics", metrics)
+                assert_true(
+                  metrics.contains(
+                    "pipeline_id=\"cli-promotion\",destination=\"clickhouse\"",
+                  ),
+                )
+                if phase != "active" {
+                  for line in metrics.split("\n") {
+                    if line.has_prefix("mooncdc_copy_rows_completed_total{") {
+                      assert_eq(
+                        @string.parse_uint64(line.split(" ").last().unwrap()),
+                        0UL,
+                      )
+                    }
+                  }
+                } else {
+                  assert_eq(
+                    audit_metric(metrics, "mooncdc_copy_rows_completed_total"),
+                    128UL,
+                  )
+                  assert_eq(
+                    audit_metric(
+                      metrics, "mooncdc_timeline_recovery_attempts_total",
+                    ),
+                    1UL,
+                  )
+                  if active_copy {
+                    assert_eq(
+                      audit_metric(metrics, "mooncdc_copy_rows_written_total"),
+                      136UL,
+                    )
+                    @fs.write_file(
+                      dir + "/after-copy-recovery.json",
+                      (
+                        {
+                          "completed_rows": 128,
+                          "written_rows": 136,
+                          "a_preserved": true,
+                          "b_resnapshotted": true,
+                        } : Json).stringify(indent=2),
+                    )
+                  }
+                }
+                run(
+                  name + "-" + phase + "-signal",
+                  "kill",
+                  ["-TERM", pid],
+                  repo,
+                  Map([]),
+                ).check()
+                let code = child.wait()
+                workers.push({
+                  "scenario": name.to_json(),
+                  "phase": phase.to_json(),
+                  "pid": pid.to_json(),
+                  "exit_code": code.to_json(),
+                })
+                @fs.write_file(
+                  evidence + "/workers.json",
+                  workers.to_json().stringify(indent=2),
+                )
+                assert_eq(
+                  code,
+                  0,
+                  msg=@fs.read_file(dir + "/" + phase + ".log").text(),
+                )
+              })
+            })
+            @async.with_timeout(5000, () => {
+              while active_connections != 0 {
+                @async.sleep(10)
+              }
+            })
+            let state = record(server, "pipeline")
+            @fs.write_file(dir + "/" + phase + ".state.raw.txt", state)
+            @fs.write_file(
+              dir + "/" + phase + ".checkpoint.raw.txt",
+              record(server, "checkpoint"),
+            )
+            assert_true(ready(state))
+            if !lose_owner || phase != "active" {
+              assert_true(matches(current_server, phase + "-stopped"))
+            }
+            println(
+              "CLI ACTIVE PROMOTION CHILD: " + name + " " + phase + " passed",
+            )
+            state
+          }
+          let after = run_cli("active", "primary")
+          guard record_json(after)
+            is { "source": { "slot": String(slot), .. }, .. } else {
+            fail("slot required")
+          }
+          ignore(
+            sql(
+              "standby", "BEGIN; UPDATE cli_promotion.a SET value='restart' WHERE id=1; INSERT INTO cli_promotion.a VALUES(299,'restart'); INSERT INTO cli_promotion.b VALUES(299,NULL); COMMIT",
+            ),
+          )
+          ignore(run_cli("restart", "standby"))
+          assert_eq(
+            @fs.read_file(
+              dir + (if active_copy { "/after.uuids" } else { "/before.uuids" }),
+            ).text(),
+            uuids(),
+          )
+          ignore(
+            sql(
+              "standby",
+              "SELECT pg_drop_replication_slot('\{slot}'); DROP PUBLICATION cli_promotion; DROP SCHEMA cli_promotion CASCADE",
+            ),
+          )
+          assert_eq(
+            sql(
+              "standby", "SELECT count(*) FROM pg_replication_slots WHERE slot_type='logical'",
+            ),
+            "0",
+          )
+          assert_eq(
+            sql(
+              "standby", "SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'mooncdc%'",
+            ),
+            "0",
+          )
+          assert_eq(
+            sql(
+              "state", "SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'mooncdc%'",
+            ),
+            "0",
+          )
+          ignore(sql("state", "DROP SCHEMA cli_promotion_state CASCADE"))
+          ignore(ch("DROP DATABASE cli_promotion"))
+          proxy_group.return_immediately(())
+        })
+        println("CLI ACTIVE PROMOTION SCENARIO: " + name + " passed")
+      }
+    }
+  }
+  if runtime is Some(r) {
+    verify_runtime_inputs(r)
+    runtime_file_hash(executable, r.cli_hash, r.cli_size)
+    assert_eq(workers.length(), 2)
+    runtime_disk(r, evidence)
+    @fs.write_file(
+      evidence + "/runtime-result.json",
+      (
+        {
+          "mode": "prebuilt-runtime-only",
+          "runtime_scenarios_executed": 1,
+          "scenario": r.scenario.id.to_json(),
+          "worker_results": workers.to_json(),
+          "source_unchanged": true,
+          "compilation_gates_executed": false,
+          "check_build_debug_release_ordinary_not_run": true,
+          "default_stack_compilation_closed": false,
+          "full_linux_acceptance_closed": false,
+          "linux_e1_closed": false,
+          "package_budget_closed": false,
+          "disk_peak_observed_kib": r.disk_peak_kib.to_json(),
+        } : Json).stringify(indent=2),
+    )
+  } else {
+    for path in paths {
+      if @fs.read_file(repo + "/" + path).binary() !=
+        @fs.read_file(snapshot + "/" + path).binary() {
+        fail("tested source changed: " + path)
+      }
+    }
+    run("final-tracked-sha256", "shasum", ["-a", "256"] + paths, repo, Map([])).check()
+  }
+  let summary : Json = {
+    "workers": workers.length().to_json(),
+    "positive_workers": (if lose_owner {
+      workers.length() / 2
+    } else {
+      workers.length()
+    }).to_json(),
+    "expected_failures": (if lose_owner { workers.length() / 2 } else { 0 }).to_json(),
+    "state_owner_lost": lose_owner.to_json(),
+    "active_copy": active_copy.to_json(),
+    "scenarios": (workers.length() / 2).to_json(),
+    "source_unchanged": true,
+    "cleanup": true,
+  }
+  if runtime is Some(_) {
+    guard summary is Object(fields) else { fail("summary") }
+    fields["mode"] = "prebuilt-runtime-only".to_json()
+    fields["compilation_gates_executed"] = false.to_json()
+    fields["check_build_debug_release_ordinary_not_run"] = true.to_json()
+    fields["default_stack_compilation_closed"] = false.to_json()
+    fields["linux_e1_closed"] = false.to_json()
+    fields["full_linux_acceptance_closed"] = false.to_json()
+    fields["package_budget_closed"] = false.to_json()
+  }
+  @fs.write_file(evidence + "/summary.json", summary.stringify(indent=2))
+
+  println(
+    (if runtime is Some(_) {
+      "COPY RUNTIME only passed: "
+    } else {
+      "CLI ACTIVE PROMOTION audit passed: "
+    }) +
+    workers.length().to_string() +
+    " owned workers; source unchanged; owned fixtures removed",
+  )
+}
+
+///|
+test "COPY cutover hold selects only preflight during the fenced interval" {
+  let preflight = "application_name\u0000mooncdc_replication:table_sync:p:42\u0000"
+  assert_true(audit_hold_copy_preflight(preflight, true, false))
+  assert_false(audit_hold_copy_preflight(preflight, false, false))
+  assert_false(audit_hold_copy_preflight(preflight, true, true))
+  assert_false(
+    audit_hold_copy_preflight("mooncdc_replication:apply:p", true, false),
+  )
+  assert_false(
+    audit_hold_copy_preflight("mooncdc_snapshot:table_sync:p:42", true, false),
+  )
+}
+
+///|
+async test "COPY preflight resumes only after cutover and cancellation joins" {
+  let released = Ref(false)
+  let forwarded = Ref(false)
+  @async.with_task_group(group => {
+    let waiting = group.spawn(() => {
+      audit_wait_copy_cutover(() => released.val)
+      forwarded.val = true
+    })
+    @async.sleep(10)
+    assert_false(forwarded.val)
+    released.val = true
+    waiting.wait()
+  })
+  assert_true(forwarded.val)
+  let joined = Ref(false)
+  @async.with_task_group(group => {
+    let waiting = group.spawn(() => {
+      defer {
+        joined.val = true
+      }
+      audit_wait_copy_cutover(() => false)
+    })
+    @async.sleep(10)
+    waiting.cancel()
+  })
+  assert_true(joined.val)
+}
+
+///|
+test "preflight completion requires client EOF and exactly one identify" {
+  assert_true(audit_preflight_completed(true, 1, true))
+  assert_false(audit_preflight_completed(true, 1, false))
+  assert_false(audit_preflight_completed(true, 2, true))
+  assert_false(audit_preflight_completed(false, 1, true))
+}
+
+///|
+async test "backend completion cancels and joins preflight without proving EOF" {
+  let joined = Ref(false)
+  let completed = Ref(false)
+  @async.any(
+    [
+      async fn() -> Unit {
+        defer {
+          completed.val = audit_preflight_completed(true, 1, false)
+          joined.val = true
+        }
+        audit_wait_copy_cutover(() => false)
+      },
+      async fn() -> Unit { @async.sleep(10) },
+    ],
+    allow_failure=false,
+  )
+  assert_true(joined.val)
+  assert_false(completed.val)
+}
+
+///|
+async fn runtime_test_manifest(
+  file? : String = "tools/fixtures/copy-runtime-parser.json",
+) -> Json {
+  let cwd = @env.current_dir().unwrap()
+  let root = if cwd.has_suffix("/tools") {
+    cwd[:cwd.length() - 6].to_owned()
+  } else {
+    cwd
+  }
+  @json.parse(@fs.read_file(root + "/" + file).text())
+}
+
+///|
+fn runtime_reject(action : () -> Unit raise) -> Unit raise {
+  try action() catch {
+    _ => ()
+  } noraise {
+    _ => fail("expected strict runtime rejection")
+  }
+}
+
+///|
+test "runtime selection is explicit and rejects incomplete or unknown flags" {
+  assert_true(runtime_args([]) is Full)
+  assert_true(
+    runtime_args([
+      "--runtime-only",
+      "/tmp/x",
+      "--manifest-sha256",
+      "0".repeat(64),
+      "--scenario",
+      "pg17-yaml-merge_tree",
+    ])
+    is Runtime(_, _, _, verify_only=false),
+  )
+  assert_true(
+    runtime_args([
+      "--runtime-verify-only",
+      "/tmp/x",
+      "--manifest-sha256",
+      "0".repeat(64),
+      "--scenario",
+      "pg17-yaml-merge_tree",
+    ])
+    is Runtime(_, _, _, verify_only=true),
+  )
+  for
+    args in [
+      ["--skip-checks"],
+      ["--runtime-only"],
+      ["--runtime-only", "x", "--manifest-sha256", "bad"],
+    ] {
+    runtime_reject(() => ignore(runtime_args(args)))
+  }
+}
+
+///|
+async test "runtime manifest binds the recorded 137 input set and CLI identity" {
+  let value = runtime_test_manifest()
+  let runtime = decode_runtime(value, 1000L)
+  assert_eq(runtime.inputs.length(), 137)
+  assert_eq(runtime.cli_size, 6848168)
+  assert_eq(runtime.parent, "mooncdccopy0123456789abcdef.slice")
+  for
+    (key, bad) in [
+      ("schema", "unknown".to_json()),
+      ("source_commit", "0".repeat(40).to_json()),
+      ("proxy_version", "old-proxy".to_json()),
+      ("cli_path", "/tmp/unknown.exe".to_json()),
+      ("cli_sha256", "0".repeat(64).to_json()),
+      ("cli_size_bytes", (1).to_json()),
+      ("product_source_root", "/tmp/other".to_json()),
+      ("cgroup_parent", "system.slice".to_json()),
+      (
+        "target",
+        {
+          "os": "linux",
+          "arch": "aarch64",
+          "elf_class": 64,
+          "elf_machine": 183,
+          "endian": "little",
+        },
+      ),
+      ("loader_path", "/root/private".to_json()),
+    ] {
+    guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+    fields[key] = bad
+    runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
+  }
+  guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+  fields["unexpected"] = true.to_json()
+  runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
+}
+
+///|
+async test "runtime rejects altered inputs fixtures and resource reservations" {
+  for key in ["product_files", "fixture_files", "budget"] {
+    guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+    guard fields[key] is Object(values) else { fail("fixture object") }
+    if key == "product_files" {
+      values["moon.mod"] = "0".repeat(64).to_json()
+    } else if key == "fixture_files" {
+      values["integration/standby.compose.yaml"] = "0".repeat(64).to_json()
+    } else {
+      values["cleanup_ms"] = (1).to_json()
+    }
+    runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
+  }
+  let files : Map[String, Json] = Map([])
+  files["../private"] = "0".repeat(64).to_json()
+  runtime_reject(() => ignore(runtime_input_seal(files)))
+}
+
+///|
+test "runtime ELF architecture is checked from bytes not manifest claims" {
+  let good = b"\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00"
+  runtime_elf_header(good)
+  runtime_reject(() => runtime_elf_header(b"short"))
+  runtime_reject(() => {
+    runtime_elf_header(
+      b"\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00",
+    )
+  })
+  runtime_reject(() => {
+    runtime_elf_header(
+      b"\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7\x00",
+    )
+  })
+}
+
+///|
+async test "runtime command policy disk and cleanup deadlines cannot widen" {
+  for command in ["moon", "moonc", "cc", "gcc", "clang", "sh", "git", "curl"] {
+    assert_false(runtime_command_allowed(command))
+  }
+  runtime_cpu_limit("400000 100000\n")
+  runtime_reject(() => runtime_cpu_limit("max 100000"))
+  runtime_reject(() => runtime_cpu_limit("800000 100000"))
+  assert_eq(runtime_disk_total("12\t/owned\n30\t/own-volume\n"), 42)
+  runtime_reject(() => {
+    runtime_disk_assert(
+      runtime_disk_total("524288\t/owned\n1\t/own-volume\n").to_int64() * 1024L,
+    )
+  })
+  let runtime = decode_runtime(runtime_test_manifest(), 0L)
+  assert_eq(runtime_timeout(runtime, 719999L), 1)
+  runtime_reject(() => ignore(runtime_timeout(runtime, 720000L)))
+  runtime.cleaning = true
+  assert_eq(runtime_timeout(runtime, 720000L), 120000)
+  assert_eq(runtime_timeout(runtime, 899999L), 1)
+  runtime_reject(() => ignore(runtime_timeout(runtime, 900000L)))
+}
+
+///|
+async test "runtime cleanup attempts owned teardown after log failure" {
+  let down = Ref(false)
+  let failures = runtime_cleanup_attempts([
+    () => fail("synthetic log failure"),
+    () => down.val = true,
+  ])
+  assert_true(down.val)
+  assert_eq(failures.length(), 1)
+}
+
+///|
+test "runtime SHA256 uses standard UTF8 byte input" {
+  assert_eq(
+    runtime_digest(b"abc"),
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  )
+}
+
+///|
+test "runtime path normalization uses lexicographic order, not shortlex" {
+  let paths = ["lsn.mbt", "auth.mbt", "moon.pkg", "activity.mbt"]
+  paths.sort_by(runtime_path_compare)
+  assert_eq(paths.join(","), "activity.mbt,auth.mbt,lsn.mbt,moon.pkg")
+}
+
+///|
+async fn runtime_storage_fixture() -> Map[String, Json] {
+  guard runtime_test_manifest(file="tools/fixtures/copy-storage.json")
+    is Object(fields) else {
+    fail("fixture")
+  }
+  fields
+}
+
+///|
+fn runtime_empty_disk() -> RuntimeDiskPlan {
+  { roots: [], volumes: [], containers: [], layer_bytes: 0L, }
+}
+
+///|
+async test "storage fixtures recognize only legacy overlay2 and actual containerd layout" {
+  let f = runtime_storage_fixture()
+  assert_eq(runtime_storage(f["overlay2_info"]), "overlay2")
+  assert_eq(runtime_storage(f["overlayfs_info"]), "overlayfs")
+  for
+    (key, bad) in [
+      ("driver", "btrfs".to_json()),
+      ("driver_status", Json::null()),
+      ("cgroup_driver", "cgroupfs".to_json()),
+    ] {
+    guard f["overlayfs_info"] is Object(info) else { fail("fixture") }
+    let changed = info.copy()
+    changed[key] = bad
+    runtime_reject(() => ignore(runtime_storage(Json::object(changed))))
+  }
+  guard f["overlayfs_info"] is Object(info) else { fail("fixture") }
+  let missing = info.copy()
+  missing.remove("driver_status")
+  runtime_reject(() => ignore(runtime_storage(Json::object(missing))))
+}
+
+///|
+async test "owned disk fixtures exclude image totals and deduplicate volume mounts" {
+  let f = runtime_storage_fixture()
+  let project = match f["project"] {
+    String(s) => s
+    _ => panic()
+  }
+  let parent = match f["parent"] {
+    String(s) => s
+    _ => panic()
+  }
+  let root = match f["root"] {
+    String(s) => s
+    _ => panic()
+  }
+  for storage in ["overlay2", "overlayfs"] {
+    let plan = runtime_empty_disk()
+    let row = f[storage + "_container"]
+    runtime_container_disk(
+      plan,
+      storage,
+      project,
+      parent,
+      root,
+      "1".repeat(64),
+      row,
+    )
+    runtime_volume_disk(plan, project, project + "_primary", f["volume"])
+    runtime_volume_disk(plan, project, project + "_primary", f["volume"])
+    assert_eq(plan.roots.length(), if storage == "overlay2" { 3 } else { 2 })
+    assert_eq(plan.layer_bytes, if storage == "overlayfs" { 4096L } else { 0L })
+    assert_eq(plan.volumes.length(), 1)
+    assert_false(
+      plan.roots
+      .iter()
+      .any(p => {
+        p.contains("/source/_build") ||
+        p.contains("/imagedb") ||
+        p.contains("/merged")
+      }),
+    )
+    runtime_reject(() => {
+      runtime_container_disk(
+        plan,
+        storage,
+        project,
+        parent,
+        root,
+        "1".repeat(64),
+        row,
+      )
+    })
+    guard row is Object(fields) else { fail("fixture") }
+    let second = fields.copy()
+    second["id"] = "2".repeat(64).to_json()
+    second["log"] = ("/var/lib/docker/containers/" +
+    "2".repeat(64) +
+    "/" +
+    "2".repeat(64) +
+    "-json.log").to_json()
+    if storage == "overlay2" {
+      second["upper"] = "/var/lib/docker/overlay2/second-owned-layer/diff".to_json()
+    }
+    runtime_container_disk(
+      plan,
+      storage,
+      project,
+      parent,
+      root,
+      "2".repeat(64),
+      Json::object(second),
+    )
+    assert_eq(plan.roots.length(), if storage == "overlay2" { 5 } else { 3 })
+    assert_eq(plan.layer_bytes, if storage == "overlayfs" { 8192L } else { 0L })
+    assert_eq(plan.volumes.length(), 1)
+  }
+}
+
+///|
+async test "storage fixtures reject missing sizes and foreign ownership before measuring" {
+  let f = runtime_storage_fixture()
+  let project = match f["project"] {
+    String(s) => s
+    _ => panic()
+  }
+  let parent = match f["parent"] {
+    String(s) => s
+    _ => panic()
+  }
+  let root = match f["root"] {
+    String(s) => s
+    _ => panic()
+  }
+  guard f["overlayfs_container"] is Object(fields) else { fail("fixture") }
+  for
+    (key, value) in [
+      ("size_rw", Json::null()),
+      ("size_rw", (-1).to_json()),
+      ("project", "foreign".to_json()),
+      ("parent", "system.slice".to_json()),
+      ("mounts", Json::null()),
+      ("log", "/var/log/foreign.log".to_json()),
+      ("upper", "/var/lib/docker/overlay2/shared/diff".to_json()),
+    ] {
+    let changed = fields.copy()
+    changed[key] = value
+    runtime_reject(() => {
+      runtime_container_disk(
+        runtime_empty_disk(),
+        "overlayfs",
+        project,
+        parent,
+        root,
+        "1".repeat(64),
+        Json::object(changed),
+      )
+    })
+  }
+  let changed = fields.copy()
+  changed.remove("size_rw")
+  runtime_reject(() => {
+    runtime_container_disk(
+      runtime_empty_disk(),
+      "overlayfs",
+      project,
+      parent,
+      root,
+      "1".repeat(64),
+      Json::object(changed),
+    )
+  })
+  guard f["volume"] is Object(volume) else { fail("fixture") }
+  let foreign = volume.copy()
+  foreign["project"] = "other".to_json()
+  runtime_reject(() => {
+    runtime_volume_disk(
+      runtime_empty_disk(),
+      project,
+      project + "_primary",
+      Json::object(foreign),
+    )
+  })
+  runtime_reject(() => {
+    runtime_volume_disk(runtime_empty_disk(), project, "anonymous", f["volume"])
+  })
+}
+
+///|
+async test "mount fixtures reject foreign volumes and writable binds" {
+  let f = runtime_storage_fixture()
+  let project = match f["project"] {
+    String(s) => s
+    _ => panic()
+  }
+  let parent = match f["parent"] {
+    String(s) => s
+    _ => panic()
+  }
+  let root = match f["root"] {
+    String(s) => s
+    _ => panic()
+  }
+  guard f["overlayfs_container"] is Object(fields) else { fail("fixture") }
+  for
+    mount in (
+      [
+        {
+          "Type": "volume",
+          "Name": "foreign",
+          "Source": "/var/lib/docker/volumes/foreign/_data",
+          "Destination": "/var/lib/postgresql/data",
+          "RW": true,
+        },
+        {
+          "Type": "bind",
+          "Source": "/tmp/private",
+          "Destination": "/etc/mooncdc/pg_hba.conf",
+          "RW": true,
+        },
+      ] : Array[Json]) {
+    let changed = fields.copy()
+    changed["mounts"] = [mount].to_json()
+    runtime_reject(() => {
+      runtime_container_disk(
+        runtime_empty_disk(),
+        "overlayfs",
+        project,
+        parent,
+        root,
+        "1".repeat(64),
+        Json::object(changed),
+      )
+    })
+  }
+  let plan = runtime_empty_disk()
+  runtime_disk_root(plan, root)
+  runtime_reject(() => runtime_disk_root(plan, root + "/child"))
+  runtime_reject(() => runtime_disk_root(plan, "/tmp/../foreign"))
+}
+
+///|
+async test "over-budget sample stops and executes only owned cleanup" {
+  runtime_disk_assert(536870912L)
+  let cleaned = Ref(false)
+  let continued = Ref(false)
+  try {
+    defer @async.protect_from_cancel(() => {
+      let failures = runtime_cleanup_attempts([() => cleaned.val = true])
+      assert_true(failures.is_empty())
+    })
+    runtime_disk_assert(536870913L)
+    continued.val = true
+  } catch {
+    _ => ()
+  } noraise {
+    _ => fail("over-budget must stop")
+  }
+  assert_true(cleaned.val)
+  assert_false(continued.val)
+}
+
+///|
+test "owned du samples require every distinct requested root" {
+  assert_eq(
+    runtime_disk_total("4\t/owned\n8\t/volume\n", roots=["/owned", "/volume"]),
+    12,
+  )
+  for
+    text in [
+      "4\t/owned\n", "4\t/owned\n8\t/foreign\n", "4\t/owned\n8\t/owned\n", "4\n8\t/volume\n",
+    ] {
+    runtime_reject(() => {
+      ignore(runtime_disk_total(text, roots=["/owned", "/volume"]))
+    })
+  }
+}
+
+///|
+async test "tmpfs source omission is valid and never adds a disk volume" {
+  let f = runtime_storage_fixture()
+  guard f["overlayfs_container"] is Object(fields) else { fail("fixture") }
+  let row = fields.copy()
+  row["service"] = "clickhouse".to_json()
+  row["mounts"] = [
+    { "Type": "tmpfs", "Destination": "/var/lib/clickhouse", "RW": true },
+  ]
+  let plan = runtime_empty_disk()
+  runtime_container_disk(
+    plan,
+    "overlayfs",
+    "mooncdccopy-0123456789abcdef",
+    "mooncdccopy0123456789abcdef.slice",
+    "/tmp/mooncdc-copy-runtime-synthetic",
+    "1".repeat(64),
+    Json::object(row),
+  )
+  assert_true(plan.volumes.is_empty())
+  assert_eq(plan.roots.length(), 1)
+}
+
+///|
+fn runtime_metrics_config(config : Json, port : Int) -> Unit raise {
+  guard config is { "metrics": metrics, .. } else {
+    fail("metrics config required")
+  }
+  let fields = runtime_fields(metrics, ["port", "listen_address"])
+  assert_true(port > 0 && port <= 65535)
+  assert_eq(fields["port"], port.to_json())
+  assert_eq(fields["listen_address"], "127.0.0.1".to_json())
+}
+
+///|
+
+///|
+fn audit_configuration(
+  source_port : Int,
+  state_port : Int,
+  ch_port : Int,
+  metrics_port : Int,
+  engine : String,
+  active_copy : Bool,
+) -> Json {
+  {
+    "id": "cli-promotion",
+    "source": {
+      "host": "127.0.0.1",
+      "port": source_port.to_json(),
+      "user": "cdc",
+      "password": "mooncdc-test-only",
+      "security": "local_plaintext",
+      "timeout_ms": (if active_copy { 120000 } else { 5000 }).to_json(),
+    },
+    "publication": "cli_promotion",
+    "state": {
+      "schema": "cli_promotion_state",
+      "connection": {
+        "host": "127.0.0.1",
+        "port": state_port.to_json(),
+        "user": "cdc",
+        "password": "mooncdc-test-only",
+        "security": "local_plaintext",
+      },
+    },
+    "run_source_migrations": false,
+    "replication_slot": { "failover": true },
+    "destination": {
+      "type": "clickhouse",
+      "url": ("http://127.0.0.1:" + ch_port.to_string()).to_json(),
+      "database": "cli_promotion",
+      "user": "cdc",
+      "password": "mooncdc-test-only",
+      "engine": engine.to_json(),
+    },
+    "metrics": { "port": metrics_port.to_json(), "listen_address": "127.0.0.1" },
+    "copy_concurrency": (if active_copy { 1 } else { 4 }).to_json(),
+    "copy_connections_per_table": (if active_copy { 1 } else { 4 }).to_json(),
+    "batch_rows": (if active_copy { 8 } else { 256 }).to_json(),
+    "table_retry_delay_ms": (if active_copy { 1000 } else { 10000 }).to_json(),
+  }
+}
+
+///|
+fn config_int(value : Json) -> Int raise {
+  guard value is Number(n, ..) else { fail("configuration integer required") }
+  assert_false(n.is_nan() || n.is_inf())
+  assert_true(n >= -2147483648.0 && n <= 2147483647.0)
+  let i = n.to_int()
+  assert_eq(n, i.to_double())
+  i
+}
+
+///|
+fn audit_config_text(config : Json, format : String) -> String raise {
+  if format == "json" {
+    return config.stringify(indent=2)
+  }
+  assert_eq(format, "yaml")
+  guard config is Object(fields) else { fail("configuration object") }
+  guard fields["source"] is Object(source) else { fail("source") }
+  guard fields["state"] is { "connection": Object(state), .. } else {
+    fail("state")
+  }
+  guard fields["destination"] is Object(dest) else { fail("destination") }
+  guard fields["metrics"] is Object(metrics) else { fail("metrics") }
+  let yaml =
+    #|id: cli-promotion
+    #|source:
+    #|  host: 127.0.0.1
+    #|  port: SOURCEPORT
+    #|  user: cdc
+    #|  password: mooncdc-test-only
+    #|  security: local_plaintext
+    #|  timeout_ms: QUERYBUDGET
+    #|publication: cli_promotion
+    #|state:
+    #|  schema: cli_promotion_state
+    #|  connection:
+    #|    host: 127.0.0.1
+    #|    port: STATEPORT
+    #|    user: cdc
+    #|    password: mooncdc-test-only
+    #|    security: local_plaintext
+    #|run_source_migrations: false
+    #|replication_slot:
+    #|  failover: true
+    #|destination:
+    #|  type: clickhouse
+    #|  url: http://127.0.0.1:CHPORT
+    #|  database: cli_promotion
+    #|  user: cdc
+    #|  password: mooncdc-test-only
+    #|  engine: ENGINE
+    #|metrics:
+    #|  port: METRICSPORT
+    #|  listen_address: 127.0.0.1
+    #|copy_concurrency: COPYCONCURRENCY
+    #|copy_connections_per_table: COPYREADERS
+    #|batch_rows: BATCHROWS
+    #|table_retry_delay_ms: RETRYDELAY
+  yaml
+  .replace_all(old="SOURCEPORT", new=config_int(source["port"]).to_string())
+  .replace_all(
+    old="QUERYBUDGET",
+    new=config_int(source["timeout_ms"]).to_string(),
+  )
+  .replace_all(old="STATEPORT", new=config_int(state["port"]).to_string())
+  .replace_all(
+    old="CHPORT",
+    new=runtime_text(dest, "url").split(":").last().unwrap().to_owned(),
+  )
+  .replace_all(old="ENGINE", new=runtime_text(dest, "engine"))
+  .replace_all(old="METRICSPORT", new=config_int(metrics["port"]).to_string())
+  .replace_all(
+    old="COPYCONCURRENCY",
+    new=config_int(fields["copy_concurrency"]).to_string(),
+  )
+  .replace_all(
+    old="COPYREADERS",
+    new=config_int(fields["copy_connections_per_table"]).to_string(),
+  )
+  .replace_all(
+    old="BATCHROWS",
+    new=config_int(fields["batch_rows"]).to_string(),
+  )
+  .replace_all(
+    old="RETRYDELAY",
+    new=config_int(fields["table_retry_delay_ms"]).to_string(),
+  )
+}
+
+///|
+/// Parse only the nested scalar mappings emitted by audit_config_text.
+/// Unsupported YAML constructs and duplicate fields are rejected.
+fn audit_parse_yaml(text : String) -> Json raise {
+  let root : Map[String, Json] = Map([])
+  let frames = [root]
+  for raw in text.split("\n") {
+    let line = raw.to_owned()
+    if line.is_empty() {
+      continue
+    }
+    assert_false(line.contains("\t") || line.contains("\r"))
+    let mut spaces = 0
+    for c in line.iter() {
+      if c != ' ' {
+        break
+      }
+      spaces += 1
+    }
+    assert_true(spaces % 2 == 0 && spaces <= 4)
+    let level = spaces / 2
+    while frames.length() > level + 1 {
+      ignore(frames.pop())
+    }
+    assert_eq(frames.length(), level + 1, msg="unexpected YAML nesting")
+    let parts = line[spaces:].split(":").collect()
+    assert_true(parts.length() >= 2)
+    let key = parts[0].to_owned()
+    assert_true(
+      !key.is_empty() &&
+      key.iter().all(c => c.is_ascii_alphabetic() || c == '_'),
+    )
+    assert_false(
+      frames[level].contains(key),
+      msg="duplicate configuration field",
+    )
+    let value = parts[1:].join(":").trim().to_owned()
+    if value.is_empty() {
+      let child : Map[String, Json] = Map([])
+      frames[level][key] = Json::object(child)
+      frames.push(child)
+    } else {
+      assert_false(
+        value
+        .iter()
+        .any(c => {
+          c is ('&' | '*' | '!' | '{' | '}' | '[' | ']' | '#' | '\'' | '"')
+        }),
+      )
+      frames[level][key] = if value == "true" ||
+        value == "false" ||
+        value.iter().all(c => c.is_ascii_digit() || c == '-') {
+        @json.parse(value)
+      } else {
+        value.to_json()
+      }
+    }
+  }
+  Json::object(root)
+}
+
+///|
+fn config_port(fields : Map[String, Json], key : String) -> Int raise {
+  let port = config_int(fields[key])
+  assert_true(port > 0 && port <= 65535)
+  port
+}
+
+///|
+fn config_expected_text(
+  fields : Map[String, Json],
+  key : String,
+  expected : String,
+) -> Unit raise {
+  assert_true(
+    fields[key] == expected.to_json(),
+    msg="unexpected configuration field: " + key,
+  )
+}
+
+///|
+fn runtime_config_semantics(
+  config : Json,
+  scenario : CopyScenario,
+  metrics_port : Int,
+) -> Unit raise {
+  let fields = runtime_fields(config, [
+    "id", "source", "publication", "state", "run_source_migrations", "replication_slot",
+    "destination", "metrics", "copy_concurrency", "copy_connections_per_table", "batch_rows",
+    "table_retry_delay_ms",
+  ])
+  config_expected_text(fields, "id", "cli-promotion")
+  config_expected_text(fields, "publication", "cli_promotion")
+  assert_eq(fields["run_source_migrations"], false.to_json())
+  let slot = runtime_fields(fields["replication_slot"], ["failover"])
+  assert_eq(slot["failover"], true.to_json())
+  let source = runtime_fields(fields["source"], [
+    "host", "port", "user", "password", "security", "timeout_ms",
+  ])
+  let state = runtime_fields(fields["state"], ["schema", "connection"])
+  config_expected_text(state, "schema", "cli_promotion_state")
+  let conn = runtime_fields(state["connection"], [
+    "host", "port", "user", "password", "security",
+  ])
+  for f in [source, conn] {
+    config_expected_text(f, "host", "127.0.0.1")
+    config_expected_text(f, "user", "cdc")
+    config_expected_text(f, "password", "mooncdc-test-only")
+    config_expected_text(f, "security", "local_plaintext")
+  }
+  assert_eq(config_int(source["timeout_ms"]), 120000)
+  let dest = runtime_fields(fields["destination"], [
+    "type", "url", "database", "user", "password", "engine",
+  ])
+  for
+    (key, expected) in [
+      ("type", "clickhouse"),
+      ("database", "cli_promotion"),
+      ("user", "cdc"),
+      ("password", "mooncdc-test-only"),
+      ("engine", scenario.engine),
+    ] {
+    config_expected_text(dest, key, expected)
+  }
+  let url = runtime_text(dest, "url").split(":").collect()
+  assert_eq(url.length(), 3)
+  assert_true(url[0] == "http" && url[1] == "//127.0.0.1")
+  let ch_port = @string.parse_int(url[2])
+  assert_true(ch_port > 0 && ch_port <= 65535 && url[2] == ch_port.to_string())
+  runtime_metrics_config(config, metrics_port)
+  let ports = [
+    config_port(source, "port"),
+    config_port(conn, "port"),
+    ch_port,
+    metrics_port,
+  ]
+  for i in 0..<ports.length() {
+    for j in 0..<i {
+      assert_false(ports[i] == ports[j], msg="fixture ports must be distinct")
+    }
+  }
+  for
+    (key, expected) in [
+      ("copy_concurrency", 1),
+      ("copy_connections_per_table", 1),
+      ("batch_rows", 8),
+      ("table_retry_delay_ms", 1000),
+    ] {
+    assert_eq(config_int(fields[key]), expected)
+  }
+}
+
+///|
+async fn runtime_generate_configs(out : String) -> Unit {
+  @fs.mkdir(out)
+  for
+    id in [
+      "pg17-yaml-replacing_merge_tree", "pg17-yaml-merge_tree", "pg18-json-replacing_merge_tree",
+      "pg18-json-merge_tree", "pg18-yaml-replacing_merge_tree", "pg18-yaml-merge_tree",
+    ] {
+    let scenario = runtime_scenario(id)
+    @fs.mkdir(out + "/" + id)
+    @fs.write_file(
+      out + "/" + id + "/config." + scenario.format,
+      audit_config_text(
+        audit_configuration(32771, 32772, 32773, 32774, scenario.engine, true),
+        scenario.format,
+      ),
+    )
+  }
+}
+
+///|
+async fn runtime_verify_config_file(
+  path : String,
+  scenario : CopyScenario,
+  port : Int,
+) -> Unit {
+  assert_true(scenario.format == "json" || scenario.format == "yaml")
+  assert_true(
+    path.has_suffix("." + scenario.format),
+    msg="configuration suffix and scenario format differ",
+  )
+  assert_eq(@fs.kind(path, follow_symlink=false), @fs.FileKind::Regular)
+  assert_true(@fs.file_size(path) <= 65536L)
+  let text = @fs.read_file(path).text()
+  let config = if scenario.format == "json" {
+    @json.parse(text)
+  } else {
+    audit_parse_yaml(text)
+  }
+  runtime_config_semantics(config, scenario, port)
+  assert_true(
+    audit_config_text(config, scenario.format) == text,
+    msg="noncanonical generated configuration",
+  )
+}
+
+///|
+test "runtime metrics config requires enabled explicit IPv4 loopback" {
+  runtime_metrics_config(
+    { "metrics": { "port": 19000, "listen_address": "127.0.0.1" } },
+    19000,
+  )
+  let bad : Array[Json] = [
+    { "metrics": { "port": 19000 } },
+    { "metrics": { "port": 19000, "listen_address": "0.0.0.0" } },
+    { "metrics": { "port": 19000, "listen_address": "::" } },
+    { "metrics": { "port": 19000, "listen_address": "localhost" } },
+    {
+      "metrics": {
+        "port": 19000,
+        "listen_address": "127.0.0.1",
+        "enabled": false,
+      },
+    },
+    { "metrics": { "port": 19001, "listen_address": "127.0.0.1" } },
+  ]
+  for config in bad {
+    runtime_reject(() => runtime_metrics_config(config, 19000))
+  }
+}
+
+///|
+async test "runtime v8 rejects old schemas and unapproved artifact identities" {
+  guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+  for
+    (key, value) in [
+      ("schema", "mooncdc-copy-runtime-v2".to_json()),
+      ("schema", "mooncdc-copy-runtime-v3".to_json()),
+      ("schema", "mooncdc-copy-runtime-v4".to_json()),
+      ("schema", "mooncdc-copy-runtime-v5".to_json()),
+      ("schema", "mooncdc-copy-runtime-v6".to_json()),
+      ("schema", "mooncdc-copy-runtime-v7".to_json()),
+      ("source_commit", "85782ffc9e22636a8a213fdabaffdf8ab29b25f3".to_json()),
+      (
+        "cli_path",
+        "/tmp/mooncdc-parser-fixture/wrong.exe".to_json(),
+      ),
+      (
+        "cli_sha256",
+        "c4c9709f59d6c68e0f2f596736c97785a7545ad79bb361146bc7ade0722a2595".to_json(),
+      ),
+      (
+        "cli_path",
+        "/tmp/mooncdc-copy-runtime-input.0123456789abcdef/bin/replicator.exe".to_json(),
+      ),
+      (
+        "cli_sha256",
+        "bba8fe89a724dcbd9fa6f22669a6e2088e0e41ad5b5948ceb7505574f426bae5".to_json(),
+      ),
+      (
+        "product_source_root",
+        "/tmp/mooncdc-parser-fixture/foreign-source".to_json(),
+      ),
+    ] {
+    let bad = fields.copy()
+    bad[key] = value
+    runtime_reject(() => ignore(decode_runtime(Json::object(bad), 0L)))
+  }
+}
+
+///|
+async test "runtime prepared task budget rejects previous and enlarged reservations" {
+  for tasks in [256, 385] {
+    guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+    guard fields["budget"] is Object(budget) else { fail("budget") }
+    budget["tasks"] = tasks.to_json()
+    runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
+  }
+}
+
+///|
+async test "single runtime scenario is sealed and rejects omitted multiple or unprepared cases" {
+  let runtime = decode_runtime(runtime_test_manifest(), 0L)
+  assert_eq(runtime.scenario.id, "pg17-yaml-merge_tree")
+  assert_eq(runtime.scenario.service, "pg17")
+  assert_eq(runtime.scenario.format, "yaml")
+  assert_eq(runtime.scenario.engine, "merge_tree")
+  for
+    bad in [
+      "", "all", "pg17-json-replacing_merge_tree", "pg17-json-merge_tree", "pg19-json-merge_tree",
+      "pg17-json-merge_tree,pg18-json-merge_tree", "pg17-json-merge_tree pg18-json-merge_tree",
+      "PG17/JSON/MergeTree",
+    ] {
+    runtime_reject(() => ignore(runtime_scenario(bad)))
+    guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+    fields["scenario"] = bad.to_json()
+    runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
+  }
+  for
+    bad in [
+      @json.parse("null"),
+      ["pg17-json-merge_tree"].to_json(),
+      ["pg17-json-merge_tree", "pg17-json-replacing_merge_tree"].to_json(),
+      { "id": "pg17-json-merge_tree" },
+    ] {
+    guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+    fields["scenario"] = bad
+    runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
+  }
+  guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+  fields.remove("scenario")
+  runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
+  let prefix = ["--runtime-only", "/tmp/x", "--manifest-sha256", "0".repeat(64)]
+  for
+    suffix in [
+      [],
+      ["--scenario"],
+      ["--scenario", "all"],
+      [
+        "--scenario", "pg17-json-merge_tree", "--scenario", "pg17-json-merge_tree",
+      ],
+      ["--scenario", "pg17-json-merge_tree", "pg18-json-merge_tree"],
+    ] {
+    runtime_reject(() => ignore(runtime_args(prefix + suffix)))
+  }
+}
+
+///|
+async test "six scalar cases decode but unverified PG18 cannot execute" {
+  for
+    id in [
+      "pg17-yaml-replacing_merge_tree", "pg17-yaml-merge_tree", "pg18-json-replacing_merge_tree",
+      "pg18-json-merge_tree", "pg18-yaml-replacing_merge_tree", "pg18-yaml-merge_tree",
+    ] {
+    guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+    fields["scenario"] = id.to_json()
+    if id.has_prefix("pg18-") {
+      fields["postgres_image_id"] = "unverified".to_json()
+    }
+    let r = decode_runtime(Json::object(fields), 0L)
+    assert_eq(r.scenario.id, id)
+    assert_eq(
+      id,
+      r.scenario.service + "-" + r.scenario.format + "-" + r.scenario.engine,
+    )
+    if r.scenario.service == "pg18" {
+      runtime_reject(() => ignore(runtime_image_gate(r.manifest)))
+    } else {
+      ignore(runtime_image_gate(r.manifest))
+    }
+  }
+}
+
+///|
+async test "PG18 requires a bound immutable image identity and keeps PG17 pinned" {
+  guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+  fields["scenario"] = "pg18-yaml-merge_tree".to_json()
+  fields["postgres_image_id"] = ("sha256:" + "a".repeat(64)).to_json()
+  let runtime = decode_runtime(Json::object(fields), 0L)
+  assert_eq(runtime_image_gate(runtime.manifest), "sha256:" + "a".repeat(64))
+  for
+    bad in [
+      "unverified",
+      "sha256:" + "0".repeat(64),
+      "sha256:" + "a".repeat(63),
+      "sha256:" + "A".repeat(64),
+    ] {
+    fields["postgres_image_id"] = bad.to_json()
+    runtime_reject(() => ignore(runtime_image_gate(Json::object(fields))))
+  }
+  fields["scenario"] = "pg17-yaml-merge_tree".to_json()
+  fields["postgres_image_id"] = ("sha256:" + "a".repeat(64)).to_json()
+  runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
+}
+
+///|
+async test "runtime preflight inspects the immutable image used by fixtures" {
+  guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+  fields["scenario"] = "pg18-json-replacing_merge_tree".to_json()
+  fields["postgres_image_id"] = "sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722".to_json()
+  let runtime = decode_runtime(Json::object(fields), 0L)
+  assert_eq(
+    runtime_image_inspect_args(runtime)[2],
+    runtime_image_gate(runtime.manifest),
+  )
+  fields["scenario"] = "pg17-yaml-merge_tree".to_json()
+  fields["postgres_image_id"] = "sha256:d18fea728d846038da867214da83fb71ecfc8ca0a5e93a9cb8404b6f6f5070f0".to_json()
+  let runtime = decode_runtime(Json::object(fields), 0L)
+  assert_eq(
+    runtime_image_inspect_args(runtime)[2],
+    runtime_image_gate(runtime.manifest),
+  )
+}
+
+///|
+async test "fixed PG18 fixture covers its declared parent volume" {
+  let cwd = @env.current_dir().unwrap()
+  let repo = if cwd.has_suffix("/tools") {
+    cwd[:cwd.length() - 6].to_owned()
+  } else {
+    cwd
+  }
+  let text = @fs.read_file(repo + "/integration/standby.compose.yaml").text()
+  assert_eq(runtime_standby_compose("pg17", text), text)
+  let changed = runtime_standby_compose("pg18", text)
+  for volume in ["primary", "standby"] {
+    assert_true(changed.contains(volume + ":/var/lib/postgresql\n"))
+    assert_false(changed.contains(volume + ":/var/lib/postgresql/data"))
+  }
+  let f = runtime_storage_fixture()
+  guard f["overlayfs_container"] is Object(fields) else { fail("fixture") }
+  let row = fields.copy()
+  for kind in ["volume", "tmpfs"] {
+    row["mounts"] = if kind == "volume" {
+      [
+        {
+          "Type": "volume",
+          "Name": "mooncdccopy-0123456789abcdef_primary",
+          "Source": "/var/lib/docker/volumes/mooncdccopy-0123456789abcdef_primary/_data",
+          "Destination": "/var/lib/postgresql",
+          "RW": true,
+        },
+      ]
+    } else {
+      [{ "Type": "tmpfs", "Destination": "/var/lib/postgresql", "RW": true }]
+    }
+    let plan = runtime_empty_disk()
+    runtime_container_disk(
+      plan,
+      "overlayfs",
+      "mooncdccopy-0123456789abcdef",
+      "mooncdccopy0123456789abcdef.slice",
+      "/tmp/mooncdc-copy-runtime-synthetic",
+      "1".repeat(64),
+      Json::object(row),
+    )
+    assert_eq(plan.volumes.length(), if kind == "volume" { 1 } else { 0 })
+  }
+}
+
+///|
+async test "PG18 basebackup creates data as the database user" {
+  guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
+  fields["scenario"] = "pg18-json-replacing_merge_tree".to_json()
+  fields["postgres_image_id"] = "sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722".to_json()
+  let runtime = decode_runtime(Json::object(fields), 0L)
+  assert_eq(audit_basebackup_options(Some(runtime), "owned"), [
+    "run", "--name", "owned-basebackup", "--user", "postgres",
+  ])
+  assert_eq(audit_basebackup_options(None, "owned"), ["run", "--rm"])
+  fields["scenario"] = "pg17-yaml-merge_tree".to_json()
+  fields["postgres_image_id"] = "sha256:d18fea728d846038da867214da83fb71ecfc8ca0a5e93a9cb8404b6f6f5070f0".to_json()
+  let runtime = decode_runtime(Json::object(fields), 0L)
+  assert_eq(audit_basebackup_options(Some(runtime), "owned"), [
+    "run", "--name", "owned-basebackup",
+  ])
+}
+
+///|
+
+///|
+async test "six actual generated files pass the shared runtime readback guard" {
+  let root = @fs.tmpdir(prefix="mooncdc-config-file-test-")
+  defer @async.protect_from_cancel(() => @fs.rmdir(root, recursive=true))
+  runtime_generate_configs(root + "/cases")
+  for
+    id in [
+      "pg17-yaml-replacing_merge_tree", "pg17-yaml-merge_tree", "pg18-json-replacing_merge_tree",
+      "pg18-json-merge_tree", "pg18-yaml-replacing_merge_tree", "pg18-yaml-merge_tree",
+    ] {
+    let s = runtime_scenario(id)
+    runtime_verify_config_file(
+      root + "/cases/" + id + "/config." + s.format,
+      s,
+      32774,
+    )
+  }
+}
+
+///|
+async test "actual config file guard rejects format field type and semantic errors" {
+  let root = @fs.tmpdir(prefix="mooncdc-config-rejection-test-")
+  defer @async.protect_from_cancel(() => @fs.rmdir(root, recursive=true))
+  let config = audit_configuration(
+    32771, 32772, 32773, 32774, "replacing_merge_tree", true,
+  )
+  let yaml = audit_config_text(config, "yaml")
+  for
+    (id, format, text) in [
+      ("pg18-json-replacing_merge_tree", "json", yaml),
+      (
+        "pg17-yaml-replacing_merge_tree",
+        "yaml",
+        audit_config_text(config, "json"),
+      ),
+      ("pg17-yaml-replacing_merge_tree", "yaml", yaml + "\nunknown: true"),
+      (
+        "pg17-yaml-replacing_merge_tree",
+        "yaml",
+        yaml.replace_all(
+          old="  port: 32774",
+          new="  port: 32774\n  port: 32774",
+        ),
+      ),
+      (
+        "pg17-yaml-replacing_merge_tree",
+        "yaml",
+        yaml.replace_all(
+          old="listen_address: 127.0.0.1",
+          new="listen_address: 0.0.0.0",
+        ),
+      ),
+      (
+        "pg17-yaml-replacing_merge_tree",
+        "yaml",
+        yaml.replace_all(
+          old="engine: replacing_merge_tree",
+          new="engine: merge_tree",
+        ),
+      ),
+      (
+        "pg17-yaml-replacing_merge_tree",
+        "yaml",
+        yaml.replace_all(old="failover: true", new="failover: false"),
+      ),
+      (
+        "pg17-yaml-replacing_merge_tree",
+        "yaml",
+        yaml.replace_all(old="source:", new="source: &alias"),
+      ),
+    ] {
+    let file = root + "/config." + format
+    @fs.write_file(file, text)
+    try runtime_verify_config_file(file, runtime_scenario(id), 32774) catch {
+      _ => ()
+    } noraise {
+      _ => fail("invalid configuration file accepted")
+    }
+  }
+  guard config is Object(fields) else { fail("config") }
+  for
+    (key, value) in [
+      ("unknown", true.to_json()),
+      ("batch_rows", (9).to_json()),
+      ("run_source_migrations", true.to_json()),
+    ] {
+    let bad = fields.copy()
+    bad[key] = value
+    let file = root + "/config.json"
+    @fs.write_file(file, Json::object(bad).stringify(indent=2))
+    try
+      runtime_verify_config_file(
+        file,
+        runtime_scenario("pg18-json-replacing_merge_tree"),
+        32774,
+      )
+    catch {
+      _ => ()
+    } noraise {
+      _ => fail("invalid JSON field accepted")
+    }
+  }
+}
+
+///|
+test "offline main selections cannot fall through to live modes" {
+  assert_true(
+    runtime_args(["--offline-generate-configs", "/tmp/configs"])
+    is OfflineGenerateConfigs(_),
+  )
+  assert_true(
+    runtime_args([
+      "--offline-config-verify-only", "pg17-yaml-merge_tree", "/tmp/config.yaml",
+      "--metrics-port", "32774",
+    ])
+    is OfflineConfig(_, _, _),
+  )
+  for
+    args in [
+      ["--offline-generate-configs"],
+      ["--offline-generate-configs", "/tmp/configs", "extra"],
+      ["--offline-config-verify-only", "pg17-yaml-merge_tree"],
+      [
+        "--offline-config-verify-only", "all", "/tmp/config.yaml", "--metrics-port",
+        "32774",
+      ],
+      [
+        "--offline-config-verify-only", "pg17-yaml-merge_tree", "/tmp/config.yaml",
+        "--metrics-port", "0",
+      ],
+      [
+        "--offline-config-verify-only", "pg17-yaml-merge_tree", "/tmp/config.yaml",
+        "--metrics-port", "32774", "--runtime-only",
+      ],
+    ] {
+    runtime_reject(() => ignore(runtime_args(args)))
+  }
+}
+
+///|
+async test "runtime byte verification rejects an altered sealed file" {
+  let root = @fs.realpath(@fs.tmpdir(prefix="mooncdc-runtime-hash-test-"))
+  defer @async.protect_from_cancel(() => @fs.rmdir(root, recursive=true))
+  let file = root + "/input"
+  @fs.write_file(file, "abc")
+  runtime_file_hash(file, runtime_digest(b"abc"), 3)
+  @fs.write_file(file, "abd")
+  try runtime_file_hash(file, runtime_digest(b"abc"), 3) catch {
+    _ => ()
+  } noraise {
+    _ => fail("changed artifact bytes accepted")
+  }
+}

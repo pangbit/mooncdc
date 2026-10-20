@@ -1,0 +1,153 @@
+///|
+import { "moonbitlang/async", "moonbitlang/async/fs", "moonbitlang/async/shell", "moonbitlang/async/process", "moonbitlang/async/socket", "moonbitlang/async/http", "moonbitlang/core/env", "moonbitlang/core/json", "moonbitlang/core/buffer", "moonbitlang/core/encoding/utf8" }
+
+///|
+async fn main {
+  let repo = @env.current_dir().unwrap()
+  let root = @fs.tmpdir(prefix="mooncdc-error-reports-")
+  let evidence = root + "/evidence"
+  let snapshot = root + "/source"
+  @fs.mkdir(evidence)
+  @fs.mkdir(snapshot)
+  @fs.write_file("/tmp/mooncdc-error-reports-root.txt",root)
+  println("ERROR REPORT ROOT: " + root)
+  let vars=@env.get_env_vars()
+  for key in vars.keys().to_array() {if key.has_prefix("APP_") || key.has_prefix("MOONCDC_") {vars.remove(key)}}
+  vars["RUST_LOG"]="error"
+  let commands : Array[Json] = []
+  let run = async fn(name:String,program:String,args:Array[String],cwd:String)->@shell.Output {
+    let result=@shell.Cmd(program,args,cwd~,env=vars,inherit_env=false).output(timeout_ms=300000,max_output_bytes=20000000)
+    @fs.write_file(evidence + "/" + name + ".stdout",result.stdout_bytes())
+    @fs.write_file(evidence + "/" + name + ".stderr",result.stderr())
+    commands.push({"name":name.to_json(),"program":program.to_json(),"args":args.to_json(),"cwd":cwd.to_json(),"exit_code":result.exit_code().to_json()})
+    @fs.write_file(evidence + "/commands.json",commands.to_json().stringify(indent=2))
+    println("ERROR REPORT AUDIT: " + name + " exit=" + result.exit_code().to_string())
+    result
+  }
+  run("source","git",["rev-parse","HEAD","HEAD^{tree}"],repo).check()
+  run("initial-status","git",["status","--porcelain=v1"],repo).check()
+  run("tested-source","git",["diff","--binary","HEAD"],repo).check()
+  run("toolchain","moon",["version","--all"],repo).check()
+  run("host","uname",["-a"],repo).check()
+  let files=@shell.Cmd("git",["ls-files","--cached","--others","--exclude-standard","-z","--",".",":(exclude)docs/reports/evidence"],cwd=repo).output()
+  files.check()
+  let paths=files.stdout().split("\u0000").filter(p=>!p.is_empty()).map(p=>p.to_owned()).collect()
+  for path in paths {
+    let parts=path.split("/").collect()
+    if parts.length()>1 {@fs.mkdir(snapshot + "/" + parts[:parts.length()-1].join("/"),recursive=true,allow_exist=true)}
+    @fs.write_file(snapshot + "/" + path,@fs.read_file(repo + "/" + path))
+  }
+  @shell.Cmd("cp",["-R",repo + "/.mooncakes",snapshot + "/.mooncakes"]).run()
+  run("tracked-sha256","shasum",["-a","256"] + paths,repo).check()
+  for (name,args) in [("check",["check","--target","native","--frozen","--deny-warn"]),("ordinary",["test","--target","native","--frozen","--deny-warn"]),("debug",["build","--target","native","--frozen"]),("release",["build","--target","native","--release","--frozen"])] {run(name,"moon",args,snapshot).check()}
+  let executable=snapshot + "/_build/native/debug/build/cmd/replicator/replicator.exe"
+  let pids : Array[String] = []
+  for format in ["json","yaml"] {
+    let http=@socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+    defer http.close()
+    let pg=@socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+    defer pg.close()
+    let http_port=http.addr.port()
+    let pg_port=pg.addr.port()
+    let source_secret="SOURCE-TEST-SECRET"
+    let destination_secret="TARGET-TEST-SECRET"
+    let public_key="REPORT-PUBLIC-KEY"
+    let sentry_secret="REPORT-PRIVATE-KEY"
+    let api_key="REPORT-API-KEY"
+    let secrets=[source_secret,destination_secret,public_key,sentry_secret,api_key]
+    let path=evidence + "/config-" + format + "." + format
+    let config : Json = {"id":"reports-live","publication":"unused","source":{"host":"127.0.0.1","port":pg_port.to_json(),"user":"cdc","password":source_secret.to_json(),"security":"local_plaintext"},"destination":{"type":"clickhouse","url":"http://127.0.0.1:1","user":"cdc","password":destination_secret.to_json(),"database":"unused"},"run_source_migrations":false,"metrics":Json::null(),"sentry":{"dsn":("http://" + public_key + ":" + sentry_secret + "@127.0.0.1:\{http_port}/prefix/42").to_json()},"supabase":{"project_ref":"project","api_url":("http://127.0.0.1:\{http_port}/prefix/").to_json(),"api_key":api_key.to_json()}}
+    if format=="json" {@fs.write_file(path,config.stringify(indent=2))} else {
+      let yaml =
+        #|id: reports-live
+        #|publication: unused
+        #|source:
+        #|  host: 127.0.0.1
+        #|  port: PGPORT
+        #|  user: cdc
+        #|  password: SOURCE-TEST-SECRET
+        #|  security: local_plaintext
+        #|destination:
+        #|  type: clickhouse
+        #|  url: http://127.0.0.1:1
+        #|  user: cdc
+        #|  password: TARGET-TEST-SECRET
+        #|  database: unused
+        #|run_source_migrations: false
+        #|metrics: null
+        #|sentry:
+        #|  dsn: http://REPORT-PUBLIC-KEY:REPORT-PRIVATE-KEY@127.0.0.1:HTTPPORT/prefix/42
+        #|supabase:
+        #|  project_ref: project
+        #|  api_url: http://127.0.0.1:HTTPPORT/prefix/
+        #|  api_key: REPORT-API-KEY
+      @fs.write_file(path,yaml.replace_all(old="PGPORT",new=pg_port.to_string()).replace_all(old="HTTPPORT",new=http_port.to_string()))
+    }
+    run(format + "-offline","" + executable,["--config",path,"--check"],snapshot).check()
+    let output=@process.redirect_to_file(evidence + "/" + format + "-worker.log")
+    defer output.close()
+    let captured : Array[Json] = []
+    @async.with_timeout(30000,()=>@async.with_task_group(group=>{
+      group.spawn_bg(()=>{
+        let(tcp,_)=pg.accept()
+        defer tcp.close()
+        let head=tcp.read_exactly(4)
+        let length=head[0].to_int()*16777216 + head[1].to_int()*65536 + head[2].to_int()*256 + head[3].to_int()
+        assert_true(length>=8 && length<=65536)
+        ignore(tcp.read_exactly(length-4))
+        let body=@utf8.encode("SERROR\u0000C08006\u0000Mcontrolled-failure " + secrets.join(" ") + "\u0000\u0000")
+        let packet=@buffer.Buffer()
+        packet.write_byte(b'E')
+        packet.write_int_be(body.length()+4)
+        packet.write_bytes(body)
+        tcp.write(packet.to_bytes())
+      })
+      group.spawn_bg(()=>{
+        for index in 0..<2 {
+          let(tcp,_)=http.accept()
+          let conn=@http.ServerConnection::new(tcp)
+          defer conn.close()
+          let request=conn.read_request()
+          let body=conn.read_all().text()
+          assert_eq(request.meth,@http.Post)
+          for secret in secrets { assert_false(body.contains(secret)) }
+          assert_true(body.contains("controlled-failure"))
+          assert_true(body.contains("[redacted]"))
+          if index==0 {
+            assert_eq(request.path,"/prefix/api/42/envelope/")
+            assert_true(request.headers["X-Sentry-Auth"].contains("sentry_key=" + public_key))
+            assert_true(body.contains("controlled-version"))
+            assert_true(body.contains("\"environment\":\"dev\""))
+          } else {assert_eq(request.path,"/prefix/system/replication/project/emails");assert_eq(request.headers["apikey"],api_key)}
+          captured.push({"path":request.path.to_json(),"headers":request.headers.to_json(),"body":body.to_json()})
+          @fs.write_file(evidence + "/" + format + "-requests.json",captured.to_json().stringify(indent=2))
+          conn.send_response(503,"Controlled report failure")
+          conn.write("RAW-REPORT-FAILURE-SECRET")
+          conn.end_response()
+        }
+      })
+      let extra=vars.copy()
+      extra["APP_ENVIRONMENT"]="dev"
+      extra["APP_VERSION"]="controlled-version"
+      let child=@process.spawn(group,executable,["--config",path],stdout=output,stderr=output,inherit_env=false,extra_env=extra,cancel_handler=@process.hard_cancel())
+      pids.push(child.pid.to_string())
+      @fs.write_file(evidence + "/" + format + "-worker.json",{"pid":child.pid.to_string().to_json(),"executable":executable.to_json(),"args":["--config",path.to_json()],"expected_exit":1,"env":{"APP_ENVIRONMENT":"dev","APP_VERSION":"controlled-version"}}.to_json().stringify(indent=2))
+      assert_eq(child.wait(),1)
+      assert_eq(captured.length(),2)
+      let log=@fs.read_file(evidence + "/" + format + "-worker.log").text()
+      assert_true(log.contains("PostgreSQL [08006]: controlled-failure"))
+      assert_true(log.contains("Sentry error report failed"))
+      assert_true(log.contains("Supabase error report failed"))
+      assert_false(log.contains("RAW-REPORT-FAILURE-SECRET"))
+      for secret in secrets { assert_false(log.contains(secret)) }
+      group.return_immediately(())
+    }))
+    println("ERROR REPORT CLI: " + format + " preserves fatal exit and sends two redacted reports to controlled peers")
+  }
+  let cleanup=run("worker-cleanup","ps",["-o","pid=,command=","-p",pids.join(",")],repo)
+  assert_eq(cleanup.exit_code(),1)
+  assert_eq(cleanup.stdout().trim(),"")
+  for path in paths {if @fs.read_file(repo + "/" + path).binary()!=@fs.read_file(snapshot + "/" + path).binary(){fail("source changed: " + path)}}
+  @fs.write_file(evidence + "/workers.json",pids.to_json().stringify())
+  println("ERROR REPORT complete: controlled JSON/YAML fatal CLI and ordinary suite passed; source unchanged; two workers and owned listeners closed")
+}

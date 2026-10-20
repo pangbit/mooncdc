@@ -1,0 +1,834 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/http",
+  "moonbitlang/async/socket",
+  "moonbitlang/async/process",
+  "moonbitlang/async/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+}
+
+///|
+fn audit_rows(text : String) -> Array[Json] raise {
+  let rows : Array[Json] = []
+  for line in text.split("\n") {
+    if !line.is_empty() {
+      rows.push(@json.parse(line.to_owned()))
+    }
+  }
+  rows
+}
+
+///|
+fn audit_lsn(text : String) -> UInt64 raise {
+  let parts = text.split("/").collect()
+  assert_eq(parts.length(), 2)
+  (@string.parse_uint64(parts[0], base=16) << 32) +
+  @string.parse_uint64(parts[1], base=16)
+}
+
+///|
+async fn main {
+  let repo = @env.current_dir().unwrap()
+  let root = @fs.tmpdir(prefix="mooncdc-cli-promotion-")
+  let evidence = root + "/evidence"
+  let snapshot = root + "/source"
+  @fs.mkdir(evidence)
+  @fs.mkdir(snapshot)
+  @fs.write_file("/tmp/mooncdc-cli-promotion-root.txt", root)
+  println("CLI PROMOTION ROOT: " + root)
+  let vars = @env.get_env_vars()
+  for key in vars.keys().to_array() {
+    if key.has_prefix("APP_") || key.has_prefix("MOONCDC_") {
+      vars.remove(key)
+    }
+  }
+  vars["RUST_LOG"] = "error"
+  let commands : Array[Json] = []
+  let workers : Array[Json] = []
+  let pids : Array[String] = []
+  let run = async fn(
+    name : String,
+    program : String,
+    args : Array[String],
+    cwd : String,
+    extra : Map[String, String],
+  ) -> @shell.Output {
+    let env = vars.copy()
+    for key, value in extra {
+      env[key] = value
+    }
+    let result = @shell.Cmd(program, args, cwd~, env~, inherit_env=false).output(
+      timeout_ms=180000,
+      max_output_bytes=20000000,
+    )
+    @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
+    @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
+    commands.push({
+      "name": name.to_json(),
+      "program": program.to_json(),
+      "args": args.to_json(),
+      "cwd": cwd.to_json(),
+      "env": extra.to_json(),
+      "exit_code": result.exit_code().to_json(),
+    })
+    @fs.write_file(
+      evidence + "/commands.json",
+      commands.to_json().stringify(indent=2),
+    )
+    result
+  }
+  defer @async.protect_from_cancel(() => {
+    if !pids.is_empty() {
+      let stopped = run(
+        "workers-cleanup",
+        "ps",
+        ["-p", pids.join(","), "-o", "pid=,comm="],
+        repo,
+        Map([]),
+      )
+      assert_eq(stopped.exit_code(), 1)
+      assert_eq(stopped.stdout().trim(), "")
+    }
+  })
+  run("source", "git", ["rev-parse", "HEAD", "HEAD^{tree}"], repo, Map([])).check()
+  run("initial-status", "git", ["status", "--porcelain=v1"], repo, Map([])).check()
+  run("tested-source", "git", ["diff", "--binary", "HEAD"], repo, Map([])).check()
+  run("toolchain", "moon", ["version", "--all"], repo, Map([])).check()
+  run("host", "uname", ["-a"], repo, Map([])).check()
+  run("docker", "docker", ["version"], repo, Map([])).check()
+  run(
+    "images",
+    "docker",
+    [
+      "image", "inspect", "postgres:17.11", "postgres:18.6", "clickhouse/clickhouse-server:26.4",
+      "--format", "{{.Id}} {{json .RepoDigests}}",
+    ],
+    repo,
+    Map([]),
+  ).check()
+  let tracked = @shell.Cmd(
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".", ":(exclude)docs/reports/evidence"],
+    cwd=repo,
+  ).output()
+  tracked.check()
+  let paths = tracked
+    .stdout()
+    .split("\u0000")
+    .filter(p => !p.is_empty())
+    .map(p => p.to_owned())
+    .collect()
+  for path in paths {
+    let parts = path.split("/").collect()
+    if parts.length() > 1 {
+      @fs.mkdir(
+        snapshot + "/" + parts[:parts.length() - 1].join("/"),
+        recursive=true,
+        allow_exist=true,
+      )
+    }
+    @fs.write_file(snapshot + "/" + path, @fs.read_file(repo + "/" + path))
+  }
+  @shell.Cmd("cp", ["-R", repo + "/.mooncakes", snapshot + "/.mooncakes"]).run()
+  run("tracked-sha256", "shasum", ["-a", "256"] + paths, repo, Map([])).check()
+  for
+    (name, args) in [
+      ("check", ["check", "--target", "native", "--frozen", "--deny-warn"]),
+      ("ordinary", ["test", "--target", "native", "--frozen", "--deny-warn"]),
+      ("debug", ["build", "--target", "native", "--frozen"]),
+      ("release", ["build", "--target", "native", "--release", "--frozen"]),
+    ] {
+    run(name, "moon", args, snapshot, Map([])).check()
+    println("CLI PROMOTION CHECK: " + name + " passed")
+  }
+  let executable = snapshot +
+    "/_build/native/debug/build/cmd/replicator/replicator.exe"
+  let services = match @env.get_env_var("MOONCDC_EXAMPLE_SERVICE") {
+    Some(service) => [service]
+    None => ["pg17", "pg18"]
+  }
+  let formats = match @env.get_env_var("MOONCDC_REPLICATOR_FORMAT") {
+    Some(format) => [format]
+    None => ["json", "yaml"]
+  }
+  let engines = match @env.get_env_var("MOONCDC_CLICKHOUSE_ENGINE") {
+    Some(engine) => [engine]
+    None => ["replacing_merge_tree", "merge_tree"]
+  }
+  for service in services {
+    let image = match service {
+      "pg17" => "postgres:17.11"
+      "pg18" => "postgres:18.6"
+      _ => fail("expected pg17 or pg18")
+    }
+    for format in formats {
+      for engine in engines {
+        assert_true(format == "json" || format == "yaml")
+        assert_true(engine == "replacing_merge_tree" || engine == "merge_tree")
+        let name = service + "-" + format + "-" + engine
+        let dir = evidence + "/" + name
+        @fs.mkdir(dir)
+        let project = root
+          .split("/")
+          .last()
+          .unwrap()
+          .to_owned()
+          .to_lower()
+          .replace_all(old=".", new="-") +
+          "-" +
+          name.replace_all(old="_", new="-")
+        let extra_compose = dir + "/clickhouse.compose.json"
+        let ch_fixture : Json = {
+          "services": {
+            "clickhouse": {
+              "image": "clickhouse/clickhouse-server:26.4",
+              "environment": {
+                "CLICKHOUSE_USER": "cdc",
+                "CLICKHOUSE_PASSWORD": "mooncdc-test-only",
+                "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT": "1",
+              },
+              "ports": [
+                { "host_ip": "127.0.0.1", "target": 8123, "published": "0" },
+              ],
+              "tmpfs": ["/var/lib/clickhouse"],
+              "healthcheck": {
+                "test": [
+                  "CMD", "clickhouse-client", "--user", "cdc", "--password", "mooncdc-test-only",
+                  "--query", "SELECT 1",
+                ],
+                "start_period": "30s",
+                "interval": "1s",
+                "timeout": "5s",
+                "retries": 30,
+              },
+            },
+          },
+        }
+        @fs.write_file(extra_compose, ch_fixture.stringify(indent=2))
+        let prefix = [
+          "compose",
+          "-p",
+          project,
+          "-f",
+          snapshot + "/integration/standby.compose.yaml",
+          "-f",
+          extra_compose,
+        ]
+        let fixture_env = {
+          "MOONCDC_STANDBY_IMAGE": image,
+          "MOONCDC_SYNC_SLOT": "mooncdc_physical",
+          "MOONCDC_SLOT_SYNC": "on",
+        }
+        let compose = async fn(stage : String, args : Array[String]) -> String {
+          let result = run(
+            name + "-" + stage,
+            "docker",
+            prefix + args,
+            snapshot,
+            fixture_env,
+          )
+          result.check()
+          result.stdout().trim().to_owned()
+        }
+        defer @async.protect_from_cancel(() => {
+          ignore(compose("fixture-logs", ["logs", "--no-color"]))
+          ignore(
+            compose("fixture-down", ["down", "--volumes", "--remove-orphans"]),
+          )
+          for
+            (kind, args) in [
+              (
+                "containers",
+                [
+                  "ps",
+                  "-a",
+                  "--filter",
+                  "label=com.docker.compose.project=" + project,
+                  "--format",
+                  "{{.ID}} {{.Names}}",
+                ],
+              ),
+              (
+                "volumes",
+                [
+                  "volume",
+                  "ls",
+                  "--filter",
+                  "label=com.docker.compose.project=" + project,
+                  "--format",
+                  "{{.Name}}",
+                ],
+              ),
+            ] {
+            let result = run(
+              name + "-cleanup-" + kind,
+              "docker",
+              args,
+              repo,
+              Map([]),
+            )
+            result.check()
+            assert_eq(result.stdout().trim(), "")
+          }
+        })
+        ignore(
+          compose("primary-up", [
+            "up", "-d", "--wait", "--pull", "never", "primary", "clickhouse",
+          ]),
+        )
+        ignore(
+          compose("basebackup", [
+            "run", "--rm", "--no-deps", "--pull", "never", "--entrypoint", "pg_basebackup",
+            "standby", "--dbname=host=primary user=cdc password=mooncdc-test-only dbname=postgres",
+            "-D", "/var/lib/postgresql/data/pgdata", "-R", "-X", "stream", "--checkpoint=fast",
+            "-C", "-S", "mooncdc_physical",
+          ]),
+        )
+        ignore(
+          compose("standby-up", [
+            "up", "-d", "--wait", "--pull", "never", "standby",
+          ]),
+        )
+        let port = @string.parse_int(
+          compose("primary-port", ["port", "primary", "5432"])
+          .split(":")
+          .last()
+          .unwrap(),
+        )
+        let standby_port = @string.parse_int(
+          compose("standby-port", ["port", "standby", "5432"])
+          .split(":")
+          .last()
+          .unwrap(),
+        )
+        let ch_port = @string.parse_int(
+          compose("clickhouse-port", ["port", "clickhouse", "8123"])
+          .split(":")
+          .last()
+          .unwrap(),
+        )
+        let mut query_index = 0
+        let sql = async fn(server : String, query : String) -> String {
+          query_index += 1
+          @async.with_timeout(10000, () => {
+            compose("sql-" + query_index.to_string(), [
+              "exec", "-T", server, "psql", "-U", "cdc", "-d", "postgres", "-v",
+              "ON_ERROR_STOP=1", "-Atc", query,
+            ])
+          })
+        }
+        let ch = async fn(query : String) -> String {
+          query_index += 1
+          @async.with_timeout(10000, () => {
+            compose("ch-" + query_index.to_string(), [
+              "exec", "-T", "clickhouse", "clickhouse-client", "--user", "cdc", "--password",
+              "mooncdc-test-only", "--query", query,
+            ])
+          })
+        }
+        ignore(
+          sql(
+            "primary", "CREATE SCHEMA cli_promotion_state; CREATE SCHEMA cli_promotion; CREATE TABLE cli_promotion.a(id integer PRIMARY KEY,value text); CREATE TABLE cli_promotion.b(id integer PRIMARY KEY,value text); INSERT INTO cli_promotion.a SELECT i,CASE WHEN i%2=0 THEN NULL ELSE '中文-'||i::text END FROM generate_series(1,64) i; INSERT INTO cli_promotion.b SELECT * FROM cli_promotion.a; CREATE PUBLICATION cli_promotion FOR TABLE cli_promotion.a,cli_promotion.b",
+          ),
+        )
+        ignore(ch("CREATE DATABASE cli_promotion"))
+        let proxy = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+        defer proxy.close()
+        let listener = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+        let metrics_port = listener.addr.port()
+        listener.close()
+        let mut upstream = port
+        let mut active_connections = 0
+        let source : Json = {
+          "host": "127.0.0.1",
+          "port": proxy.addr.port().to_json(),
+          "user": "cdc",
+          "password": "mooncdc-test-only",
+          "security": "local_plaintext",
+        }
+        let config : Json = {
+          "id": "cli-promotion",
+          "source": source,
+          "publication": "cli_promotion",
+          "state": { "schema": "cli_promotion_state" },
+          "run_source_migrations": false,
+          "replication_slot": { "failover": true },
+          "destination": {
+            "type": "clickhouse",
+            "url": ("http://127.0.0.1:" + ch_port.to_string()).to_json(),
+            "database": "cli_promotion",
+            "user": "cdc",
+            "password": "mooncdc-test-only",
+            "engine": engine.to_json(),
+          },
+          "metrics": { "port": metrics_port.to_json() },
+        }
+        let config_path = dir + "/config." + format
+        if format == "json" {
+          @fs.write_file(config_path, config.stringify(indent=2))
+        } else {
+          let yaml =
+            #|id: cli-promotion
+            #|source:
+            #|  host: 127.0.0.1
+            #|  port: SOURCEPORT
+            #|  user: cdc
+            #|  password: mooncdc-test-only
+            #|  security: local_plaintext
+            #|publication: cli_promotion
+            #|state:
+            #|  schema: cli_promotion_state
+            #|run_source_migrations: false
+            #|replication_slot:
+            #|  failover: true
+            #|destination:
+            #|  type: clickhouse
+            #|  url: http://127.0.0.1:CHPORT
+            #|  database: cli_promotion
+            #|  user: cdc
+            #|  password: mooncdc-test-only
+            #|  engine: ENGINE
+            #|metrics:
+            #|  port: METRICSPORT
+          @fs.write_file(
+            config_path,
+            yaml
+            .replace_all(old="SOURCEPORT", new=proxy.addr.port().to_string())
+            .replace_all(old="CHPORT", new=ch_port.to_string())
+            .replace_all(old="ENGINE", new=engine)
+            .replace_all(old="METRICSPORT", new=metrics_port.to_string()),
+          )
+        }
+        let record = async fn(server : String, kind : String) -> String {
+          sql(
+            server,
+            "SELECT convert_from(decode(content,'base64'),'UTF8') FROM cli_promotion_state.mooncdc_state WHERE namespace='cli-promotion/state' AND record='\{kind}'",
+          )
+        }
+        let record_json = fn(raw : String) -> Json raise {
+          @json.parse(raw[65:].to_owned())
+        }
+        let ready = fn(raw : String) -> Bool raise {
+          guard record_json(raw) is { "tables": Array(tables), .. } else {
+            return false
+          }
+          tables.length() == 2 &&
+          tables.all(table => table is { "phase": ["Ready", String(_)], .. })
+        }
+        let caught_up = fn(raw : String) -> Bool raise {
+          guard record_json(raw) is { "tables": Array(tables), .. } else {
+            return false
+          }
+          tables.length() == 2 &&
+          tables.all(table => {
+            table is { "phase": ["Ready", String(_)], .. } ||
+            table is { "phase": ["Catchup", String(_)], .. }
+          })
+        }
+        let matches = async fn(server : String, label : String) -> Bool {
+          let mut same = true
+          for table in ["a", "b"] {
+            let expected = sql(
+              server,
+              "SELECT json_build_object('id',id,'value',value)::text FROM cli_promotion.\{table} ORDER BY id",
+            )
+            let query = if engine == "replacing_merge_tree" {
+              "SELECT id,value FROM cli_promotion.cli__promotion_\{table}__current ORDER BY id FORMAT JSONEachRow"
+            } else {
+              "SELECT id,tupleElement(last,1) AS value FROM(SELECT id,argMax(tuple(value,cdc_operation),tuple(cdc_lsn,cdc_tx_ordinal)) AS last FROM cli_promotion.cli__promotion_\{table} GROUP BY id) WHERE tupleElement(last,2)!='DELETE' ORDER BY id FORMAT JSONEachRow"
+            }
+            let actual = ch(query) catch { _ => return false }
+            @fs.write_file(
+              dir + "/" + label + "-" + table + ".source.jsonl",
+              expected,
+            )
+            @fs.write_file(
+              dir + "/" + label + "-" + table + ".target.jsonl",
+              actual,
+            )
+            if audit_rows(expected) != audit_rows(actual) {
+              same = false
+            }
+          }
+          same
+        }
+        let uuids = async fn() -> String {
+          ch(
+            "SELECT name,toString(uuid) FROM system.tables WHERE database='cli_promotion' AND name IN('cli__promotion_a','cli__promotion_b') ORDER BY name",
+          )
+        }
+        @async.with_task_group(proxy_group => {
+          proxy_group.spawn_bg(() => {
+            proxy.run_forever(
+              (client, _) => {
+                defer client.close()
+                let remote = @socket.Tcp::connect_to_host(
+                  "127.0.0.1",
+                  port=upstream,
+                )
+                defer remote.close()
+                active_connections += 1
+                defer {
+                  active_connections -= 1
+                }
+                let forward = async fn(
+                  input : @socket.Tcp,
+                  output : @socket.Tcp,
+                ) -> Unit {
+                  while input.read_some(max_len=65536) is Some(data) {
+                    output.write(data)
+                  }
+                }
+                ignore(
+                  @async.any(
+                    [
+                      () => forward(client, remote),
+                      () => forward(remote, client),
+                    ],
+                    allow_failure=false,
+                  ),
+                )
+              },
+              allow_failure=true,
+            )
+          })
+          run(
+            name + "-offline",
+            executable,
+            ["--config", config_path, "--check"],
+            snapshot,
+            Map([]),
+          ).check()
+          let run_cli = async fn(phase : String, server : String) -> String {
+            let output = @process.redirect_to_file(dir + "/" + phase + ".log")
+            defer output.close()
+            @async.with_timeout(120000, () => {
+              @async.with_task_group(group => {
+                let child = @process.spawn(
+                  group,
+                  executable,
+                  ["--config", config_path],
+                  stdout=output,
+                  stderr=output,
+                  extra_env=vars,
+                  inherit_env=false,
+                  cancel_handler=@process.hard_cancel(),
+                )
+                let pid = child.pid.to_string()
+                pids.push(pid)
+                @fs.write_file(
+                  dir + "/" + phase + ".worker.json",
+                  {
+                    "pid": pid.to_json(),
+                    "executable": executable.to_json(),
+                    "args": ["--config", config_path].to_json(),
+                    "expected_exit": 0,
+                    "upstream_port": upstream.to_json(),
+                  }
+                  .to_json()
+                  .stringify(indent=2),
+                )
+                let mut initial_commit = false
+                let mut synchronized_slot = false
+                let mut polls = 0
+                while true {
+                  if child.try_wait() is Some(code) {
+                    fail(
+                      "CLI exited before ready: " +
+                      code.to_string() +
+                      " " +
+                      @fs.read_file(dir + "/" + phase + ".log").text(),
+                    )
+                  }
+                  let current = record(server, "pipeline") catch { _ => "" }
+                  polls += 1
+                  if polls <= 600 && polls % 5 == 0 {
+                    @async.with_timeout(1000, () => {
+                      let (response, body) = @http.get(
+                        "http://127.0.0.1:\{metrics_port}/metrics",
+                      )
+                      @fs.write_file(
+                        dir +
+                        "/" +
+                        phase +
+                        "-waiting-" +
+                        polls.to_string() +
+                        ".metrics",
+                        body.text(),
+                      )
+                      assert_eq(response.code, 200)
+                    }) catch {
+                      _ => ()
+                    }
+                  }
+                  if phase == "prepare" &&
+                    !initial_commit &&
+                    current.length() >= 66 &&
+                    caught_up(current) {
+                    // A real published Commit lets main WAL cross both private COPY
+                    // cutoffs. This fixture has otherwise produced no published WAL.
+                    ignore(
+                      sql(
+                        server, "UPDATE cli_promotion.a SET value=value WHERE id=1",
+                      ),
+                    )
+                    initial_commit = true
+                  }
+                  if current.length() >= 66 &&
+                    ready(current) &&
+                    matches(server, phase) {
+                    if phase == "prepare" {
+                      guard record_json(current)
+                        is { "source": { "slot": String(slot), .. }, .. } else {
+                        fail("main slot required")
+                      }
+                      guard record_json(record(server, "checkpoint"))
+                        is { "lsn": String(position), .. } else {
+                        fail("main checkpoint required")
+                      }
+                      let copied = sql(
+                        "standby",
+                        "SELECT failover::text||','||synced::text||','||temporary::text||','||COALESCE(invalidation_reason,'')||','||confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name='\{slot}'",
+                      )
+                      @fs.write_file(dir + "/prepare-slot-sync.txt", copied)
+                      @fs.write_file(
+                        dir + "/prepare-primary-slot.txt",
+                        sql(
+                          server,
+                          "SELECT restart_lsn::text,confirmed_flush_lsn::text,catalog_xmin::text FROM pg_replication_slots WHERE slot_name='\{slot}'",
+                        ),
+                      )
+                      if copied == "true,true,false,," + position {
+                        break
+                      }
+                      if copied.has_prefix("true,true,false,,") {
+                        synchronized_slot = true
+                      }
+                      if !synchronized_slot {
+                        // Keep decoding alive until PostgreSQL advances the slot's
+                        // catalog xmin enough to make the standby slot persistent.
+                        ignore(
+                          sql(
+                            server, "UPDATE cli_promotion.a SET value=value WHERE id=1; SELECT pg_log_standby_snapshot()",
+                          ),
+                        )
+                      }
+                    } else {
+                      break
+                    }
+                  }
+                  @async.sleep(100)
+                }
+                let (response, body) = @http.get(
+                  "http://127.0.0.1:\{metrics_port}/metrics",
+                )
+                assert_eq(response.code, 200)
+                let metrics = body.text()
+                @fs.write_file(dir + "/" + phase + ".metrics", metrics)
+                assert_true(
+                  metrics.contains(
+                    "pipeline_id=\"cli-promotion\",destination=\"clickhouse\"",
+                  ),
+                )
+                if phase != "prepare" {
+                  for line in metrics.split("\n") {
+                    if line.has_prefix("mooncdc_copy_rows_completed_total{") {
+                      assert_eq(
+                        @string.parse_uint64(line.split(" ").last().unwrap()),
+                        0UL,
+                      )
+                    }
+                  }
+                }
+                run(
+                  name + "-" + phase + "-signal",
+                  "kill",
+                  ["-TERM", pid],
+                  repo,
+                  Map([]),
+                ).check()
+                let code = child.wait()
+                workers.push({
+                  "scenario": name.to_json(),
+                  "phase": phase.to_json(),
+                  "pid": pid.to_json(),
+                  "exit_code": code.to_json(),
+                })
+                @fs.write_file(
+                  evidence + "/workers.json",
+                  workers.to_json().stringify(indent=2),
+                )
+                assert_eq(
+                  code,
+                  0,
+                  msg=@fs.read_file(dir + "/" + phase + ".log").text(),
+                )
+              })
+            })
+            @async.with_timeout(5000, () => {
+              while active_connections != 0 {
+                @async.sleep(10)
+              }
+            })
+            let state = record(server, "pipeline")
+            @fs.write_file(dir + "/" + phase + ".state.raw.txt", state)
+            @fs.write_file(
+              dir + "/" + phase + ".checkpoint.raw.txt",
+              record(server, "checkpoint"),
+            )
+            assert_true(ready(state))
+            assert_true(matches(server, phase + "-stopped"))
+            println("CLI PROMOTION CHILD: " + name + " " + phase + " passed")
+            state
+          }
+          let before = run_cli("prepare", "primary")
+          let old_cp = record("primary", "checkpoint")
+          guard record_json(before)
+            is {
+              "source": {
+                "timeline": String(old_timeline),
+                "slot": String(slot),
+                ..
+              },
+              ..
+            } else {
+            fail("source binding required")
+          }
+          guard record_json(old_cp) is { "lsn": String(old_position), .. } else {
+            fail("checkpoint position required")
+          }
+          let old_uuids = uuids()
+          @fs.write_file(dir + "/before.uuids", old_uuids)
+          @async.with_timeout(60000, () => {
+            while true {
+              ignore(sql("primary", "SELECT pg_log_standby_snapshot()"))
+              let rows = sql(
+                "standby",
+                "SELECT failover::text||','||synced::text||','||temporary::text||','||COALESCE(invalidation_reason,'')||','||confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name='\{slot}'",
+              )
+              @fs.write_file(dir + "/standby.slot-before.txt", rows)
+              if rows == "true,true,false,," + old_position &&
+                record("standby", "checkpoint") == old_cp {
+                break
+              }
+              @async.sleep(250)
+            }
+          })
+          ignore(
+            compose("fence-primary", ["stop", "--timeout", "30", "primary"]),
+          )
+          assert_eq(sql("standby", "SELECT pg_promote(true,30)::text"), "true")
+          assert_eq(sql("standby", "SELECT pg_is_in_recovery()::text"), "false")
+          upstream = standby_port
+          let negative_env = { "APP_REPLICATION_SLOT__FAILOVER": "false" }
+          let rejected = run(
+            name + "-failover-disabled",
+            executable,
+            ["--config", config_path],
+            snapshot,
+            negative_env,
+          )
+          assert_eq(rejected.exit_code(), 1)
+          assert_true(
+            rejected
+            .stderr()
+            .contains(
+              "pipeline timeline changed; failover recovery is disabled",
+            ),
+          )
+          assert_eq(record("standby", "pipeline"), before)
+          assert_eq(record("standby", "checkpoint"), old_cp)
+          assert_eq(uuids(), old_uuids)
+          ignore(
+            sql(
+              "standby", "BEGIN; UPDATE cli_promotion.a SET value='promoted' WHERE id=1; DELETE FROM cli_promotion.a WHERE id=2; INSERT INTO cli_promotion.a VALUES(99,'promoted'); UPDATE cli_promotion.b SET value=NULL WHERE id=1; DELETE FROM cli_promotion.b WHERE id=2; INSERT INTO cli_promotion.b VALUES(99,'中文'); COMMIT",
+            ),
+          )
+          let after = run_cli("promote", "standby")
+          guard record_json(after)
+            is {
+              "source": {
+                "timeline": String(new_timeline),
+                "slot": String(new_slot),
+                ..
+              },
+              ..
+            } else {
+            fail("new source binding required")
+          }
+          assert_true(
+            @string.parse_uint(new_timeline) > @string.parse_uint(old_timeline),
+          )
+          assert_eq(new_slot, slot)
+          guard record_json(record("standby", "checkpoint"))
+            is {
+              "source": { "timeline": String(cp_timeline), .. },
+              "lsn": String(new_position),
+              ..
+            } else {
+            fail("new checkpoint binding required")
+          }
+          assert_eq(cp_timeline, new_timeline)
+          assert_true(audit_lsn(new_position) > audit_lsn(old_position))
+          assert_eq(uuids(), old_uuids)
+          ignore(
+            sql(
+              "standby", "BEGIN; UPDATE cli_promotion.a SET value='restart' WHERE id=1; INSERT INTO cli_promotion.a VALUES(199,'restart'); INSERT INTO cli_promotion.b VALUES(199,NULL); COMMIT",
+            ),
+          )
+          ignore(run_cli("restart", "standby"))
+          assert_eq(uuids(), old_uuids)
+          @fs.write_file(dir + "/after.uuids", uuids())
+          ignore(
+            sql(
+              "standby",
+              "SELECT pg_drop_replication_slot('\{slot}'); DROP PUBLICATION cli_promotion; DROP SCHEMA cli_promotion CASCADE; DROP SCHEMA cli_promotion_state CASCADE",
+            ),
+          )
+          assert_eq(
+            sql(
+              "standby", "SELECT count(*) FROM pg_replication_slots WHERE slot_type='logical'",
+            ),
+            "0",
+          )
+          assert_eq(
+            sql(
+              "standby", "SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'mooncdc%'",
+            ),
+            "0",
+          )
+          ignore(ch("DROP DATABASE cli_promotion"))
+          proxy_group.return_immediately(())
+        })
+        println("CLI PROMOTION SCENARIO: " + name + " passed")
+      }
+    }
+  }
+  for path in paths {
+    if @fs.read_file(repo + "/" + path).binary() !=
+      @fs.read_file(snapshot + "/" + path).binary() {
+      fail("tested source changed: " + path)
+    }
+  }
+  run("final-tracked-sha256", "shasum", ["-a", "256"] + paths, repo, Map([])).check()
+  @fs.write_file(
+    evidence + "/summary.json",
+    {
+      "positive_workers": workers.length().to_json(),
+      "scenarios": (workers.length() / 3).to_json(),
+      "source_unchanged": true,
+      "cleanup": true,
+    }
+    .to_json()
+    .stringify(indent=2),
+  )
+  println(
+    "CLI PROMOTION audit passed: " +
+    workers.length().to_string() +
+    " positive workers; source unchanged; owned fixtures removed",
+  )
+}

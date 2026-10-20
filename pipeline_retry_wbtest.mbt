@@ -25,7 +25,13 @@ test "table retry classification is bounded and error state roundtrips" {
   assert_eq(table_retry_policy(Permanent("unsupported"), 0, 2, 10), NoRetry)
   let state = {
     ..pipeline_fixture(),
-    tables: [{ oid: 1U, phase: Errored("failure", TimedRetry(42UL), 2), }],
+    tables: [
+      {
+        oid: 1U,
+        phase: Errored("failure", TimedRetry(42UL), 2),
+        decoding: None,
+      },
+    ],
   }
   assert_true(
     parse_pipeline_state(state_bytes(state)).tables[0].phase
@@ -54,6 +60,7 @@ async test "persisted timed retry survives restart and failed scheduling is not 
           {
             oid: 1U,
             phase: Errored("retry later", TimedRetry(@env.now() + 150UL), 1),
+            decoding: None,
           },
         ],
       },
@@ -67,10 +74,15 @@ async test "persisted timed retry survives restart and failed scheduling is not 
     let control = ApplyControl()
     let target = ProbeDestination::new("retry", control)
     let sink : PipelineDestination = {
+      copy_monitor_interval_ms: 10000,
+      memory: None,
+      batch: None,
       destination: target,
       mutex: @async.Mutex(),
       store,
       connection: {
+        hostaddr: None,
+        keepalive: TcpKeepaliveConfig::new(),
         host: "127.0.0.1",
         port: 1,
         user: "unused",
@@ -81,6 +93,9 @@ async test "persisted timed retry survives restart and failed scheduling is not 
       },
       control,
       batch_rows: 1,
+      copy_connections_per_table: 1,
+      table_sync_copy: IncludeAllTables,
+      slot_failover: false,
       schema_store: None,
       frontier: None,
       main_lsn: Lsn::parse("0/10"),
@@ -89,6 +104,9 @@ async test "persisted timed retry survives restart and failed scheduling is not 
       retry_delay_ms: 10,
       max_table_retries: 2,
       retry_attempts: Map([]),
+      cleanup_candidates: Map([]),
+      decoding: None,
+      copy_decoding: Map([]),
     }
     let succeeded = try {
       @async.with_timeout(2000, () => {

@@ -118,7 +118,7 @@ impl Destination for ProbeDestination with fn flush(self) {
 async test "destination cumulative durability idle flush stop and failure preserve checkpoints" {
   for
     mode in [
-      "accepted", "threshold", "cumulative", "idle", "fail", "cancel", "empty",
+      "accepted", "threshold", "cumulative", "idle", "fail", "cancel", "empty", "checkpoint_fail",
     ] {
     @async.with_timeout(5000, () => {
       let server = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
@@ -126,6 +126,8 @@ async test "destination cumulative durability idle flush stop and failure preser
       let dir = @fs.tmpdir(prefix="mooncdc-destination-")
       defer @fs.rmdir(dir, recursive=true)
       let config : ConnectionConfig = {
+        hostaddr: None,
+        keepalive: TcpKeepaliveConfig::new(),
         host: "127.0.0.1",
         port: server.addr.port(),
         user: "user",
@@ -136,6 +138,7 @@ async test "destination cumulative durability idle flush stop and failure preser
       }
       let control = ApplyControl()
       let destination = ProbeDestination::new(mode, control)
+      let checkpoints : Array[Lsn] = []
       let count = if mode == "idle" {
         1
       } else if mode == "empty" {
@@ -184,11 +187,24 @@ async test "destination cumulative durability idle flush stop and failure preser
                 checkpoint_path=dir + "/checkpoint",
                 heartbeat_ms=10000,
                 sub => {
-                  sub.apply_to(
+                  if mode == "checkpoint_fail" {
+                    @fs.mkdir(dir + "/checkpoint.tmp")
+                  }
+                  sub.apply_to_impl(
                     destination,
                     control~,
                     flush_every=if mode == "threshold" { 2 } else { 4 },
                     flush_interval_ms=20,
+                    on_checkpoint=() => {
+                      let saved = load_checkpoint(
+                        dir + "/checkpoint",
+                        sub.source,
+                      )
+                      assert_eq(saved, sub.durable)
+                      assert_true(saved.value > 16UL)
+                      assert_false(destination.durable.is_empty())
+                      checkpoints.push(saved)
+                    },
                   )
                 },
               )
@@ -197,9 +213,17 @@ async test "destination cumulative durability idle flush stop and failure preser
         catch {
           TestDestinationFailure => assert_eq(mode, "fail")
           TestDestinationCancelled => assert_eq(mode, "cancel")
+          CheckpointError(_) => assert_eq(mode, "checkpoint_fail")
+          @os_error.OSError(_, context~) => {
+            assert_eq(mode, "checkpoint_fail")
+            assert_true(context.contains("checkpoint.tmp"))
+          }
           e => raise e
         } noraise {
-          _ => assert_true(mode != "fail" && mode != "cancel")
+          _ =>
+            assert_true(
+              mode != "fail" && mode != "cancel" && mode != "checkpoint_fail",
+            )
         }
         peer.wait()
       })
@@ -212,12 +236,26 @@ async test "destination cumulative durability idle flush stop and failure preser
       }
       let expected : UInt64 = if mode == "fail" ||
         mode == "cancel" ||
+        mode == "checkpoint_fail" ||
         mode == "empty" {
         16
       } else {
         count.to_uint64() * 100UL + 1UL
       }
       assert_eq(load_checkpoint(dir + "/checkpoint", source).value, expected)
+      assert_eq(
+        checkpoints.length(),
+        if mode == "fail" ||
+          mode == "cancel" ||
+          mode == "empty" ||
+          mode == "checkpoint_fail" {
+          0
+        } else if mode == "threshold" {
+          2
+        } else {
+          1
+        },
+      )
       assert_eq(destination.writes, count)
       assert_eq(
         destination.flushes,
@@ -239,7 +277,7 @@ async test "destination cumulative durability idle flush stop and failure preser
       )
       assert_eq(
         destination.events,
-        if mode == "fail" || mode == "cancel" {
+        if mode == "fail" || mode == "cancel" || mode == "checkpoint_fail" {
           ["startup"]
         } else {
           ["startup", "shutdown"]

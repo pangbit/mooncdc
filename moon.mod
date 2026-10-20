@@ -25,7 +25,7 @@ preferred_target = "native"
 
 supported_targets = "native"
 
-description = "PostgreSQL pgoutput CDC with committed transactions and durable acknowledgements"
+description = "PostgreSQL to ClickHouse CDC library and replicator with durable checkpoints"
 
 import {
   "moonbitlang/async@0.22.4",

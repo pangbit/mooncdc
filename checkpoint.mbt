@@ -56,9 +56,9 @@ fn checkpoint_bytes(source : Source, lsn : Lsn) -> Bytes {
 }
 
 ///|
-fn parse_checkpoint(bytes : Bytes, source : Source) -> Lsn raise {
+fn parse_checkpoint_record(bytes : Bytes) -> Checkpoint raise {
   try {
-    if bytes.length() < 66 || bytes[64] != b'\n' {
+    if bytes.length() < 66 || bytes.length() > 65536 || bytes[64] != b'\n' {
       raise CheckpointError("invalid envelope")
     }
     let body = bytes[65:].to_owned()
@@ -66,13 +66,23 @@ fn parse_checkpoint(bytes : Bytes, source : Source) -> Lsn raise {
       raise CheckpointError("checksum mismatch")
     }
     let cp : Checkpoint = @json.from_json(@json.parse(@utf8.decode(body)))
-    if cp.version != 1 || cp.source != source {
-      raise CheckpointError("version or source/slot/publication mismatch")
+    if cp.version != 1 {
+      raise CheckpointError("checkpoint version mismatch")
     }
-    Lsn::parse(cp.lsn)
+    ignore(Lsn::parse(cp.lsn))
+    cp
   } catch {
     e => raise CheckpointError("invalid checkpoint: \{e}")
   }
+}
+
+///|
+fn parse_checkpoint(bytes : Bytes, source : Source) -> Lsn raise {
+  let cp = parse_checkpoint_record(bytes)
+  if cp.source != source {
+    raise CheckpointError("source/slot/publication mismatch")
+  }
+  Lsn::parse(cp.lsn)
 }
 
 ///|

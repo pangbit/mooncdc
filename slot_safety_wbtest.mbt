@@ -51,6 +51,8 @@ async test "slot safety live advancement invalidation and quiet publication WAL"
     // fixture or a shared database; use integration/slot-safety.compose.yaml.
     assert_true(port == "55428" || port == "55427")
     let config : ConnectionConfig = {
+      hostaddr: None,
+      keepalive: TcpKeepaliveConfig::new(),
       host: "127.0.0.1",
       port: @string.parse_int(port),
       user: "cdc",

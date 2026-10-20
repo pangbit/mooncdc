@@ -77,14 +77,22 @@ fn packet(tag : Byte, body : Bytes) -> Bytes {
 }
 
 ///|
-async fn read_frame(reader : &@io.Reader, limit : Int) -> (Byte, Bytes) {
+async fn read_frame(
+  reader : &@io.Reader,
+  limit : Int,
+  role? : FrameConnectionRole = Unknown,
+) -> (Byte, Bytes) {
   let header = reader.read_exactly(5)
   let size = Cursor::new(header[1:].to_owned()).i32()
   if size < 4 {
     raise Protocol("frame length below four")
   }
   if size - 4 > limit {
-    raise LimitExceeded("message frame")
+    // Reuse the already consumed header. Numeric fields preserve its five
+    // bytes without emitting raw data, control characters or reading a body.
+    raise LimitExceeded(
+      "message frame: type=\{header[0].to_int()} declared_length=\{size} max_body_bytes=\{limit} role=\{role.description()}",
+    )
   }
   (header[0], reader.read_exactly(size - 4))
 }

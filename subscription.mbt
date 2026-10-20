@@ -18,6 +18,8 @@ pub struct Subscription {
   priv mut received : Lsn
   priv mut server_end : Lsn
   priv queue : Array[Transaction]
+  priv wal_queue : Array[WalBatch]
+  priv wal_events : Bool
   priv pending : Map[Int, Pending]
   priv ready : @async.CondVar
   priv ack_mutex : @async.Mutex
@@ -29,9 +31,25 @@ pub struct Subscription {
   priv max_pending : Int
   priv binary : Bool
   priv messages : Bool
+  priv protocol : PgOutputProtocol
+  priv mut stream_decoder : StreamDecoder?
   priv nontransactional_message : (async (LogicalMessage) -> Unit)?
   priv mut message_failed : Bool
   priv backpressure : Bool
+  priv activity : ActivityHandle?
+  priv mut activity_busy : Bool
+  priv memory : @memory.Monitor?
+}
+
+///|
+fn Subscription::observe_received(self : Subscription) -> Unit {
+  // The receiver is a separate task. Its keepalives must not conceal a blocked
+  // destination write or flush in the apply task.
+  if !self.activity_busy {
+    if self.activity is Some(activity) {
+      activity.ping()
+    }
+  }
 }
 
 ///|
@@ -87,6 +105,15 @@ pub async fn Subscription::ack(self : Subscription, tx : Transaction) -> Unit {
   // No cancellation between disk commit and in-memory publication of the position.
   @async.protect_from_cancel(() => {
     store_checkpoint(self.path, self.source, position, self.state_session)
+    if self.activity is Some(activity) {
+      activity.metrics.increment(
+        "mooncdc_transactions_durable_total{" + activity.metric_worker() + "}",
+        amount=(count - self.acknowledged).to_uint64(),
+      )
+      activity.metrics.increment(
+        "mooncdc_checkpoint_updates_total{" + activity.metric_worker() + "}",
+      )
+    }
     for i in (self.acknowledged + 1)..<=count {
       self.pending.remove(i)
     }
@@ -105,7 +132,8 @@ pub fn Subscription::diagnostics(self : Subscription) -> Diagnostics {
     durable: self.durable,
     server_end: self.server_end,
     outstanding_transactions: self.pending.length(),
-    queued_transactions: self.queue.length(),
+    queued_transactions: self.queue.length() +
+    self.wal_queue.filter(batch => batch.end_lsn is Some(_)).length(),
     wal_lag_bytes: if self.server_end > self.durable {
       self.server_end.value - self.durable.value
     } else {
@@ -115,12 +143,15 @@ pub fn Subscription::diagnostics(self : Subscription) -> Diagnostics {
 }
 
 ///|
-async fn Subscription::feedback(self : Subscription) -> Unit {
+async fn Subscription::feedback(
+  self : Subscription,
+  request_reply? : Bool = false,
+) -> Unit {
   self.send_mutex.acquire()
   defer self.send_mutex.release()
   if !self.closed {
     @async.with_timeout(self.config.timeout_ms, () => {
-      self.connection.feedback(self.durable)
+      self.connection.feedback(self.durable, request_reply~)
     })
   }
 }
@@ -130,13 +161,81 @@ async fn Subscription::read_stream(
   self : Subscription,
   decoder : Decoder,
 ) -> Unit {
+  self.stream_decoder = match self.protocol {
+    V1 => None
+    V2Streaming => Some(StreamDecoder::new(decoder, self.max_pending))
+  }
+  let streaming = self.stream_decoder
   for ;; {
+    if self.wal_events {
+      // Do not decode a second event while the single delivery slot is occupied.
+      while !self.wal_queue.is_empty() {
+        self.ready.wait()
+        if self.closed {
+          raise Closed
+        }
+      }
+    }
+    wait_source_capacity(self.memory, self.activity)
     let (tag, body) = self.connection.read()
     if tag == b'E' {
       raise server_error(body)
     }
+    if tag == b'N' {
+      // Notices are out-of-band protocol messages, not WAL or confirmations.
+      ignore(server_error(body))
+      continue
+    }
+    if tag == b'S' {
+      let parameter = Cursor::new(body)
+      ignore(parameter.cstring())
+      ignore(parameter.cstring())
+      parameter.done()
+      continue
+    }
+    if tag == b'C' {
+      // A caught-up walsender sends COPY 0 before exiting during shutdown.
+      // It ends this stream, without acknowledging any pending transaction.
+      let completed = Cursor::new(body)
+      if completed.cstring() != "COPY 0" {
+        raise Protocol("unexpected replication completion")
+      }
+      completed.done()
+      if self.activity is Some(activity) {
+        activity.metrics.increment(
+          "mooncdc_replication_stream_ends_total{message_type=\"command_complete\"," +
+          activity.metric_worker() +
+          "}",
+        )
+      }
+      raise @io.ReaderClosed
+    }
+    if tag == b'c' {
+      // CopyDone carries no payload. Retry from the unchanged durable frontier.
+      if !body.is_empty() {
+        raise Protocol("invalid replication CopyDone")
+      }
+      if self.activity is Some(activity) {
+        activity.metrics.increment(
+          "mooncdc_replication_stream_ends_total{message_type=\"copy_done\"," +
+          activity.metric_worker() +
+          "}",
+        )
+      }
+      raise @io.ReaderClosed
+    }
     if tag != b'd' {
-      raise Protocol("unexpected replication frame")
+      raise Protocol("unexpected replication frame \{tag.to_int()}")
+    }
+    if self.activity is Some(activity) {
+      let labels = activity.metric_worker()
+      activity.metrics.increment(
+        "mooncdc_replication_messages_total{" + labels + "}",
+      )
+      activity.metrics.increment(
+        "mooncdc_replication_payload_bytes_total{" + labels + "}",
+        amount=body.length().to_uint64(),
+      )
     }
     let c = Cursor::new(body)
     match c.byte() {
@@ -161,7 +260,8 @@ async fn Subscription::read_stream(
           if !self.messages {
             raise Protocol("logical message without negotiation")
           }
-          if data.get(1) == Some(b'\x00') {
+          if data.get(1) == Some(b'\x00') &&
+            streaming.map(decoder => decoder.active is None).unwrap_or(true) {
             let message_cursor = Cursor::new(data)
             ignore(message_cursor.byte())
             let message = message_cursor.logical_message()
@@ -175,13 +275,33 @@ async fn Subscription::read_stream(
             self.message_failed = true
             handle(message)
             self.message_failed = false
+            self.observe_received()
             continue
           }
         }
-        if decoder.decode(data)
-          is Some((xid, commit_lsn, end_lsn, time, changes)) {
+        if self.wal_events {
+          self.receive_event(decoder.decode_event(data))
+          self.observe_received()
+          continue
+        }
+        let committed = match streaming {
+          Some(stream) => stream.decode(data)
+          None => decoder.decode(data)
+        }
+        if committed is Some((xid, commit_lsn, end_lsn, time, changes)) {
+          if self.activity is Some(activity) {
+            let labels = activity.metric_worker()
+            activity.metrics.increment(
+              "mooncdc_transactions_received_total{" + labels + "}",
+            )
+            activity.metrics.increment(
+              "mooncdc_changes_received_total{" + labels + "}",
+              amount=changes.length().to_uint64(),
+            )
+          }
           // A reconnect may repeat the last complete transaction already retained in memory.
           if end_lsn <= self.received {
+            self.observe_received()
             continue
           }
           while self.pending.length() >= self.max_pending {
@@ -207,6 +327,7 @@ async fn Subscription::read_stream(
             session: self.session,
             sequence: self.sequence,
             projected_ids: None,
+            decoded_schemas: None,
           }
           self.pending[self.sequence] = {
             end_lsn,
@@ -220,6 +341,7 @@ async fn Subscription::read_stream(
       }
       _ => raise Protocol("unknown CopyData message")
     }
+    self.observe_received()
   }
 }
 
@@ -250,7 +372,12 @@ async fn Subscription::receive(
           self.reconnects += 1
           @async.sleep(delay_ms)
           let next = try {
-            let next = connect(self.config, self.connection.limit, true)
+            let next = connect(
+              self.config,
+              self.connection.limit,
+              true,
+              metrics?=self.connection.queries.map(observer => observer.metrics),
+            )
             errdefer next.close()
             @async.with_timeout(self.config.timeout_ms, () => {
               if identify(
@@ -269,6 +396,7 @@ async fn Subscription::receive(
                 self.received,
                 binary=self.binary,
                 messages=self.messages,
+                protocol=self.protocol,
               )
             })
             next
@@ -309,17 +437,61 @@ async fn[T] subscribe_impl(
   reconnect_delay_ms? : Int = 250,
   binary? : Bool = false,
   messages? : Bool = false,
+  protocol? : PgOutputProtocol = V1,
   nontransactional_message? : async (LogicalMessage) -> Unit,
   backpressure? : Bool = false,
   state_session? : StateSession,
+  worker_retry? : Bool = false,
+  pipeline_source? : Source,
+  activity_control? : ApplyControl,
+  memory? : @memory.Monitor,
+  batch_governor? : @memory.Governor,
+  wal_events? : Bool = false,
+  source_monitor_interval_ms? : Int,
 ) -> T {
+  if wal_events && !worker_retry {
+    raise InvalidConfig("WAL event delivery requires an outer worker retry")
+  }
+  if wal_events && protocol != V1 {
+    raise InvalidConfig("WAL event delivery requires pgoutput v1")
+  }
+  if source_monitor_interval_ms is Some(interval) &&
+    (interval <= 0 || activity_control is None) {
+    raise InvalidConfig(
+      "source monitor requires positive interval and activity control",
+    )
+  }
   let lock = record_lock(checkpoint_path, state_session)
   defer (if lock is Some(lock) { lock.close() })
-  let conn = connect(connection, max_frame_bytes, true)
+  let worker = if worker_retry { Some(ApplyWorker(slot)) } else { None }
+  let conn = source_operation(
+    () => {
+      connect(
+        connection,
+        max_frame_bytes,
+        true,
+        worker?,
+        metrics?=activity_control.map(control => control.metrics_data),
+      )
+    },
+    retry=worker_retry,
+  )
   errdefer conn.close()
-  let source = @async.with_timeout(connection.timeout_ms, () => {
-    identify(conn, connection, slot, publication)
-  })
+  let source = source_operation(
+    () => {
+      @async.with_timeout(connection.timeout_ms, () => {
+        identify(conn, connection, slot, publication)
+      })
+    },
+    retry=worker_retry,
+  )
+  if pipeline_source is Some(expected) &&
+    source.timeline != expected.timeline &&
+    { ..source, timeline: expected.timeline, } == expected {
+    // Close this connection before slot validation, target delivery or feedback.
+    // The outer pipeline must join every worker and prove the timeline transition.
+    raise PipelineSourceChanged
+  }
   let position = match start {
     At(lsn) => {
       if lsn.value == 0 {
@@ -343,12 +515,34 @@ async fn[T] subscribe_impl(
     }
     Resume => stored_checkpoint(checkpoint_path, source, state_session)
   }
-  @async.with_timeout(connection.timeout_ms, () => {
-    start_replication(conn, source, position, position, binary~, messages~)
-  })
+  let wal_timeout = if activity_control is Some(_) {
+    conn.wal_activity_timeout(connection.timeout_ms)
+  } else {
+    60000UL
+  }
+  source_operation(
+    () => {
+      @async.with_timeout(connection.timeout_ms, () => {
+        start_replication(
+          conn,
+          source,
+          position,
+          position,
+          binary~,
+          messages~,
+          protocol~,
+        )
+      })
+    },
+    retry=worker_retry,
+  )
   if start is (At(_) | AfterSnapshot(_)) {
     store_checkpoint(checkpoint_path, source, position, state_session)
   }
+  let activity = activity_control.map(control => {
+    control.observe(WalApply(wal_sender_timeout_ms=wal_timeout), worker?)
+  })
+  defer (if activity is Some(activity) { activity.close() })
   guard @env.rand(24) is Some(random) else {
     raise Authentication("secure entropy unavailable")
   }
@@ -364,6 +558,8 @@ async fn[T] subscribe_impl(
     received: position,
     server_end: position,
     queue: [],
+    wal_queue: [],
+    wal_events,
     pending: Map([]),
     ready: @async.CondVar::Cond(),
     ack_mutex: @async.Mutex(),
@@ -375,32 +571,84 @@ async fn[T] subscribe_impl(
     max_pending: max_pending_transactions,
     binary,
     messages,
+    protocol,
+    stream_decoder: None,
     nontransactional_message,
     message_failed: false,
     backpressure,
+    activity,
+    activity_busy: false,
+    memory,
+  }
+  if activity is Some(activity) {
+    activity.metrics.subscriptions[activity.id] = (
+      activity.worker_type,
+      () => sub.diagnostics(),
+    )
   }
   defer sub.close()
-  @async.with_task_group(group => {
-    group.spawn_bg(() => {
-      sub.receive(
-        max_transaction_bytes, max_transaction_events, max_metadata_entries, max_reconnects,
-        reconnect_delay_ms,
-      )
-    })
-    group.spawn_bg(() => {
-      for ;; {
-        @async.sleep(heartbeat_ms)
-        sub.feedback() catch {
-          _ =>
-            // Closing wakes the reader, which owns the bounded reconnect policy.
-            sub.connection.close()
+  let run = async fn() -> T {
+    @async.with_task_group(group => {
+      group.spawn_bg(() => {
+        sub.receive(
+          max_transaction_bytes,
+          max_transaction_events,
+          max_metadata_entries,
+          if worker_retry {
+            0
+          } else {
+            max_reconnects
+          },
+          reconnect_delay_ms,
+        ) catch {
+          error =>
+            if worker_retry && !sub.message_failed {
+              raise ApplySourceFailed(error)
+            } else {
+              raise error
+            }
         }
-      }
+      })
+      group.spawn_bg(() => {
+        for ;; {
+          @async.sleep(heartbeat_ms)
+          sub.feedback(request_reply=activity is Some(_)) catch {
+            _ =>
+              // Closing wakes the reader, which owns the bounded reconnect policy.
+              sub.connection.close()
+          }
+        }
+      })
+      let result = consume(sub)
+      group.return_immediately(result)
+      result
     })
-    let result = consume(sub)
-    group.return_immediately(result)
-    result
-  })
+  }
+  let monitored = async fn() -> T {
+    match source_monitor_interval_ms {
+      Some(interval) =>
+        with_source_monitor(
+          connection,
+          activity.unwrap(),
+          interval,
+          () => (sub.received, sub.durable),
+          run,
+        )
+      None => run()
+    }
+  }
+  match batch_governor {
+    Some(governor) =>
+      governor.with_slots(
+        if wal_events {
+          2UL
+        } else {
+          max_pending_transactions.to_uint64() + 1UL
+        },
+        monitored,
+      )
+    None => monitored()
+  }
 }
 
 ///|

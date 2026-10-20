@@ -6,6 +6,8 @@ pub fn service() -> String {
 ///|
 pub fn config() -> @cdc.ConnectionConfig {
   {
+    hostaddr: None,
+    keepalive: @cdc.TcpKeepaliveConfig::new(),
     host: "127.0.0.1",
     port: if service() == "pg17" {
       55417
