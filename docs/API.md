@@ -542,7 +542,8 @@ Unfinished copies recover on restart; errored tables retain their retry policy. 
 after initialization fail instead of resetting progress. Creation-intent recovery may replace
 only its own randomly named slot, before any destination writes.
 
-Copy concurrency is 1–16 and destination calls are serialized with a cumulative barrier.
+Copy concurrency is 1–256; its product with `copy_connections_per_table` must not exceed
+256. Destination calls are serialized with a cumulative barrier.
 The main worker applies ready tables while bounded table workers copy and privately replay WAL.
 Copying includes this private replay. Once a table has durably caught up to the main worker,
 its cutoff is saved under the same mutex used by main projection; the temporary slot then closes.
@@ -838,8 +839,8 @@ The host owns `control.stop()` and awaits pipeline drain. Returning, raising or
 cancelling the callback closes the listener and its connections; the wrapper does
 not initiate worker shutdown. Each connection handles one request and closes, with
 a 5-second request deadline and 128 concurrent connections. Probe handlers make no
-database calls. A standalone configuration and signal-handling executable is still
-pending.
+database calls. The [standalone replicator](REPLICATOR.md) provides configuration
+and signal handling.
 
 | Option | Default | Meaning |
 |---|---:|---|
