@@ -1,5 +1,11 @@
 # Security
 
+<!-- language-switch -->
+[English](SECURITY.md) | [简体中文](SECURITY.zh-CN.md)
+
+English is the authoritative version.
+
+
 For vulnerabilities, use the repository's private vulnerability reporting feature
 when available. If unavailable, open an issue requesting a private contact without
 including exploit details or secrets. No fixed response SLA is promised.

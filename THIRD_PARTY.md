@@ -1,5 +1,11 @@
 # Dependencies and references
 
+<!-- language-switch -->
+[English](THIRD_PARTY.md) | [简体中文](THIRD_PARTY.zh-CN.md)
+
+English is the authoritative version.
+
+
 - [moonbitlang/core](https://github.com/moonbitlang/core), Apache-2.0:
   standard collections, binary encoding and JSON.
 - [moonbitlang/async](https://github.com/moonbitlang/async), Apache-2.0:

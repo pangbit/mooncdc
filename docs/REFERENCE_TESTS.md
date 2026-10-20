@@ -1,5 +1,11 @@
 # Reference tests and retained contracts
 
+<!-- language-switch -->
+[English](REFERENCE_TESTS.md) | [简体中文](REFERENCE_TESTS.zh-CN.md)
+
+English is the authoritative version.
+
+
 Production code independently implements PostgreSQL's wire/replication formats.
 The maintained reference runners compare parsed values and errors with pinned
 upstream implementations; they do not copy a client into the production module.

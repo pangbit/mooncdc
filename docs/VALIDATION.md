@@ -1,5 +1,11 @@
 # Validation scope and version binding
 
+<!-- language-switch -->
+[English](VALIDATION.md) | [简体中文](VALIDATION.zh-CN.md)
+
+English is the authoritative version.
+
+
 This records version-bound validation observations from 2026-10-20. It is not a
 registry publication receipt. Initial pre-CI assembly records are retained below;
 the reviewed-source GitHub results are recorded separately.

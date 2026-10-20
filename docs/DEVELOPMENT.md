@@ -1,5 +1,11 @@
 # Development
 
+<!-- language-switch -->
+[English](DEVELOPMENT.md) | [简体中文](DEVELOPMENT.zh-CN.md)
+
+English is the authoritative version.
+
+
 MoonCDC is an independently implemented native MoonBit PostgreSQL → ClickHouse
 library and CLI, licensed Apache-2.0. Both entries share `run_pipeline` and the
 same durability/recovery contracts. See [scope](RELEASE_SCOPE.md).

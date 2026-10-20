@@ -1,28 +1,41 @@
 # MoonCDC
 
-MoonBit 编写的 PostgreSQL → ClickHouse CDC 库与独立同步工具。库与 CLI 同等支持，
-共用 `run_pipeline` 核心；首批验收覆盖 PG17/18，边界和判据见
-[当前交付范围](docs/RELEASE_SCOPE.md)。底层订阅使用原生 `pgoutput` 协议 v1，按完整的
-已提交事务交付数据，提供显式确认、持久检查点和有限次数断线重连。
+<!-- language-switch -->
+[English](README.mbt.md) | [简体中文](README.zh-CN.md)
 
-**0.1.0：Native 后端的 PostgreSQL → ClickHouse 库与 CLI。** 验收方法及历史证据索引见
-[测试说明](docs/TESTING.md)。
-采用至少一次投递，业务端必须处理重放。
+English is the authoritative version.
 
-2026-10-20 的固定核心提交已通过 Linux PG17/18 库4格和 CLI8格验收。
-编译窗口的256 tasks 与数据库矩阵不同：本次矩阵内核峰值264，诊断临时采用
-512上限、384停止水位，结束已恢复256。这是测试夹具预算，不是产品最低需求，
-也不代表512已获永久授权或最终发布提交的远端CI已通过；版本绑定见测试说明。
 
-## 安装与使用
+A MoonBit PostgreSQL → ClickHouse CDC library and standalone replication tool.
+The library and CLI have equal support and share the `run_pipeline` core. Initial
+source acceptance covers PG17/18; see the [release scope](docs/RELEASE_SCOPE.md).
+The low-level subscription uses native `pgoutput` protocol v1, delivers complete
+committed transactions, and provides explicit acknowledgement, durable checkpoints
+and bounded reconnection.
 
-先用 `moon view pangbit/mooncdc@0.1.0` 查询注册库中的版本。
-该版本可用时，可通过 `moon add pangbit/mooncdc@0.1.0` 安装，并核对实际解析版本。
-若尚不可用，可在本仓库运行示例，或按照[发布检查](docs/RELEASING.md)
-使用打包源码做独立消费者验证；本地消费者通过不代表注册库版本已发布。
+**0.1.0: a native PostgreSQL → ClickHouse library and CLI.** See
+[testing](docs/TESTING.md) for validation methods and historical evidence.
+Delivery is at least once; applications must handle replay.
 
-在 `moon.mod` 中设置 `preferred_target = "native"`，在使用方 `moon.pkg` 导入。
-以下示例统一使用默认别名 `@mooncdc`：
+The fixed product inputs passed 4 Linux PG17/18 library cells and 8 CLI
+cells on 2026-10-20. The compiler window's 256-task budget is distinct from the
+database matrix: the diagnostic observed a kernel peak of 264 under a temporary
+512 ceiling and 384 stop watermark, then restored 256. These are fixture budgets,
+not product requirements, permanent permission for 512 tasks, or evidence that a
+final release commit passed remote CI. See the version binding in testing.
+
+<a id="安装与使用"></a>
+
+## Installation and usage
+
+First query the registry with `moon view pangbit/mooncdc@0.1.0`.
+When that version is available, install with `moon add pangbit/mooncdc@0.1.0`
+and verify the resolved version. If unavailable, run the repository examples or
+follow [releasing](docs/RELEASING.md) to validate an extracted source-package
+consumer. A local consumer pass does not establish registry publication.
+
+Set `preferred_target = "native"` in `moon.mod` and import the package in the
+consumer's `moon.pkg`. The examples use the default alias `@mooncdc`:
 
 ```moonbit nocheck
 ///|
@@ -40,8 +53,9 @@ test "parse a PostgreSQL WAL position" {
 }
 ```
 
-嵌入 `run_pipeline` 的宿主可读取 worker 活动与健康状态；`ready` 表示正在运行且
-未检测到卡住，不表示全量复制完成或已经追平 WAL。
+A host embedding `run_pipeline` can observe worker activity and health. `ready`
+means running without a detected stall; it does not mean the initial copy is
+complete or WAL has caught up.
 
 ```mbt check
 ///|
@@ -55,21 +69,25 @@ test "pipeline health before startup and during shutdown" {
 }
 ```
 
-需要 HTTP 探针时，用 `with_health_server(control, () => { ... })` 包裹 pipeline
-初始化及运行；默认端口 9001，提供 `/livez` 和 `/readyz`，未调用则不启动监听器。
-宿主负责调用 `control.stop()` 并等待 pipeline 排空，详见 [健康接口](docs/API.md#limits-and-diagnostics)。
+Wrap pipeline initialization and execution in
+`with_health_server(control, () => { ... })` to enable HTTP probes. The default
+port is 9001, exposing `/livez` and `/readyz`; no listener starts unless called.
+The host must call `control.stop()` and await drain. See
+[health contracts](docs/API.md#limits-and-diagnostics).
 
-`run_pipeline` 默认复制全部初始行；可用 `table_sync_copy=SkipAllTables`，或
-`IncludeTables([oid, ...])` / `SkipTables([oid, ...])` 按源表 OID 选择初始行。
-跳过的表仍会重置目标、建立 schema 并接入后续 WAL；这不是流式过滤，也不会在重启时
-补齐已完成表的历史行，详见 [pipeline 契约](docs/API.md#persistent-table-pipeline)。
+`run_pipeline` copies all initial rows by default. Use `table_sync_copy=SkipAllTables`,
+`IncludeTables([oid, ...])` or `SkipTables([oid, ...])` to select initial table rows.
+Skipped tables still receive target initialization and schema setup, and still
+join later WAL. This is not a streaming filter. Restart does not refill already
+completed tables; see the [pipeline contract](docs/API.md#persistent-table-pipeline).
 
-`with_state_schema_store` 可把 schema 历史保存在文件或 PostgreSQL StateStore。
-为 schema 与 pipeline 使用两个独立 namespace，并将同一个 `schemas` 传给目标端和
-`run_pipeline`，即可在 PostgreSQL 中持久保存恢复所需的 schema，详见
-[状态存储](docs/API.md#external-state-stores)。
+`with_state_schema_store` persists schema history in a file or PostgreSQL
+StateStore. Use separate namespaces for the pipeline's StateStore and schema
+store, and pass the same `schemas` to the destination and `run_pipeline`.
+See [state stores](docs/API.md#external-state-stores).
 
-典型消费流程如下；完整可运行程序见 [examples](examples/README.md)。
+A typical consumer follows; complete runnable programs are in
+[examples](examples/README.md).
 
 ```mbt nocheck
 let config = @mooncdc.ConnectionConfig::new(
@@ -90,57 +108,81 @@ let config = @mooncdc.ConnectionConfig::new(
 )
 ```
 
-首次运行使用复制槽创建时返回的明确 LSN：`At(Lsn::parse("0/…"))`。
-需要全量初始化时，使用 `copy_snapshot` 创建槽并读取一致性快照；逐批持久化成功后，
-将返回值传给 `AfterSnapshot(position)` 衔接增量，详见 [快照接口](docs/API.md#initial-snapshot)。
-也可用 `position.save_checkpoint(path)` 保存已持久化快照的衔接位置，再由新进程 `Resume`。
-`Resume` 要求检查点已经存在；损坏、来源不符、槽失效或位置已不可恢复时明确失败。
-不存在自动从最新位置继续的降级。
+For the first run, use the explicit LSN returned when the replication slot is
+created: `At(Lsn::parse("0/…"))`. For initialization from a snapshot, use
+`copy_snapshot` to obtain the consistent snapshot and slot, write bounded batches
+durably, then continue with `AfterSnapshot(position)`; see
+[initial snapshots](docs/API.md#initial-snapshot).
+You can also call `position.save_checkpoint(path)` and continue in a new process
+with `Resume`. `Resume` requires an existing checkpoint and explicitly rejects
+corruption, identity mismatches and unrecoverable positions. It never silently
+falls back to the latest WAL position.
 
-## 保证与边界
+<a id="保证与边界"></a>
 
-- 仅输出已提交事务，保留事件顺序、表信息、类型 OID、事务 ID 和 WAL 位置。
-- `Null`、`Text`、`UnchangedToast` 分别表示 NULL、文本值和未变化的外部字段。
-  可用 `subscribe(..., binary=true)` 请求二进制传输；`Binary(Bytes)` 保留原始类型编码，
-  调用方结合列 OID 解码。默认仍为文本，二进制模式也可能收到回退文本。
-- 独立订阅可显式选择 `protocol=V2Streaming`，缓冲未提交分段并在提交后交付；
-  完整资源与回滚契约见 [API](docs/API.md)。流水线继续使用协议v1。
-- `ack` 只越过连续完成的事务；检查点完成文件同步、原子替换及父目录同步后，
-  才更新可反馈位置。接收位置不能代替业务持久位置。
-- `tx.id` 标识事务，`tx.event_id(index)` 标识数据变更；重复元数据不改变数据事件 ID。
-- 可用 `messages=true` 订阅逻辑消息：事务消息随提交交付，非事务消息需提供独立回调。
-  消息内容保留原始字节；`schema_snapshot` 可解释 Supabase ETL DDL payload。
-  `run_pipeline(..., schema_store=store)` 可持久保存初始 schema 与 DDL 版本，详见 API。
-- 自定义 `Destination` 可通过 `copy_snapshot_to` 和 `sub.apply_to` 接入复制流程；
-  `Accepted` 不触发确认，持久化屏障成功才推进检查点，支持空闲刷新及正常停止。
-- 后台处理心跳；帧、事务、元数据及未确认队列有上限。超限关闭连接并保留检查点。
-- SCRAM-SHA-256；远端连接使用验证证书和主机名的 TLS。明文仅允许数字回环地址。
-  首版密码限定可打印 ASCII，明确拒绝需要 SASLprep 的非 ASCII 密码。
-- `run_pipeline` 提供持久逐表状态、并行独立快照、重启后失败表重建和增量追赶；
-  完成的表保留快照进度，队列满时背压。运行中新发布表在首次 WAL 事件时发现并复制。
-- `Value.decode_text(oid)` 提供类型化 Cell，支持精确数值、日期时间、JSON、UUID、bytea 和
-  一维数组；SQL NULL、JSON null 与未变化 TOAST 分开表示。未知标量保留文本。
-- `StateStore` 支持文件目录及 PostgreSQL 持久后端，接入流水线/订阅 checkpoint 和
-  目标端元数据；逐表复制错误可持久化并定时或人工重试。详见 [API](docs/API.md)。
-- `ClickHouseDestination` 支持 ReplacingMergeTree 当前值视图和 MergeTree 操作历史，
-  接入全量/增量、列 DDL 及持久恢复。支持范围见 [API](docs/API.md#clickhouse-destination)。
-- 本模块仅提供 PostgreSQL → ClickHouse，不包含 BigQuery、Snowflake 或 Iceberg。
-  DuckLake 是路线图，不能视为已实现。
-- 不提供自动切主或两阶段事务；各目标端的 schema 支持范围单独列明。
-  不承诺跨系统恰好一次。
+## Guarantees and boundaries
 
-`replica identity` 决定旧值是否存在。`FULL` 能提供较完整旧行；默认主键身份可能仅有
-键或没有旧元组。`UnchangedToast` 不能作为 NULL 覆盖已有业务值。详见
-[API 与支持范围](docs/API.md)。
+- Only committed transactions are delivered, preserving event order, table/type
+  information, transaction IDs and WAL positions.
+- `Null`, `Text` and `UnchangedToast` represent SQL NULL, text and unchanged external
+  fields. `subscribe(..., binary=true)` requests binary transfer; `Binary(Bytes)`
+  retains original bytes for caller decoding with column OIDs. Text remains the
+  default, and binary mode can still contain fallback text fields.
+- Standalone subscriptions may opt into `protocol=V2Streaming`, buffering
+  uncommitted segments until commit. See [API](docs/API.md) for resource and rollback
+  contracts. The pipeline continues to use protocol v1.
+- `ack` advances only across a contiguous completed prefix. The checkpoint file,
+  atomic replacement and parent directory must be synced before feedback changes.
+  Received position is not business durability.
+- `tx.id` identifies a transaction; `tx.event_id(index)` identifies a data change.
+  Repeated metadata does not change data-event IDs.
+- `messages=true` supports transaction-bound logical messages and a separate
+  callback for nontransactional messages. Payload bytes remain unchanged;
+  `schema_snapshot` interprets Supabase ETL DDL payloads. Pipeline schema history
+  can be persisted with `run_pipeline(..., schema_store=store)`; see API.
+- Custom `Destination` implementations integrate through `copy_snapshot_to` and
+  `sub.apply_to`. `Accepted` never authorizes acknowledgement. A durable barrier
+  is required for checkpoints/feedback, including empty flushes and normal drain.
+- Background heartbeats continue. Frames, transactions, metadata and outstanding
+  queues have limits; exceeding them closes the connection without acknowledging.
+- SCRAM-SHA-256 and verified remote TLS are supported. Plaintext accepts only
+  numeric loopback addresses. Initial passwords are printable ASCII; non-ASCII
+  passwords requiring SASLprep are explicitly rejected.
+- `run_pipeline` maintains durable per-table states, concurrent independent
+  snapshots, failed-copy restart and catch-up. Completed tables retain progress;
+  full queues apply backpressure. Newly published tables are discovered and copied
+  upon their first WAL event.
+- `Value.decode_text(oid)` returns typed Cells, supporting exact numbers,
+  date/time, JSON, UUID, bytea and one-dimensional arrays. SQL NULL, JSON null and
+  unchanged TOAST remain distinct. Unknown scalars retain text.
+- `StateStore` supports file and PostgreSQL backends for pipeline/subscription
+  checkpoints and destination metadata. Table-copy errors persist and support
+  timed or manual retries. See [API](docs/API.md).
+- `ClickHouseDestination` supports ReplacingMergeTree current-state views and
+  MergeTree event histories, with snapshot/CDC writes, column DDL and durable
+  recovery. See [supported scope](docs/API.md#clickhouse-destination).
+- This module supports PostgreSQL → ClickHouse only. It excludes BigQuery,
+  Snowflake and Iceberg. DuckLake is a roadmap item, not an implemented feature.
+- Automatic primary election and two-phase transactions are not provided. Schema
+  support is destination-specific. Cross-system exactly-once delivery is not promised.
 
-## 本地验证
+`replica identity` controls old tuple availability. `FULL` supplies more old
+columns; default primary-key identity may supply only keys or no old tuple.
+`UnchangedToast` must not overwrite a business value with NULL. See
+[API and support](docs/API.md).
 
-已知验证局限：合并源码的一轮 macOS release 普通测试中，copy-exit cleanup 与
-reconnect retry 两个场景报 `TimeoutError`；同一源码、工具链、命令和时限下仅重试
-该 job 一次后通过。原因尚未确认，不能视为已修复或据此认定产品缺陷。
-具体时限、运行结果及版本绑定见[验证记录](docs/VALIDATION.md#github-ci-at-the-reviewed-source)。
+<a id="本地验证"></a>
 
-使用专用 Docker Compose 项目，数据库端口只绑定 `127.0.0.1`：
+## Local validation
+
+Known validation limitation: one macOS release ordinary-test run of the merged
+source reported `TimeoutError` in copy-exit cleanup and reconnect retry scenarios.
+Exactly one retry of that job passed with source, toolchain, commands and timeouts
+unchanged. The cause remains unconfirmed; this neither establishes nor fixes a
+product defect. See [validation](docs/VALIDATION.md#github-ci-at-the-reviewed-source)
+for deadlines, results and source binding.
+
+Use a dedicated Docker Compose project, binding database ports to `127.0.0.1`:
 
 ```sh
 moon update
@@ -159,17 +201,20 @@ moon run tools/recovery-test.mbtx
 moon run tools/checkpoint-crash-test.mbtx
 ```
 
-未设置 `MOONCDC_TEST_PORT` 时真实数据库测试体不会运行；普通测试通过不代表实测通过。
-初始化脚本用于新建的隔离实例，不覆盖已有业务库。故障测试会终止本项目的 walsender
-或示例子进程。详细命令、TLS 与清理说明见 [TESTING](docs/TESTING.md)。
+Without `MOONCDC_TEST_PORT`, real database test bodies do not run; ordinary tests
+passing does not prove live validation. Setup scripts initialize isolated fixtures,
+not existing business databases. Fault tests terminate this project's walsenders
+or example child processes. See [TESTING](docs/TESTING.md) for commands, TLS and cleanup.
 
-## 文档与维护
+<a id="文档与维护"></a>
 
-可运行入口与配置见 [独立 replicator](docs/REPLICATOR.md)。
+## Documentation and maintenance
 
-- [示例](examples/README.md) · [API](docs/API.md) · [测试](docs/TESTING.md)
-- [运行与 WAL 监控](docs/OPERATIONS.md) · [发布](docs/RELEASING.md)
-- [开发原则](docs/DEVELOPMENT.md) · [贡献](CONTRIBUTING.md) · [变更记录](CHANGELOG.md)
-- [依赖与协议来源](THIRD_PARTY.md) · [安全](SECURITY.md)
+See the [standalone replicator](docs/REPLICATOR.md) for entrypoints and configuration.
 
-Apache-2.0，见 [LICENSE](LICENSE)。
+- [Examples](examples/README.md) · [API](docs/API.md) · [Testing](docs/TESTING.md)
+- [Operations and WAL monitoring](docs/OPERATIONS.md) · [Releasing](docs/RELEASING.md)
+- [Development](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+- [Dependencies and protocol provenance](THIRD_PARTY.md) · [Security](SECURITY.md)
+
+Apache-2.0; see [LICENSE](LICENSE).

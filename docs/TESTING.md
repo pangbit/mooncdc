@@ -1,5 +1,11 @@
 # Testing
 
+<!-- language-switch -->
+[English](TESTING.md) | [简体中文](TESTING.zh-CN.md)
+
+English is the authoritative version.
+
+
 Use an isolated checkout and synthetic fixtures. The native module is PostgreSQL
 → ClickHouse; cloud extensions and historical machine-specific audit launchers
 are outside this release tree. See [validation scope](VALIDATION.md) for precise

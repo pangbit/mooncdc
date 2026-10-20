@@ -1,9 +1,19 @@
 # Contributing
 
+<!-- language-switch -->
+[English](CONTRIBUTING.md) | [简体中文](CONTRIBUTING.zh-CN.md)
+
+English is the authoritative version.
+
+
 This project currently has a single maintainer. Small focused issues and pull
 requests are welcome; discuss public API or protocol scope changes before coding.
-Use English API names and commit subjects. User-facing documentation may be English
-or Chinese. Never include credentials, private datasets, database directories or WAL.
+Use English API names and commit subjects. Important documentation uses the existing
+English paths as the authoritative default, with separate `.zh-CN.md` translations,
+reciprocal language links, and matching scope, limitations and executable commands.
+Noncritical historical/tooling documents may retain their original language. Keep
+license texts and raw evidence untranslated. Never include credentials, private
+datasets, database directories or WAL.
 
 1. Explain the observed behavior and the expected transaction/durability invariant.
 2. Add a focused regression test and keep unrelated changes out of the patch.

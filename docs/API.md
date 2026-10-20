@@ -1,5 +1,11 @@
 # API and support contract
 
+<!-- language-switch -->
+[English](API.md) | [简体中文](API.zh-CN.md)
+
+English is the authoritative version.
+
+
 The compiler-generated [interface](../pkg.generated.mbti) is authoritative.
 Run `moon doc` for browsable API documentation. The public types belong to the root
 `pangbit/mooncdc` package; examples are separate executable packages.

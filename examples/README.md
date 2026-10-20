@@ -1,5 +1,11 @@
 # Executable examples
 
+<!-- language-switch -->
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+English is the authoritative version.
+
+
 These programs operate only on the repository's isolated Docker fixture. They create
 and remove their own `example_*` tables, publications and slots. Start the services:
 

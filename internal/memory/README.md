@@ -1,5 +1,11 @@
 # Memory policy and sampling
 
+<!-- language-switch -->
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+English is the authoritative version.
+
+
 Internal building blocks for the Supabase ETL memory governor. The pipeline uses
 these samples through its optional pressure and adaptive batch configuration.
 This package's exports are internal composition points.

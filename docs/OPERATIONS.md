@@ -1,5 +1,11 @@
 # Operating a subscription
 
+<!-- language-switch -->
+[English](OPERATIONS.md) | [简体中文](OPERATIONS.zh-CN.md)
+
+English is the authoritative version.
+
+
 Prepare PostgreSQL with `wal_level=logical`, enough replication slots/walsenders, a
 publication and a persistent pgoutput logical slot. Use a dedicated role with LOGIN,
 REPLICATION and the required database/table permissions. Creating publications is an

@@ -1,72 +1,106 @@
-# 当前交付范围
+<a id="当前交付范围"></a>
 
-2026-10-15 确认：MoonCDC 专注 PostgreSQL → ClickHouse，交付可嵌入的 MoonBit 库和
-可独立运行的 replicator CLI。两种入口同等支持，共用核心；首批源端版本为 PG17/18。
-本文件定义当前版本的边界；[功能映射](FEATURE_PARITY.md)、
-[发布检查](COMPLETION_CHECKLIST.md) 与[验收版本绑定](VALIDATION.md) 分别说明实现、
-待办与证据范围，不能把范围收敛本身当作新源码的验收结果。
+# Release scope
 
-## 产品与参考边界
+<!-- language-switch -->
+[English](RELEASE_SCOPE.md) | [简体中文](RELEASE_SCOPE.zh-CN.md)
 
-- 核心模块：`pangbit/mooncdc`，native 后端，PostgreSQL → ClickHouse 单向同步。
-- 独立工具：`cmd/replicator`；JSON/YAML 与环境变量配置、离线 `--check`、信号排空、
-  健康检查和指标。工具调用库的 `run_pipeline`，不另写复制或恢复引擎。
-- 固定主参照：[Supabase ETL](https://github.com/supabase/etl/tree/c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4)，
-  提交 `c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4`；只对齐所选源端、ClickHouse、
-  状态/恢复与运行语义。pglogrepl、Debezium 继续作为协议与异常场景补充。
-- BigQuery、Snowflake、DuckLake 和 Iceberg 退出当前交付、默认依赖、构建、配置与验收。
-  已有实现先保留在未发布扩展或 Git 历史；DuckLake 仍是路线图，不能称为已实现。
-  扩展可独立维护，但失败或真云验证缺失不阻塞本版本；隔离进度见
-  本批审查[验收版本绑定](VALIDATION.md)。
-- 不做 PostgreSQL → PostgreSQL、反向/双向同步或管理平台。
-  PostgreSQL StateStore/SchemaStore 是恢复元数据后端，不是数据目标。
+English is the authoritative version.
 
-## 库与 CLI 的公共边界
 
-| 层 | 当前职责 | 边界与依据 |
+Confirmed on 2026-10-15: MoonCDC focuses on PostgreSQL → ClickHouse, providing an
+embeddable MoonBit library and standalone replicator CLI. Both have equal support
+and share the core; initial source versions are PG17/18. This document defines the
+version's boundaries. [Feature mapping](FEATURE_PARITY.md),
+[release review](COMPLETION_CHECKLIST.md) and [validation](VALIDATION.md) describe
+implementation, pending gates and evidence. Narrowing scope is not validation of
+new source code.
+
+<a id="产品与参考边界"></a>
+
+## Product and reference boundaries
+
+- Core module: `pangbit/mooncdc`, native backend, one-way PostgreSQL → ClickHouse.
+- Standalone tool: `cmd/replicator`, JSON/YAML and environment configuration,
+  offline `--check`, signal drain, health and metrics. It calls the library's
+  `run_pipeline`; it does not implement a separate replication/recovery engine.
+- Primary reference: [Supabase ETL](https://github.com/supabase/etl/tree/c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4),
+  commit `c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4`. Alignment covers selected
+  sources, ClickHouse, state/recovery and runtime semantics. pglogrepl and Debezium
+  supplement protocol and failure scenarios.
+- BigQuery, Snowflake, DuckLake and Iceberg are outside this delivery, default
+  dependencies, builds, configuration and acceptance. Existing implementations
+  remain in unpublished extensions or Git history; DuckLake is a roadmap item,
+  not implemented. Extensions can be maintained independently; failures or missing
+  real-cloud evidence do not block this version. See [validation](VALIDATION.md)
+  for isolation progress.
+- No PostgreSQL → PostgreSQL, reverse/bidirectional synchronization or management
+  platform. PostgreSQL StateStore/SchemaStore stores recovery metadata, not destination data.
+
+<a id="库与-cli-的公共边界"></a>
+
+## Shared library and CLI boundaries
+
+| Layer | Responsibility | Boundary and reference |
 | --- | --- | --- |
-| 公共库 | `ConnectionConfig`、`ClickHouseDestination`、`run_pipeline`、持久 StateStore/SchemaStore、`ApplyControl` | 宿主组装连接、目标、状态与控制作用域；错误、停止和资源释放可观察。见 [API](API.md) |
-| 共用核心 | pgoutput v1、逐表快照、主/私有 WAL 交接、schema 版本、目标持久屏障、checkpoint、重连及晋升证明 | 库与 CLI 不可各自实现另一套确认或恢复算法。公共入口在 `state_runtime.mbt`，实现主要在 `pipeline.mbt`、`pipeline_copy.mbt`、`subscription.mbt` 和 `clickhouse_*.mbt` |
-| CLI 适配 | 配置解析、默认值、构造库对象、进程信号、探针/指标及退出码 | `cmd/replicator/main.mbt` 的 `ReplicatorConfig::pipeline` 调用公共 `run_pipeline`；配置字段见 [映射](PIPELINE_CONFIG_MAPPING.md) |
-| 低层库兼容 | `subscribe`、`copy_snapshot`、`Destination`、原始事件与稳定 ID | 保留可组合 API；泛型接口的存在不扩大本版本内置连接器范围。独立 v2 订阅保持既有边界，不新增 v2 流水线承诺 |
+| Public library | `ConnectionConfig`, `ClickHouseDestination`, `run_pipeline`, durable StateStore/SchemaStore, `ApplyControl` | The host composes connections, destination, state and control scopes; errors, stop and resource release are observable. See [API](API.md) |
+| Shared core | pgoutput v1, per-table snapshots, main/private WAL handover, schema versions, destination barriers, checkpoints, reconnection and promotion proof | Library and CLI must share acknowledgement/recovery algorithms. Public runtime entry is `state_runtime.mbt`; main implementation is in `pipeline.mbt`, `pipeline_copy.mbt`, `subscription.mbt` and `clickhouse_*.mbt` |
+| CLI adapter | Parsing, defaults, object construction, signals, probes/metrics and exit codes | `ReplicatorConfig::pipeline` in `cmd/replicator/main.mbt` calls public `run_pipeline`. See [configuration mapping](PIPELINE_CONFIG_MAPPING.md) |
+| Low-level compatibility | `subscribe`, `copy_snapshot`, `Destination`, original events and stable IDs | Composable APIs remain; generic interfaces do not expand built-in connector support. Standalone v2 keeps its existing boundary, without a v2 pipeline promise |
 
-同等支持指两种入口都要验证相同业务能力和故障语义，不要求配置语法、生命周期封装或
-默认值完全相同。CLI 的 COPY 默认并发 4/4、batch 与压力控制默认开启、源迁移默认 true；
-库兼容默认值为 2/1、batch/压力显式启用、源迁移 false。应显式配置比较用例，记录差异；
-不在本批改变这些兼容默认值。
+Equal support requires the same business capabilities and failure semantics, not
+identical configuration, lifecycle wrapping or defaults. CLI COPY defaults are 4/4,
+batch and pressure control are enabled, and source migrations default to true.
+Library compatibility defaults remain 2/1, opt-in batch/pressure and false source
+migrations. Configure comparison cases explicitly and record differences; these
+compatibility defaults do not change in this work.
 
-宿主负责保管配置、保持 namespace/源目标身份稳定、调用停止并等待排空。
-CLI 承担对应的进程适配职责。源迁移所需权限与 schema/状态配置沿用现有 API 契约；
-未经支持的 schema 或不安全恢复必须报错，不能静默跳过。
+The host must protect configuration, keep namespaces and source/destination
+identities stable, request stop and await drain. The CLI performs the corresponding
+process duties. Source migration permissions and schema/state configuration follow
+the API contract. Unsupported schemas and unsafe recovery must fail explicitly.
 
-## 首批验收顺序
+<a id="首批验收顺序"></a>
 
-下列判据同时适用于库与 CLI。业务矩阵至少包含 PG17/18 与 ClickHouse 两种现有引擎；
-CLI 另覆盖 JSON/YAML、环境覆盖及离线拒绝。故障组合分批执行，必须逐项列明入口、
-版本、引擎、故障点和实际执行结果，不能用未启用测试体或普通测试总数替代。
+## Initial acceptance order
 
-| 顺序 | 必须证明的行为 | 可复用入口或证据 |
+These criteria apply to both library and CLI. The business matrix includes at
+least PG17/18 and both supported ClickHouse engines; CLI also covers JSON/YAML,
+environment overrides and offline rejection. Fault combinations run in batches;
+record entrypoint, version, engine, fault and actual result. Disabled bodies and
+ordinary test totals cannot substitute for these records.
+
+| Order | Required behavior | Reusable entrypoint/evidence |
 | --- | --- | --- |
-| 1 | 非空初始快照期间并发 I/U/D，快照与 WAL 交接后无遗漏；完成表不被无故重置，复制失败可恢复 | `tools/parallel-copy-test.mbtx`、`tools/replicator-test.mbtx`；并行 COPY[验收版本绑定](VALIDATION.md) |
-| 2 | 更新、删除、NULL/TOAST、主键/replica identity 与类型映射符合契约；当前值视图与操作历史分别核验 | `tools/clickhouse-test.mbtx`；CLI/ClickHouse 组合[验收版本绑定](VALIDATION.md)、类型与快照/WAL[验收版本绑定](VALIDATION.md) |
-| 3 | 目标写入到 checkpoint/反馈之间中断允许重放；稳定事件身份和两种引擎的重复边界可解释，无静默遗漏 | `tools/checkpoint-crash-test.mbtx`、`tools/clickhouse-crash-test.mbtx`；[API 的持久契约](API.md#destinations-and-durability) |
-| 4 | 新进程恢复保留持久进度，拒绝损坏/身份不符/不可恢复位置；显式失效槽重建有完整持久意图 | `tools/pipeline-crash-test.mbtx`、`tools/slot-recreate-process-test.mbtx`；重建进程[验收版本绑定](VALIDATION.md) |
-| 5 | 主库晋升前隔离旧写入者，验证 ancestry、fork、写入上界及状态 owner；含 COPY 期间切换与 owner 丢失 | `tools/timeline-promotion-test.mbtx`、`tools/cli-active-promotion-test.mbtx`；活跃 COPY 晋升[验收版本绑定](VALIDATION.md) |
-| 6 | ClickHouse 超时、503、未知写入结果、取消和重新启动不提前确认；正常停止排空，目标故障保留恢复位置 | `tools/clickhouse-test.mbtx`、`tools/clickhouse-crash-test.mbtx`；取消[验收版本绑定](VALIDATION.md) |
-| 7 | 已支持列 DDL 与全量/增量、重启及 publication 投影正确衔接；持久保存 schema，拒绝未知或不支持变化 | [API 的 schema 与 ClickHouse 支持范围](API.md#ddl-schema-versions)、状态 schema[验收版本绑定](VALIDATION.md)；固定源迁移 fixture 在 `integration/reference/etl/` |
+| 1 | Concurrent I/U/D during a nonempty initial snapshot; no omissions across snapshot/WAL handover; no unjustified reset of completed tables; recoverable copy failures | `tools/parallel-copy-test.mbtx`, `tools/replicator-test.mbtx`; parallel COPY [validation](VALIDATION.md) |
+| 2 | Updates, deletes, NULL/TOAST, primary key/replica identity and type mapping meet their contracts; verify current-state views and operation history separately | `tools/clickhouse-test.mbtx`; CLI/ClickHouse, type and snapshot/WAL [validation](VALIDATION.md) |
+| 3 | Replay after interruption between destination write and checkpoint/feedback; explain stable event IDs and duplicate boundaries for both engines, without silent omissions | `tools/checkpoint-crash-test.mbtx`, `tools/clickhouse-crash-test.mbtx`; [durability contract](API.md#destinations-and-durability) |
+| 4 | New-process recovery retains progress, rejects corruption/identity mismatch/unrecoverable positions; explicit invalidated-slot recreation has durable full-table intent | `tools/pipeline-crash-test.mbtx`, `tools/slot-recreate-process-test.mbtx`; process recreation [validation](VALIDATION.md) |
+| 5 | Fence the old writer before promotion; prove ancestry, fork, write horizons and state owner, including COPY-time transitions and owner loss | `tools/timeline-promotion-test.mbtx`, `tools/cli-active-promotion-test.mbtx`; active COPY promotion [validation](VALIDATION.md) |
+| 6 | ClickHouse timeout, 503, unknown write outcome, cancellation and restart never acknowledge early; normal stop drains and destination failure retains a recovery point | `tools/clickhouse-test.mbtx`, `tools/clickhouse-crash-test.mbtx`; cancellation [validation](VALIDATION.md) |
+| 7 | Supported column DDL composes with snapshot/CDC, restart and publication projection; persist schema and reject unknown/unsupported changes | [Schema/ClickHouse scope](API.md#ddl-schema-versions), state-schema [validation](VALIDATION.md); fixed source migration fixture in `integration/reference/etl/` |
 
-采用至少一次投递。`Accepted` 不授权确认；只有有效 Commit 与覆盖连续写入的目标持久
-屏障允许推进 checkpoint/源反馈。v1 批次可在 Commit 帧前向目标写入已提交事务的片段，
-不能据此宣称目标具有源事务原子可见性。ReplacingMergeTree 当前值与 MergeTree 操作历史
-分别验证，不承诺跨系统恰好一次。晋升恢复不等于自动选主或自动 HA 路由。
+Delivery is at least once. `Accepted` does not authorize acknowledgement; only a
+valid Commit plus a destination durability barrier covering a contiguous prefix
+allows checkpoint/feedback advancement. v1 batches may expose committed-transaction
+fragments before the Commit frame, without source-transaction atomic visibility
+at the destination. ReplacingMergeTree current state and MergeTree history are
+verified separately; cross-system exactly-once is not promised. Promotion recovery
+is not automatic election or HA routing.
 
-## 交付门槛与版本绑定
+<a id="交付门槛与版本绑定"></a>
 
-当前支持范围是 PostgreSQL → ClickHouse 库与 CLI。BigQuery、Iceberg、Snowflake
-及云端验收不进入本发布树。JSON/YAML、持久状态、快照/WAL 交接、目标持久屏障、
-重连和受支持的晋升/重建行为沿用 API 契约；不扩大到自动选主或恰好一次。
+## Delivery gates and version binding
 
-验收必须区分产品、编译器、测试工具、环境和未执行步骤。历史 Linux 结果及
-256 编译预算、264 实测峰值、512 单次诊断上限见 [版本绑定](VALIDATION.md)。
-这些结果不代表最终发布分支的远端 CI 已运行，也不授权修改宿主限制。
-当前验收命令和独立维护方法见 [测试](TESTING.md)，待办见 [发布检查](COMPLETION_CHECKLIST.md)。
+The supported scope is the PostgreSQL → ClickHouse library and CLI. BigQuery,
+Iceberg, Snowflake and cloud acceptance are outside the release tree. JSON/YAML,
+durable state, snapshot/WAL handover, target barriers, reconnection and supported
+promotion/recreation retain API contracts; automatic election and exactly-once
+remain outside scope.
+
+Acceptance distinguishes product, compiler, tooling, environment and unexecuted
+steps. See [validation](VALIDATION.md) for historical Linux results, the 256-task
+compiler budget, 264 observed peak and one-time 512 diagnostic ceiling. Those
+results do not establish a final release branch's remote CI or authorize host
+limit changes. See [testing](TESTING.md) for current commands and independent
+maintenance, and [release review](COMPLETION_CHECKLIST.md) for gates.

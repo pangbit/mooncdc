@@ -2,6 +2,12 @@
 
 # Release procedure
 
+<!-- language-switch -->
+[English](RELEASING.md) | [简体中文](RELEASING.zh-CN.md)
+
+English is the authoritative version.
+
+
 Follow [MoonBit's publishing guide](https://docs.moonbitlang.com/en/latest/toolchain/moon/package-manage-tour.html).
 This repository prepares version 0.1.0; it is not published by CI.
 

@@ -1,5 +1,11 @@
 # Changelog
 
+<!-- language-switch -->
+[English](CHANGELOG.md) | [简体中文](CHANGELOG.zh-CN.md)
+
+English is the authoritative version.
+
+
 ## 0.1.0
 
 This entry describes the changes prepared for version 0.1.0. It records neither

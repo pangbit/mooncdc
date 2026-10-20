@@ -1,5 +1,11 @@
 # Configuration YAML syntax
 
+<!-- language-switch -->
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+English is the authoritative version.
+
+
 The eight syntax/event files are vendored from
 [moonbit-community/yaml.mbt](https://github.com/moonbit-community/yaml.mbt/tree/e2f1129249a7cc707aa1c9c39bd8bfe207c93821),
 version 0.0.7, commit `e2f1129249a7cc707aa1c9c39bd8bfe207c93821`.

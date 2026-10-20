@@ -1,5 +1,11 @@
 # Supported feature map
 
+<!-- language-switch -->
+[English](FEATURE_PARITY.md) | [简体中文](FEATURE_PARITY.zh-CN.md)
+
+English is the authoritative version.
+
+
 This map describes the 0.1.0 implementation scope, not a completion
 percentage or an assertion that every platform/fault combination has passed.
 See [release scope](RELEASE_SCOPE.md), [API](API.md) and

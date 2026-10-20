@@ -1,5 +1,11 @@
 # Release review checklist
 
+<!-- language-switch -->
+[English](COMPLETION_CHECKLIST.md) | [简体中文](COMPLETION_CHECKLIST.zh-CN.md)
+
+English is the authoritative version.
+
+
 Version: 0.1.0 candidate; date: 2026-10-20. This is a gate list, not a publication
 receipt. Bind each result to the reviewed source inventory and actual exit code.
 
