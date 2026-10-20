@@ -61,16 +61,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      - name: Ensure ripgrep for native test drivers
-        run: |
-          if command -v rg >/dev/null 2>&1; then
-            rg --version
-          elif [[ "$RUNNER_OS" == 'macOS' ]]; then
-            brew install ripgrep
-          else
-            sudo apt-get update
-            sudo apt-get install -y ripgrep
-          fi
       - name: Configure accepted Linux build stack
         if: runner.os == 'Linux'
         run: |
@@ -124,7 +114,7 @@ jobs:
       - run: moon info --target native && moon fmt --check
       - run: git diff --exit-code -- '*.mbti'
       - run: moon doc && moon package --list
-      - run: moon run tools/package-test.mbtx
+      - run: moon run tools/package-test.mbtx --target native
   postgres:
     runs-on: ubuntu-latest
     strategy:

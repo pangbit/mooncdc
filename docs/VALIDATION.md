@@ -71,11 +71,11 @@ archives are deliberately absent. The local review inventory retains checksums
 and exact file provenance outside the release tree. Follow [testing](TESTING.md)
 to produce new bounded local evidence; publish only a reviewed, redacted summary.
 
-## Local release-tree checks (2026-10-20)
+## Initial local release-tree checks (2026-10-20, before GitHub CI)
 
-The local review kept all 108 production/API/metadata archive entries byte equal
-to the accepted candidate. All 208 MoonBit/C/interface/package-input files in
-this tree also match the accepted local product commit. Strict frozen native
+The initial local review kept all 108 production/API/metadata archive entries byte
+equal to the accepted candidate. At that point all 208 MoonBit/C/interface/package
+input files also matched the accepted local product commit. Strict frozen native
 check passed. Ordinary discovery still lists 260 identities (206 root, 28 CLI,
 18 memory, 8 YAML); this is discovery, not a new 260-test execution.
 
@@ -92,8 +92,11 @@ was absent. Existing local async/x caches were copied into disposable build
 directories; no dependency download or installation was used. The refusal is a
 cache/environment result, not a product failure.
 
-The new CI configuration adds these maintenance checks, but has not run on
-GitHub. No database, remote host, full 260-test runtime or registry consumer was
+At the time of initial assembly the new CI configuration had not run on GitHub.
+Subsequent CI follow-ups change test tooling, fixtures and the bounded server-side
+cleanup observation, while production inputs remain unchanged. The release PR
+records their exact source heads, fresh local checks and actual remote results.
+No database, remote host, full 260-test runtime or registry consumer was
 started in this local organization pass. Final interface/format/package checks
 and full review inventories are recorded with actual exits outside tracked source.
 

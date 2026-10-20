@@ -13,7 +13,7 @@ This repository prepares version 0.1.0; it is not published by CI.
    Run `moon fmt --check`, `moon build --target native --release`, `moon doc` and
    `moon package --list`. Inspect the archive for required sources, README, LICENSE,
    dependencies and examples, and for accidentally included secrets/artifacts.
-3. When the package consumer gate needs execution, run `moon run tools/package-test.mbtx`
+3. When the package consumer gate needs execution, run `moon run tools/package-test.mbtx --target native`
    from the reviewed clean checkout to extract the archive into a temporary directory. Create a separate native MoonBit
    consumer using a workspace/local dependency on that extracted module. Compile and
    run public API calls to verify package ownership and archive completeness.

@@ -10,8 +10,13 @@ import {
 }
 
 ///|
-fn ordinary_test_count(outline : String) -> Int raise {
+fn ordinary_test_count(
+  outline : String,
+  required_packages : Array[String],
+) -> Int raise {
+  assert_true(!required_packages.is_empty())
   let seen : Map[String, Bool] = Map([])
+  let packages : Map[String, Bool] = Map([])
   let mut count = 0
   for line in outline.split("\n").filter(line => !line.trim().is_empty()) {
     guard line.trim().split_once(". ") is Some((ordinal, identity)) else {
@@ -20,6 +25,10 @@ fn ordinary_test_count(outline : String) -> Int raise {
     assert_eq(@string.parse_int(ordinal), count + 1)
     let identity = identity.to_owned()
     assert_true(identity.contains(" index="))
+    guard identity.split_once(" ") is Some((package_name, _)) else {
+      fail("missing ordinary package name")
+    }
+    packages[package_name.to_owned()] = true
     assert_false(
       seen.contains(identity),
       msg="duplicate ordinary test identity",
@@ -28,6 +37,13 @@ fn ordinary_test_count(outline : String) -> Int raise {
     count += 1
   }
   assert_true(count > 0, msg="empty ordinary test discovery")
+  assert_eq(packages.length(), required_packages.length())
+  for name in required_packages {
+    assert_true(
+      packages.contains(name),
+      msg="missing ordinary package: " + name,
+    )
+  }
   count
 }
 
@@ -45,14 +61,16 @@ fn require_ordinary_summary(output : String, count : Int) -> Unit raise {
 ///|
 test "active-store discovery requires nonempty sequential unique identities" {
   assert_eq(
-    ordinary_test_count("1. p a.mbt:1 index=0\n2. p b.mbt:1 index=0\n"),
+    ordinary_test_count("1. p a.mbt:1 index=0\n2. p/c b.mbt:1 index=0\n", [
+      "p", "p/c",
+    ]),
     2,
   )
   for
     invalid in [
       "", "garbage\n", "2. p a.mbt:1 index=0\n", "1. p a.mbt:1\n", "1. p a.mbt:1 index=0\n2. p a.mbt:1 index=0\n",
     ] {
-    try ordinary_test_count(invalid) catch {
+    try ordinary_test_count(invalid, ["p"]) catch {
       _ => ()
     } noraise {
       _ => fail("invalid ordinary discovery accepted")
@@ -61,9 +79,25 @@ test "active-store discovery requires nonempty sequential unique identities" {
 }
 
 ///|
+test "active-store discovery rejects omitted groups and equal-count substitutions" {
+  for
+    invalid in [
+      "1. p a.mbt:1 index=0\n2. p b.mbt:1 index=0\n", "1. p a.mbt:1 index=0\n2. other b.mbt:1 index=0\n",
+      "1. p a.mbt:1 index=0\n",
+    ] {
+    try ordinary_test_count(invalid, ["p", "p/c"]) catch {
+      _ => ()
+    } noraise {
+      _ => fail("incomplete ordinary package coverage accepted")
+    }
+  }
+}
+
+///|
 test "active-store summary rejects stale incomplete failed and duplicate results" {
   let count = ordinary_test_count(
-    "1. p a.mbt:1 index=0\n2. p b.mbt:1 index=0\n",
+    "1. p a.mbt:1 index=0\n2. p/c b.mbt:1 index=0\n",
+    ["p", "p/c"],
   )
   require_ordinary_summary("Total tests: 2, passed: 2, failed: 0.\n", count)
   for
@@ -177,19 +211,30 @@ async fn main {
   }
   @shell.Cmd("cp", ["-R", repo + "/.mooncakes", snapshot + "/.mooncakes"]).run()
   run("tracked-sha256", "shasum", ["-a", "256"] + paths, repo, Map([])).check()
+  let ordinary_args = [
+    ".", "cmd/replicator", "internal/memory", "internal/yaml", "--target", "native",
+    "--frozen", "--deny-warn",
+  ]
+  let required_packages = [
+    "pangbit/mooncdc", "pangbit/mooncdc/cmd/replicator", "pangbit/mooncdc/internal/memory",
+    "pangbit/mooncdc/internal/yaml",
+  ]
   let ordinary_outline = run(
     "ordinary-outline",
     "moon",
-    ["test", "--outline", "--target", "native", "--frozen", "--deny-warn"],
+    ["test", "--outline"] + ordinary_args,
     snapshot,
     Map([]),
   )
   ordinary_outline.check()
-  let ordinary_count = ordinary_test_count(ordinary_outline.stdout())
+  let ordinary_count = ordinary_test_count(
+    ordinary_outline.stdout(),
+    required_packages,
+  )
   for
     (name, args) in [
       ("check", ["check", "--target", "native", "--frozen", "--deny-warn"]),
-      ("ordinary", ["test", "--target", "native", "--frozen", "--deny-warn"]),
+      ("ordinary", ["test"] + ordinary_args),
       ("release", ["build", "--target", "native", "--release", "--frozen"]),
     ] {
     run(name, "moon", args, snapshot, Map([])).check()
@@ -491,6 +536,7 @@ async fn main {
     (
       {
         "ordinary_tests": ordinary_count.to_json(),
+        "ordinary_packages": required_packages.to_json(),
         "workers": workers.length().to_json(),
         "source_unchanged": true,
         "cleanup": true,

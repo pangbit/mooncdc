@@ -11,7 +11,6 @@ The accepted toolchain is `moonc v0.10.14+7d59c7ec9` with
 `moon 0.1.20260920 (914d7da)`. Dependencies are pinned in `moon.mod`.
 Provision dependencies separately with `moon update` when network use is allowed;
 the following commands use the existing cache and never publish a package.
-Native test drivers also require `rg` on `PATH`; CI provisions it when absent.
 
 ```sh
 moon version --all
@@ -46,15 +45,19 @@ target directory so runtime does not trigger a compilation at the smaller stack.
 Native unit discovery alone does not prove environment-gated live bodies ran.
 Derive the expected test identities from this source, rather than freezing an old
 17/21/43/260/439/451 total into a new acceptance gate.
+The active-store driver requires the root, CLI, memory and YAML package groups,
+then executes that same explicit selection and checks its exact discovered total.
 
 ## Package consumer
 
-From a reviewed clean commit, `moon run tools/package-test.mbtx --frozen` uses
+From a reviewed clean commit, `moon run tools/package-test.mbtx --target native --frozen` uses
 `git archive`, checks archive contents and runs an extracted-module native
 consumer. Its `-- --phase consumers` variant selects consumer checks. A dirty
 review tree must instead be packaged and inventoried explicitly; `git archive`
 would export the old committed base. Local workspace consumers do not establish
 registry resolution or publishing permission. See [releasing](RELEASING.md).
+Run the driver itself with the native backend so its owned/evidence directories
+use the restricted `/tmp` namespace consistently on Linux and macOS.
 
 ## Isolated database tests
 

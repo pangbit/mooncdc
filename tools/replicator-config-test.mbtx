@@ -151,7 +151,7 @@ async fn main {
   let build = dir + "/build"
   let build_args = cli_build_args(mode, build)
   @shell.Cmd("moon", build_args).run()
-  let files = @shell.Cmd("rg", ["--files", "--hidden", "--no-ignore", build]).output()
+  let files = @shell.Cmd("find", [build, "-type", "f"]).output()
   files.check()
   let executables = files
     .stdout()

@@ -487,16 +487,20 @@ async test "live parallel copy batch IDs durability failure cancellation and bud
             assert_eq(batch.governor.registered_slots(), 0UL)
             assert_eq(control.activities().length(), 0)
             drop_slot(sql, "parallel_target")
-            assert_eq(
-              cell(
-                sql.query(
-                  "SELECT count(*)::text FROM pg_stat_activity WHERE application_name='mooncdc_snapshot' AND datname=current_database()",
-                ),
-                0,
-                0,
-              ),
-              "0",
-            )
+            // Local handles are closed before the server removes its backends.
+            // Keep the local cleanup checks immediate and bound this observation.
+            @async.with_timeout(2000, () => {
+              while cell(
+                      sql.query(
+                        "SELECT count(*)::text FROM pg_stat_activity WHERE application_name='mooncdc_snapshot' AND datname=current_database()",
+                      ),
+                      0,
+                      0,
+                    ) !=
+                    "0" {
+                @async.sleep(20)
+              }
+            })
           }
         },
       )

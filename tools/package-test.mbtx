@@ -628,8 +628,8 @@ async fn main {
   }
   let consumer_files = run(
     "consumer-artifact-files",
-    "rg",
-    ["--files", "--hidden", "--no-ignore", dir + "/_build"],
+    "find",
+    [dir + "/_build", "-type", "f"],
     owned,
   )
   consumer_files.check()
@@ -883,12 +883,7 @@ async fn main {
     ],
     dir + "/module",
   ).check()
-  let built = @shell.Cmd("rg", [
-    "--files",
-    "--hidden",
-    "--no-ignore",
-    dir + "/cli-build",
-  ]).output()
+  let built = @shell.Cmd("find", [dir + "/cli-build", "-type", "f"]).output()
   built.check()
   let executables = built
     .stdout()
