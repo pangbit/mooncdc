@@ -1,8 +1,16 @@
 /AGENTS.md
 /MoonCDC_REQUIREMENTS.md
 _build/
+target/
 .mooncakes/
 .test-artifacts/
+__pycache__/
+*.pyc
 *.checkpoint
 *.checkpoint.lock
 *.checkpoint.tmp
+/docs/reports/
+/extensions/
+/moon.work
+/tools/package-footprint-sample*
+/tools/commit-subject-check*

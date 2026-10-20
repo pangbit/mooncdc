@@ -39,7 +39,7 @@ Heartbeat feedback reports only the business-durable position. If published tabl
 quiet while unrelated tables generate WAL, a healthy connection can still retain increasing
 WAL; server-end progress does not advance the checkpoint. Monitor retained WAL even when
 reconnects and outstanding transactions are zero. This behavior is covered by the
-[isolated PG17/18 validation](reports/SLOT_SAFETY_VALIDATION.md). Do not externally advance
+isolated PG17/18 validation [validation scope](VALIDATION.md). Do not externally advance
 the slot to hide this growth: a slot ahead of the checkpoint is rejected on resume.
 
 When a frame/transaction/queue limit is reached, business ack does not advance. Diagnose

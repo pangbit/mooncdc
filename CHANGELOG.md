@@ -2,6 +2,37 @@
 
 ## 0.1.0 — Unreleased
 
+- Persist SchemaStore history through an exclusive StateStore namespace, including
+  PostgreSQL recovery without a local schema file and stale-owner write rejection.
+
+- Select or skip initial table rows by OID while retaining schema setup, empty
+  destination durability, WAL handover and completed-table restart state.
+
+- Add optional scoped HTTP liveness/readiness probes with dual-stack binding,
+  precise IPv4 fallback, and listener cleanup on host return, error or cancellation.
+
+- Observe pipeline lifecycle and monotonic copy/WAL activity through ApplyControl;
+  evaluate read-only liveness/readiness, including idle keepalives and blocked
+  destination writes/flushes without treating progress as durability.
+
+- Drain admitted ClickHouse transaction writes despite source-caller cancellation
+  before replay, table reset or shutdown. Preserve per-request client deadlines
+  and allow cancellation while waiting for admission.
+
+- Persist complete table-handover decoding masks and restore connection-local
+  schema lineage after source retries. Expose exact per-event schemas through
+  Transaction.replicated_schemas; ClickHouse consumes them before row writes.
+
+- Share one pipeline retry budget across initial source setup, source stream
+  recovery and destination failures; preserve fatal state and callback boundaries.
+
+- Retry transient main-apply destination writes and flushes from the durable
+  checkpoint with a bounded budget, while keeping table-copy workers active.
+
+- Prune obsolete schema versions after durable pipeline checkpoints, bounded by
+  replay position, table ownership and destination recovery metadata. Retain both
+  endpoints of pending ClickHouse DDL; custom destinations opt in explicitly.
+
 - Add ClickHouseDestination with RowBinary snapshot/CDC writes, primary-key tombstones,
   FULL TOAST reconstruction, persistent schema bindings and restart layout validation.
   Verify both engines on PostgreSQL 17/18 and ClickHouse 26.4, plus 3,800 upstream
