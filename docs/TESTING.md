@@ -11,6 +11,7 @@ The accepted toolchain is `moonc v0.10.14+7d59c7ec9` with
 `moon 0.1.20260920 (914d7da)`. Dependencies are pinned in `moon.mod`.
 Provision dependencies separately with `moon update` when network use is allowed;
 the following commands use the existing cache and never publish a package.
+Native test drivers also require `rg` on `PATH`; CI provisions it when absent.
 
 ```sh
 moon version --all
@@ -21,6 +22,7 @@ moon test tools/package-test.mbtx --target native --frozen
 moon test tools/replicator-config-test.mbtx --target native --frozen
 moon test tools/publish-check.mbtx --target native --frozen
 moon test tools/cli-active-promotion-test.mbtx --target native --frozen
+moon test tools/active-store-promotion-test.mbtx --target native --frozen
 python3 -B tools/package-footprint-sample_test.py
 moon info --target native --frozen && moon fmt
 moon fmt --check

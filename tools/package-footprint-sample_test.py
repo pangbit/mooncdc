@@ -143,6 +143,10 @@ class LiveAllocationTests(unittest.TestCase):
                 legacy_scan()
 
     def test_confirmed_descendant_deletion_finishes_remaining_paths(self):
+        # The scan counts the directory before observing its removal. Keep that
+        # allocation even on filesystems where directories occupy data blocks.
+        expected = sum(p.lstat().st_blocks * 512
+                       for p in (self.root, self.victim, self.root / "retained"))
         ready, removed = self.concurrent_remover()
         scanner = threading.get_ident()
         real_iterdir = Path.iterdir
@@ -159,7 +163,6 @@ class LiveAllocationTests(unittest.TestCase):
             measured = footprint.allocated_bytes(roots, on_missing=lambda *event: missing.append(event))
         self.assertEqual(len(attempts), 1)
         self.assertEqual(len(missing), 1)
-        expected = sum(p.lstat().st_blocks * 512 for p in [self.root, *self.root.iterdir()])
         self.assertEqual(measured, expected)
         self.assertGreater(measured, 0)
 

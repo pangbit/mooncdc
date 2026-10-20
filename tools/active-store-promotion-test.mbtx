@@ -6,6 +6,78 @@ import {
   "moonbitlang/async@0.22.4/process",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
+  "moonbitlang/core/string",
+}
+
+///|
+fn ordinary_test_count(outline : String) -> Int raise {
+  let seen : Map[String, Bool] = Map([])
+  let mut count = 0
+  for line in outline.split("\n").filter(line => !line.trim().is_empty()) {
+    guard line.trim().split_once(". ") is Some((ordinal, identity)) else {
+      fail("invalid ordinary test outline")
+    }
+    assert_eq(@string.parse_int(ordinal), count + 1)
+    let identity = identity.to_owned()
+    assert_true(identity.contains(" index="))
+    assert_false(
+      seen.contains(identity),
+      msg="duplicate ordinary test identity",
+    )
+    seen[identity] = true
+    count += 1
+  }
+  assert_true(count > 0, msg="empty ordinary test discovery")
+  count
+}
+
+///|
+fn require_ordinary_summary(output : String, count : Int) -> Unit raise {
+  assert_true(count > 0)
+  let summaries = output
+    .split("\n")
+    .filter(line => line.has_prefix("Total tests:"))
+    .collect()
+  assert_eq(summaries.length(), 1)
+  assert_eq(summaries[0], "Total tests: \{count}, passed: \{count}, failed: 0.")
+}
+
+///|
+test "active-store discovery requires nonempty sequential unique identities" {
+  assert_eq(
+    ordinary_test_count("1. p a.mbt:1 index=0\n2. p b.mbt:1 index=0\n"),
+    2,
+  )
+  for
+    invalid in [
+      "", "garbage\n", "2. p a.mbt:1 index=0\n", "1. p a.mbt:1\n", "1. p a.mbt:1 index=0\n2. p a.mbt:1 index=0\n",
+    ] {
+    try ordinary_test_count(invalid) catch {
+      _ => ()
+    } noraise {
+      _ => fail("invalid ordinary discovery accepted")
+    }
+  }
+}
+
+///|
+test "active-store summary rejects stale incomplete failed and duplicate results" {
+  let count = ordinary_test_count(
+    "1. p a.mbt:1 index=0\n2. p b.mbt:1 index=0\n",
+  )
+  require_ordinary_summary("Total tests: 2, passed: 2, failed: 0.\n", count)
+  for
+    invalid in [
+      "Total tests: 439, passed: 439, failed: 0.\n", "Total tests: 1, passed: 1, failed: 0.\n",
+      "Total tests: 2, passed: 1, failed: 1.\n", "Total tests: 2, passed: 1, failed: 0.\n",
+      "prefix Total tests: 2, passed: 2, failed: 0.\n", "Total tests: 2, passed: 2, failed: 0.\nTotal tests: 2, passed: 2, failed: 0.\n",
+    ] {
+    try require_ordinary_summary(invalid, count) catch {
+      _ => ()
+    } noraise {
+      _ => fail("invalid ordinary result accepted")
+    }
+  }
 }
 
 ///|
@@ -105,6 +177,15 @@ async fn main {
   }
   @shell.Cmd("cp", ["-R", repo + "/.mooncakes", snapshot + "/.mooncakes"]).run()
   run("tracked-sha256", "shasum", ["-a", "256"] + paths, repo, Map([])).check()
+  let ordinary_outline = run(
+    "ordinary-outline",
+    "moon",
+    ["test", "--outline", "--target", "native", "--frozen", "--deny-warn"],
+    snapshot,
+    Map([]),
+  )
+  ordinary_outline.check()
+  let ordinary_count = ordinary_test_count(ordinary_outline.stdout())
   for
     (name, args) in [
       ("check", ["check", "--target", "native", "--frozen", "--deny-warn"]),
@@ -136,10 +217,9 @@ async fn main {
     Some(backend) => [backend]
     None => ["legacy", "file"]
   }
-  assert_true(
-    @fs.read_file(evidence + "/ordinary.stdout")
-    .text()
-    .contains("Total tests: 439, passed: 439, failed: 0."),
+  require_ordinary_summary(
+    @fs.read_file(evidence + "/ordinary.stdout").text(),
+    ordinary_count,
   )
   for service in services {
     let image = match service {
@@ -410,7 +490,7 @@ async fn main {
     evidence + "/summary.json",
     (
       {
-        "ordinary_tests": 439,
+        "ordinary_tests": ordinary_count.to_json(),
         "workers": workers.length().to_json(),
         "source_unchanged": true,
         "cleanup": true,
@@ -420,6 +500,6 @@ async fn main {
   println(
     "ACTIVE STORE audit passed: " +
     workers.length().to_string() +
-    " workers;439ordinary;source unchanged;owned resources removed",
+    " workers;\{ordinary_count} ordinary;source unchanged;owned resources removed",
   )
 }

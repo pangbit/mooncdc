@@ -61,6 +61,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      - name: Ensure ripgrep for native test drivers
+        run: |
+          if command -v rg >/dev/null 2>&1; then
+            rg --version
+          elif [[ "$RUNNER_OS" == 'macOS' ]]; then
+            brew install ripgrep
+          else
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
       - name: Configure accepted Linux build stack
         if: runner.os == 'Linux'
         run: |
@@ -103,6 +113,7 @@ jobs:
           moon test tools/package-test.mbtx --target native
           moon test tools/replicator-config-test.mbtx --target native
           moon test tools/cli-active-promotion-test.mbtx --target native
+          moon test tools/active-store-promotion-test.mbtx --target native
           python3 -B tools/package-footprint-sample_test.py
       - name: Build release CLI
         timeout-minutes: 15
@@ -189,6 +200,10 @@ jobs:
           MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
       - if: matrix.service == 'pg18'
         run: moon run tools/clickhouse-crash-test.mbtx
+      # This driver exercises both PG17 and PG18 with pre-provisioned images.
+      - name: Prepare active-store promotion images
+        if: matrix.service == 'pg18'
+        run: docker pull postgres:17.11
       - if: matrix.service == 'pg18'
         run: moon run tools/active-store-promotion-test.mbtx --target native
       - if: always()
