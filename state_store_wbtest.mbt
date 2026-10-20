@@ -87,6 +87,7 @@ async test "file state sessions fence ownership preserve exact metadata and reje
 ///|
 async test "live PostgreSQL state store exclusive ownership and lost session never reconnects" {
   if live_config() is Some(config) {
+    let control = ApplyControl()
     let sql = connect(config, 16777216, false)
     defer sql.close()
     ignore(sql.query("CREATE SCHEMA cdc_state_store"))
@@ -96,6 +97,7 @@ async test "live PostgreSQL state store exclusive ownership and lost session nev
       store_id="quoted ' \\ key",
       schema="cdc_state_store",
       table="state\"table",
+      control~,
     )
     let second = PostgresStateStore::new(
       config,
@@ -135,6 +137,7 @@ async test "live PostgreSQL state store exclusive ownership and lost session nev
         _ => fail("second PostgreSQL owner admitted")
       }
       let pid = cell(first.query_owned("SELECT pg_backend_pid()::text"), 0, 0)
+      let before_failure = query_metric_count(control, StateStore)
       assert_eq(
         cell(sql.query("SELECT pg_terminate_backend(\{pid},5000)::text"), 0, 0),
         "true",
@@ -144,6 +147,7 @@ async test "live PostgreSQL state store exclusive ownership and lost session nev
       } noraise {
         _ => fail("lost owner wrote")
       }
+      assert_eq(query_metric_count(control, StateStore), before_failure + 1UL)
       with_state_store(second, next => {
         assert_eq(next.get_metadata(42U), Some(Json::string("durable")))
         next.put_metadata(42U, "new owner")
@@ -153,11 +157,15 @@ async test "live PostgreSQL state store exclusive ownership and lost session nev
         } noraise {
           _ => fail("old owner reconnected")
         }
+        assert_eq(query_metric_count(control, StateStore), before_failure + 1UL)
       })
     })
     with_state_store(first, session => {
       assert_eq(session.get_metadata(42U), Some(Json::string("new owner")))
     })
+    assert_true(query_metric_count(control, StateStore) > 1UL)
+    assert_eq(query_metric_count(control, Queries), 0UL)
+    println("STATE QUERY METRICS\n" + control.prometheus())
     println(
       "LIVE: PostgreSQL state ownership, atomic records, quoted identity and closed-session fencing passed",
     )

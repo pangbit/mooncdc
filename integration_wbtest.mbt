@@ -1,6 +1,8 @@
 ///|
 fn live_config() -> ConnectionConfig? raise {
   @env.get_env_var("MOONCDC_TEST_PORT").map(port => {
+    hostaddr: None,
+    keepalive: TcpKeepaliveConfig::new(),
     host: "127.0.0.1",
     port: @string.parse_int(port),
     user: "cdc",

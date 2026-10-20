@@ -25,6 +25,8 @@ async fn mock_replication(
   rejected_slot? : Array[String?],
   binary? : Bool = false,
   messages? : Bool = false,
+  protocol? : PgOutputProtocol = V1,
+  identified? : Source,
 ) -> Unit {
   let size = Cursor::new(tcp.read_exactly(4)).i32()
   ignore(tcp.read_exactly(size - 4))
@@ -47,13 +49,24 @@ async fn mock_replication(
         assert_eq(tcp.read_some(), None)
         return
       }
+      let identity = identified.unwrap_or({
+        system_id: if mode == "changed" {
+          "other"
+        } else {
+          "system"
+        },
+        timeline: "1",
+        database: "db",
+        slot: "slot",
+        publication: "pub",
+      })
       mock_row(tcp, [
-        Some(if mode == "changed" { "other" } else { "system" }),
-        Some("1"),
+        Some(identity.system_id),
+        Some(identity.timeline),
         Some("0/100"),
-        Some("db"),
+        Some(identity.database),
       ])
-      if mode == "changed" {
+      if mode == "changed" || mode == "transition" {
         assert_eq(tcp.read_some(), None)
         return
       }
@@ -80,6 +93,8 @@ async fn mock_replication(
       assert_true(query.has_prefix("START_REPLICATION"))
       assert_eq(query.contains("binary 'true'"), binary)
       assert_eq(query.contains("messages 'true'"), messages)
+      assert_eq(query.contains("proto_version '2'"), protocol == V2Streaming)
+      assert_eq(query.contains("streaming 'on'"), protocol == V2Streaming)
       if mode == "start" {
         return
       }
@@ -130,6 +145,8 @@ async fn reconnect_scenario(
     let dir = @fs.tmpdir(prefix="mooncdc-reconnect-")
     defer @fs.rmdir(dir, recursive=true)
     let config : ConnectionConfig = {
+      hostaddr: None,
+      keepalive: TcpKeepaliveConfig::new(),
       host: "127.0.0.1",
       port: server.addr.port(),
       user: "user",

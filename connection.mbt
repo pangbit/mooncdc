@@ -10,12 +10,111 @@ pub(all) enum Security {
 /// Connection settings. Passwords are deliberately excluded from Debug output.
 pub(all) struct ConnectionConfig {
   host : String
+  hostaddr : String?
   port : Int
   user : String
   password : String
   database : String
   security : Security
   timeout_ms : Int
+  keepalive : TcpKeepaliveConfig
+}
+
+///|
+/// TCP probe settings in seconds, matching the pinned ETL replication defaults.
+pub(all) struct TcpKeepaliveConfig {
+  idle_secs : Int
+  interval_secs : Int
+  retries : Int
+} derive(Eq, Debug)
+
+///|
+pub extend TcpKeepaliveConfig with Eq::{equal, not_equal}
+
+///|
+pub extend TcpKeepaliveConfig with Debug::{to_repr}
+
+///|
+pub fn TcpKeepaliveConfig::new(
+  idle_secs? : Int = 30,
+  interval_secs? : Int = 10,
+  retries? : Int = 3,
+) -> TcpKeepaliveConfig {
+  { idle_secs, interval_secs, retries, }
+}
+
+///|
+/// Construct validated connection settings. host remains the TLS server name;
+/// optional numeric hostaddr overrides only the network destination.
+pub fn ConnectionConfig::new(
+  host~ : String,
+  user~ : String,
+  password? : String = "",
+  database? : String = "postgres",
+  port? : Int = 5432,
+  security? : Security = VerifyFull,
+  timeout_ms? : Int = 5000,
+  hostaddr? : String,
+  keepalive? : TcpKeepaliveConfig = TcpKeepaliveConfig::new(),
+) -> ConnectionConfig raise {
+  let config = {
+    host,
+    hostaddr,
+    user,
+    password,
+    database,
+    port,
+    security,
+    timeout_ms,
+    keepalive,
+  }
+  validate_connection(config)
+  config
+}
+
+///|
+fn connection_hostaddr(config : ConnectionConfig) -> @socket.Addr? raise {
+  config.hostaddr.map(ip => {
+    if ip.contains("\u0000") {
+      raise InvalidConfig("NUL in hostaddr")
+    }
+    if ip.contains("%") {
+      raise InvalidConfig("hostaddr must not contain an IPv6 scope")
+    }
+    let address = if ip.contains(":") {
+      "[\{ip}]:\{config.port}"
+    } else {
+      "\{ip}:\{config.port}"
+    }
+    @socket.Addr::parse(address) catch {
+      _ =>
+        raise InvalidConfig(
+          "hostaddr must be a numeric IP address without a port",
+        )
+    }
+  })
+}
+
+///|
+priv struct QueryObservation {
+  metrics : RuntimeMetrics
+  pool : SessionWorkload
+}
+
+///|
+fn QueryObservation::record(
+  self : QueryObservation,
+  started : @bench.Timestamp,
+) -> Unit {
+  let pool = if self.pool is StateStore {
+    "postgres_store"
+  } else {
+    "out_of_band"
+  }
+  self.metrics.duration(
+    "mooncdc_postgres_query_seconds{pool=\"" + pool + "\"}",
+    started,
+  )
 }
 
 ///|
@@ -25,6 +124,8 @@ priv struct Connection {
   reader : &@io.Reader
   writer : &@io.Writer
   limit : Int
+  frame_role : FrameConnectionRole
+  queries : QueryObservation?
 }
 
 ///|
@@ -37,7 +138,7 @@ fn Connection::close(self : Connection) -> Unit {
 
 ///|
 async fn Connection::read(self : Connection) -> (Byte, Bytes) {
-  read_frame(self.reader, self.limit)
+  read_frame(self.reader, self.limit, role=self.frame_role)
 }
 
 ///|
@@ -50,6 +151,15 @@ fn validate_connection(config : ConnectionConfig) -> Unit raise {
   if config.port <= 0 || config.port > 65535 || config.timeout_ms <= 0 {
     raise InvalidConfig("port or timeout")
   }
+  if config.host.is_empty() {
+    raise InvalidConfig("empty host")
+  }
+  if config.keepalive.idle_secs <= 0 ||
+    config.keepalive.interval_secs <= 0 ||
+    config.keepalive.retries <= 0 {
+    raise InvalidConfig("TCP keepalive values must be positive")
+  }
+  let dial = connection_hostaddr(config)
   for value in [config.host, config.user, config.database, config.password] {
     if value.contains("\u0000") {
       raise InvalidConfig("NUL in connection configuration")
@@ -63,6 +173,12 @@ fn validate_connection(config : ConnectionConfig) -> Unit raise {
     config.host != "::1" {
     raise InvalidConfig("plaintext is restricted to numeric loopback addresses")
   }
+  if config.security is LocalPlaintext &&
+    dial is Some(address) &&
+    address != @socket.Addr::parse("127.0.0.1:\{config.port}") &&
+    address != @socket.Addr::parse("[::1]:\{config.port}") {
+    raise InvalidConfig("plaintext hostaddr is restricted to loopback")
+  }
 }
 
 ///|
@@ -70,10 +186,24 @@ async fn connect(
   config : ConnectionConfig,
   limit : Int,
   replication : Bool,
+  workload? : SessionWorkload,
+  worker? : SessionWorker,
+  metrics? : RuntimeMetrics,
 ) -> Connection {
   validate_connection(config)
+  let workload = workload.unwrap_or(
+    if replication {
+      Replication
+    } else {
+      Queries
+    },
+  )
+  let (application_name, options) = workload.settings(worker?)
   @async.with_timeout(config.timeout_ms, () => {
-    let tcp = @socket.Tcp::connect_to_host(config.host, port=config.port)
+    let tcp = match connection_hostaddr(config) {
+      Some(address) => @socket.Tcp::connect(address)
+      None => @socket.Tcp::connect_to_host(config.host, port=config.port)
+    }
     let mut tls_socket : @tls.Tls? = None
     errdefer {
       if tls_socket is Some(t) {
@@ -81,6 +211,11 @@ async fn connect(
       }
       tcp.close()
     }
+    tcp.enable_keepalive(
+      idle_before_keep_alive=config.keepalive.idle_secs,
+      keep_alive_interval=config.keepalive.interval_secs,
+      keep_alive_count=config.keepalive.retries,
+    )
     let (reader, writer) : (&@io.Reader, &@io.Writer) = match config.security {
       LocalPlaintext => (tcp, tcp)
       _ => {
@@ -97,7 +232,15 @@ async fn connect(
         (t, t)
       }
     }
-    let conn = Connection::{ tcp, tls: tls_socket, reader, writer, limit, }
+    let conn = Connection::{
+      tcp,
+      tls: tls_socket,
+      reader,
+      writer,
+      limit,
+      frame_role: frame_connection_role(workload, worker),
+      queries: metrics.map(metrics => { metrics, pool: workload, }),
+    }
     let body = @buffer.Buffer()
     body.write_int_be(196608)
     for
@@ -105,10 +248,8 @@ async fn connect(
         ("user", config.user),
         ("database", config.database),
         ("client_encoding", "UTF8"),
-        ("application_name", "mooncdc"),
-        (
-          "options", "-c DateStyle=ISO,YMD -c TimeZone=UTC -c bytea_output=hex -c extra_float_digits=3 -c IntervalStyle=postgres",
-        ),
+        ("application_name", application_name),
+        ("options", options),
       ] {
       cstring(body, k)
       cstring(body, v)
@@ -211,6 +352,8 @@ async fn Connection::query(
   sql : String,
   max_result_bytes? : Int = 67108864,
 ) -> Array[Array[String?]] {
+  let started = @bench.monotonic_clock_start()
+  defer (if self.queries is Some(observer) { observer.record(started) })
   let out = @buffer.Buffer()
   cstring(out, sql)
   self.send(b'Q', out.to_bytes())

@@ -1,0 +1,82 @@
+///|
+import {
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/fs",
+  "moonbitlang/async@0.22.4/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let root = @env.current_dir().unwrap()
+  let artifacts = root + "/.test-artifacts/memory-reference"
+  if !@fs.exists(artifacts) {
+    @fs.mkdir(artifacts, recursive=true)
+  }
+  let archive = artifacts + "/sysinfo-0.39.6.crate"
+  if !@fs.exists(archive) {
+    @shell.Cmd("curl", [
+      "--fail", "--location", "--retry", "3", "https://static.crates.io/crates/sysinfo/sysinfo-0.39.6.crate",
+      "--output", archive,
+    ]).run()
+  }
+  let digest = @shell.Cmd("shasum", ["-a", "256", archive]).output()
+  digest.check()
+  assert_true(
+    digest
+    .stdout()
+    .has_prefix(
+      "d2071df9448915b71c4fe6d25deaf1c22f12bd234f01540b77312bb8e41361e6  ",
+    ),
+  )
+  let dir = @fs.tmpdir(prefix="mooncdc-sampler-reference-")
+  defer @fs.rmdir(dir, recursive=true)
+  @shell.Cmd("tar", ["xzf", archive, "--strip-components=1", "-C", dir]).run()
+  @fs.write_file(
+    dir + "/driver.rs",
+    "#![allow(dead_code)]\nmacro_rules! sysinfo_debug { ($($arg:tt)*) => {}; }\n" +
+    @fs.read_file(dir + "/src/unix/linux/cgroup.rs").text() +
+    "\n" +
+    @fs.read_file(root + "/integration/reference/sysinfo_cgroup_driver.rs").text(),
+  )
+  @shell.Cmd("rustc", [
+    "--edition=2021",
+    dir + "/driver.rs",
+    "-o",
+    dir + "/reference",
+  ]).run()
+  let built = @shell.Cmd("moon", [
+    "test", "internal/memory/sampler_reference_wbtest.mbt", "--target", "native",
+    "--build-only",
+  ]).output()
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("one sampler test executable required")
+  }
+  let result = @shell.Cmd(executable, ["sampler_reference_wbtest.mbt:0-1"], env={
+    "MOONCDC_SAMPLER_FIXTURES": dir + "/fixtures",
+  }).output()
+  result.check()
+  let mut passed = 0
+  for line in result.stdout().split("\n") {
+    if line.has_prefix("{") &&
+      @json.parse(line) is { "type": "result", "message": String(message), .. } {
+      if message != "" {
+        fail(result.stdout())
+      }
+      passed += 1
+    }
+  }
+  assert_eq(passed, 1)
+  let reference = @shell.Cmd(dir + "/reference", [dir + "/fixtures/input.tsv"]).output()
+  reference.check()
+  let actual = @fs.read_file(dir + "/fixtures/actual.txt").text()
+  @fs.write_file(artifacts + "/sampler-mooncdc.txt", actual)
+  @fs.write_file(artifacts + "/sampler-sysinfo.txt", reference.stdout())
+  assert_eq(actual, reference.stdout())
+  println(
+    "SAMPLER matched 96 vectors against unmodified sysinfo 0.39.6 cgroup functions",
+  )
+}

@@ -1,0 +1,153 @@
+///|
+import { "moonbitlang/async@0.22.4", "moonbitlang/async@0.22.4/fs", "moonbitlang/async@0.22.4/shell", "moonbitlang/async@0.22.4/process", "moonbitlang/async@0.22.4/socket", "moonbitlang/async@0.22.4/http", "moonbitlang/core/env", "moonbitlang/core/json", "moonbitlang/core/buffer", "moonbitlang/core/encoding/utf8" }
+
+///|
+async fn main {
+  let repo = @env.current_dir().unwrap()
+  let root = @fs.tmpdir(prefix="mooncdc-configcat-")
+  let evidence = root + "/evidence"
+  let snapshot = root + "/source"
+  @fs.mkdir(evidence)
+  @fs.mkdir(snapshot)
+  @fs.write_file("/tmp/mooncdc-configcat-root.txt",root)
+  println("CONFIGCAT ROOT: " + root)
+  let vars = @env.get_env_vars()
+  for key in vars.keys().to_array() {if key.has_prefix("APP_") || key.has_prefix("MOONCDC_") {vars.remove(key)}}
+  vars["RUST_LOG"] = "error"
+  let commands : Array[Json] = []
+  let run = async fn(name:String,program:String,args:Array[String],cwd:String)->@shell.Output {
+    let result = @shell.Cmd(program,args,cwd~,env=vars,inherit_env=false).output(timeout_ms=300000,max_output_bytes=20000000)
+    @fs.write_file(evidence + "/" + name + ".stdout",result.stdout_bytes())
+    @fs.write_file(evidence + "/" + name + ".stderr",result.stderr())
+    commands.push({"name":name.to_json(),"program":program.to_json(),"args":args.to_json(),"cwd":cwd.to_json(),"exit_code":result.exit_code().to_json()})
+    @fs.write_file(evidence + "/commands.json",commands.to_json().stringify(indent=2))
+    println("CONFIGCAT AUDIT: " + name + " exit=" + result.exit_code().to_string())
+    result
+  }
+  run("source","git",["rev-parse","HEAD","HEAD^{tree}"],repo).check()
+  run("initial-status","git",["status","--porcelain=v1"],repo).check()
+  run("tested-source","git",["diff","--binary","HEAD","--",".",":(exclude)docs/reports/evidence"],repo).check()
+  run("toolchain","moon",["version","--all"],repo).check()
+  run("host","uname",["-a"],repo).check()
+  let files = @shell.Cmd("git",["ls-files","--cached","--others","--exclude-standard","-z","--",".",":(exclude)docs/reports/evidence"],cwd=repo).output()
+  files.check()
+  let paths = files.stdout().split("\u0000").filter(p=>!p.is_empty()).map(p=>p.to_owned()).collect()
+  for path in paths {
+    let parts = path.split("/").collect()
+    if parts.length()>1 {@fs.mkdir(snapshot + "/" + parts[:parts.length()-1].join("/"),recursive=true,allow_exist=true)}
+    @fs.write_file(snapshot + "/" + path,@fs.read_file(repo + "/" + path))
+  }
+  @shell.Cmd("cp",["-R",repo + "/.mooncakes",snapshot + "/.mooncakes"]).run()
+  run("tracked-sha256","shasum",["-a","256"] + paths,repo).check()
+  for (name,args) in [("check",["check","--target","native","--frozen","--deny-warn"]),("ordinary",["test","--target","native","--frozen","--deny-warn"]),("debug",["build","--target","native","--frozen"]),("release",["build","--target","native","--release","--frozen"])] {run(name,"moon",args,snapshot).check()}
+  let executable = snapshot + "/_build/native/debug/build/cmd/replicator/replicator.exe"
+  let pids : Array[String] = []
+  for format in ["json","yaml"] {
+    let http = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+    defer http.close()
+    let pg = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+    defer pg.close()
+    let sdk_key = "configcat-sdk-1/abcdefghijklmnopqrstuv/ABCDEFGHIJKLMNOPQRSTUV"
+    let source_secret = "SOURCE-TEST-SECRET"
+    let base = "http://127.0.0.1:\{http.addr.port()}/prefix"
+    let path = evidence + "/config-" + format + "." + format
+    let config : Json = {"id":"flags-live","publication":"unused","source":{"host":"127.0.0.1","port":pg.addr.port().to_json(),"user":"cdc","password":source_secret.to_json(),"security":"local_plaintext"},"destination":{"type":"clickhouse","url":"http://127.0.0.1:1","user":"cdc","database":"unused"},"run_source_migrations":false,"metrics":Json::null(),"supabase":{"project_ref":"controlled-project","configcat_sdk_key":sdk_key.to_json(),"configcat_base_url":base.to_json(),"configcat_poll_interval_ms":20,"configcat_http_timeout_ms":1000}}
+    if format == "json" {@fs.write_file(path,config.stringify(indent=2))} else {
+      let yaml =
+        #|id: flags-live
+        #|publication: unused
+        #|source:
+        #|  host: 127.0.0.1
+        #|  port: PGPORT
+        #|  user: cdc
+        #|  password: SOURCE-TEST-SECRET
+        #|  security: local_plaintext
+        #|destination:
+        #|  type: clickhouse
+        #|  url: http://127.0.0.1:1
+        #|  user: cdc
+        #|  database: unused
+        #|run_source_migrations: false
+        #|metrics: null
+        #|supabase:
+        #|  project_ref: controlled-project
+        #|  configcat_sdk_key: SDKKEY
+        #|  configcat_base_url: HTTPBASE
+        #|  configcat_poll_interval_ms: 20
+        #|  configcat_http_timeout_ms: 1000
+      @fs.write_file(path,yaml.replace_all(old="PGPORT",new=pg.addr.port().to_string()).replace_all(old="SDKKEY",new=sdk_key).replace_all(old="HTTPBASE",new=base))
+    }
+    run(format + "-offline",executable,["--config",path,"--check"],snapshot).check()
+    let invalid_vars = vars.copy()
+    invalid_vars["APP_SUPABASE__CONFIGCAT_SDK_KEY"] = "INVALID-SECRET"
+    let invalid = @shell.Cmd(executable,["--config",path,"--check"],cwd=snapshot,env=invalid_vars,inherit_env=false).output()
+    @fs.write_file(evidence + "/" + format + "-invalid.stdout",invalid.stdout())
+    @fs.write_file(evidence + "/" + format + "-invalid.stderr",invalid.stderr())
+    assert_eq(invalid.exit_code(),1)
+    assert_true(invalid.stderr().contains("supabase.configcat_sdk_key: invalid SDK key"))
+    assert_false(invalid.stderr().contains("INVALID-SECRET"))
+    @fs.write_file(evidence + "/" + format + "-invalid.json",({"program":executable.to_json(),"args":["--config",path.to_json(),"--check"],"exit_code":invalid.exit_code().to_json(),"env":{"APP_SUPABASE__CONFIGCAT_SDK_KEY":"INVALID-SECRET"}}:Json).stringify(indent=2))
+    let output = @process.redirect_to_file(evidence + "/" + format + "-worker.log")
+    defer output.close()
+    let captured : Array[Json] = []
+    @async.with_timeout(30000,()=>@async.with_task_group(group=>{
+      group.spawn_bg(no_wait=true,()=>{
+        while true {
+          let (tcp,_) = http.accept()
+          let conn = @http.ServerConnection::new(tcp)
+          defer conn.close()
+          let request = conn.read_request()
+          assert_eq(request.meth,@http.Get)
+          assert_eq(request.path,"/prefix/configuration-files/" + sdk_key + "/config_v6.json")
+          assert_eq(request.headers["X-ConfigCat-UserAgent"],"ConfigCat-MoonCDC/a-0.1.0")
+          assert_false(request.path.contains("controlled-project"))
+          assert_true(request.headers.get("apikey") is None)
+          if captured.is_empty() {assert_true(request.headers.get("If-None-Match") is None)} else {assert_eq(request.headers["If-None-Match"],"controlled-etag")}
+          let code = if captured.is_empty() {200} else if captured.length()==1 {304} else {503}
+          captured.push({"path":request.path.to_json(),"headers":request.headers.to_json(),"response_code":code.to_json()})
+          @fs.write_file(evidence + "/" + format + "-requests.json",captured.to_json().stringify(indent=2))
+          conn.send_response(code,"Controlled",extra_headers={"ETag":"controlled-etag"})
+          if code == 200 {conn.write("{\"f\":{},\"s\":[]}")} else if code != 304 {conn.write("RAW-CONFIGCAT-SECRET")}
+          conn.end_response()
+        }
+      })
+      group.spawn_bg(()=>{
+        let (tcp,_) = pg.accept()
+        defer tcp.close()
+        let head = tcp.read_exactly(4)
+        let length = head[0].to_int()*16777216 + head[1].to_int()*65536 + head[2].to_int()*256 + head[3].to_int()
+        assert_true(length>=8 && length<=65536)
+        ignore(tcp.read_exactly(length-4))
+        while captured.length()<3 {@async.sleep(1)}
+        @async.sleep(5)
+        let body = @utf8.encode("SERROR\u0000C08006\u0000Mcontrolled-pipeline-failure " + source_secret + " " + sdk_key + "\u0000\u0000")
+        let packet = @buffer.Buffer()
+        packet.write_byte(b'E')
+        packet.write_int_be(body.length()+4)
+        packet.write_bytes(body)
+        tcp.write(packet.to_bytes())
+      })
+      let child = @process.spawn(group,executable,["--config",path],stdout=output,stderr=output,inherit_env=false,extra_env=vars,cancel_handler=@process.hard_cancel())
+      pids.push(child.pid.to_string())
+      @fs.write_file(evidence + "/" + format + "-worker.json",({"pid":child.pid.to_string().to_json(),"program":executable.to_json(),"args":["--config",path.to_json()],"expected_exit":1}:Json).stringify(indent=2))
+      let code = child.wait()
+      assert_eq(code,1)
+      assert_true(captured.length()>=3)
+      let log = @fs.read_file(evidence + "/" + format + "-worker.log").text()
+      assert_true(log.contains("ConfigCat refresh failed"))
+      assert_true(log.contains("PostgreSQL [08006]: controlled-pipeline-failure"))
+      assert_false(log.contains(source_secret))
+      assert_false(log.contains(sdk_key))
+      assert_false(log.contains("RAW-CONFIGCAT-SECRET"))
+      @fs.write_file(evidence + "/" + format + "-result.json",({"pid":child.pid.to_string().to_json(),"exit_code":code.to_json(),"requests":captured.length().to_json(),"etag":true,"failure_nonfatal":true,"secrets_redacted":true}:Json).stringify(indent=2))
+    }))
+    println("CONFIGCAT CLI: " + format + " polls 200/304/503 with ETag and preserves redacted pipeline failure")
+  }
+  let cleanup = run("worker-cleanup","ps",["-o","pid=,comm=","-p",pids.join(",")],repo)
+  assert_eq(cleanup.exit_code(),1)
+  assert_eq(cleanup.stdout().trim(),"")
+  for path in paths {if @fs.read_file(repo + "/" + path).binary() != @fs.read_file(snapshot + "/" + path).binary() {fail("source changed: " + path)}}
+  @fs.write_file(evidence + "/workers.json",pids.to_json().stringify())
+  @fs.write_file(evidence + "/summary.json",({"cli_workers":2,"formats":["json","yaml"],"requests":"200 then304 then503","pipeline_exit_code":1,"source_unchanged":true,"cleanup":true,"external_services":false}:Json).stringify(indent=2))
+  println("CONFIGCAT complete: local JSON/YAML CLI and scoped HTTP tests; source immutable; owned workers/listeners closed")
+}

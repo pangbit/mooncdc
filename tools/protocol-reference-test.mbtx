@@ -1,0 +1,97 @@
+///|
+import {
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/fs",
+  "moonbitlang/async@0.22.4/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let root = @env.current_dir().unwrap()
+  let artifacts = root + "/.test-artifacts/pglogrepl-reference"
+  if !@fs.exists(artifacts) {
+    @fs.mkdir(artifacts, recursive=true)
+  }
+  let archive = artifacts + "/pglogrepl.tar.gz"
+  if !@fs.exists(archive) {
+    @shell.Cmd("curl", [
+      "--fail", "--location", "--retry", "3", "https://codeload.github.com/jackc/pglogrepl/tar.gz/4ae5c490f7ce97fb0b918eed3023b35c16990f5a",
+      "--output", archive,
+    ]).run()
+  }
+  let digest = @shell.Cmd("shasum", ["-a", "256", archive]).output()
+  digest.check()
+  assert_true(
+    digest
+    .stdout()
+    .has_prefix(
+      "254f21022d9a96d2e909e33ff0eecd87ba26eba813e0484d95ce65a2c054e749  ",
+    ),
+  )
+  let checkout = @fs.tmpdir(prefix="mooncdc-pglogrepl-")
+  defer @fs.rmdir(checkout, recursive=true)
+  @shell.Cmd("tar", ["xzf", archive, "--strip-components=1", "-C", checkout]).run()
+  @fs.mkdir(checkout + "/mooncdc_driver")
+  @fs.write_file(
+    checkout + "/mooncdc_driver/main.go",
+    @fs.read_file(root + "/integration/reference/pglogrepl_driver.go"),
+  )
+  let driver = artifacts + "/driver"
+  @shell.Cmd(
+    "go",
+    ["-C", checkout, "build", "-mod=readonly", "-o", driver, "./mooncdc_driver"],
+    env={
+      "GOCACHE": artifacts + "/go-cache",
+      "GOMODCACHE": artifacts + "/go-modules",
+    },
+  ).run()
+  let built = @shell.Cmd("moon", [
+    "test", "protocol_reference_wbtest.mbt", "--target", "native", "--build-only",
+  ]).output()
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("one whitebox executable required")
+  }
+  let run = async fn(phase : String, path : String) -> Unit {
+    let result = @shell.Cmd(executable, ["protocol_reference_wbtest.mbt:0-1"], env={
+      "MOONCDC_PROTOCOL_PHASE": phase,
+      "MOONCDC_PROTOCOL_FILE": path,
+    }).output()
+    result.check()
+    let mut passed = 0
+    let mut marker = false
+    for line in result.stdout().split("\n") {
+      if line.has_prefix("{") &&
+        @json.parse(line)
+        is { "type": "result", "message": String(message), .. } {
+        if message != "" {
+          fail(result.stdout())
+        }
+        passed += 1
+      }
+      if line.has_prefix("PROTOCOL ") {
+        println(line)
+        marker = true
+      }
+    }
+    assert_eq(passed, 1)
+    assert_true(marker)
+  }
+  let input = artifacts + "/input.json"
+  let output = artifacts + "/output.json"
+  run("generate", input)
+  @shell.Cmd(driver, [input, output]).run()
+  let expected = root + "/integration/reference/pglogrepl-expected.json"
+  if @env.args().contains("--record") {
+    @fs.write_file(expected, @fs.read_file(output))
+  } else {
+    assert_eq(
+      @json.parse(@fs.read_file(output).text()),
+      @json.parse(@fs.read_file(expected).text()),
+    )
+  }
+  run("verify", output)
+}

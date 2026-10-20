@@ -45,6 +45,28 @@ async fn ClickHouseDestination::stored_record(
 }
 
 ///|
+pub impl Destination for ClickHouseDestination with fn schema_retention(
+  self,
+  oid,
+) {
+  self.mutex.acquire()
+  defer self.mutex.release()
+  self.check()
+  guard self.stored_record(oid) is Some(record) else { return None }
+  let current = record.projected().schema.id
+  if record.previous is Some(json) {
+    let previous : ChStoredTable = @json.from_json(json)
+    let schema = previous.projected().schema
+    if schema.oid != oid || previous.previous is Some(_) {
+      raise UnsafeResume("invalid ClickHouse schema retention metadata")
+    }
+    Some(if schema.id < current { schema.id } else { current })
+  } else {
+    Some(current)
+  }
+}
+
+///|
 fn ChStoredTable::projected(self : ChStoredTable) -> ReplicatedSchema raise {
   ReplicatedSchema::new(
     SchemaSnapshot::from_json(self.schema),
@@ -241,7 +263,14 @@ async fn ClickHouseDestination::resolve_table(
   relation : Relation,
   commit : Lsn,
   current : Map[UInt, SchemaSnapshot],
+  resolved? : ReplicatedSchema,
 ) -> ChTable {
+  if resolved is Some(schema) {
+    if schema.schema.oid != relation.oid {
+      raise Protocol("resolved ClickHouse table mismatch")
+    }
+    return self.prepare_schema(schema)
+  }
   let source = match current.get(relation.oid) {
     Some(schema) => schema
     None => {

@@ -40,6 +40,8 @@ async test "custom destination can implement public contract with default lifecy
   let destination = PublicDestination::{ flushed: false, }
   @mooncdc.with_destination(destination, () => {
     let target : &@mooncdc.Destination = destination
+    assert_eq(target.schema_retention(42U), None)
+    assert_false(target.supports_wal_batches())
     target.flush()
   })
   assert_true(destination.flushed)
@@ -52,6 +54,8 @@ async test "custom destination can implement public contract with default lifecy
 async test "pipeline public configuration rejects limits before connecting" {
   let destination = PublicDestination::{ flushed: false, }
   let config : @mooncdc.ConnectionConfig = {
+    hostaddr: None,
+    keepalive: @mooncdc.TcpKeepaliveConfig::new(),
     host: "127.0.0.1",
     port: 1,
     user: "user",
@@ -60,7 +64,7 @@ async test "pipeline public configuration rejects limits before connecting" {
     security: @mooncdc.LocalPlaintext,
     timeout_ms: 10,
   }
-  for concurrency in [0, 17] {
+  for concurrency in [0, 257] {
     try
       @mooncdc.run_pipeline(
         config,

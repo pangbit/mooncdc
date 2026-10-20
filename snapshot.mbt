@@ -54,8 +54,10 @@ pub async fn copy_snapshot(
   publication~ : String,
   consume : async (SnapshotEvent) -> Unit,
   batch_rows? : Int = 256,
+  copy_connections? : Int = 1,
   max_frame_bytes? : Int = 16777216,
   max_batch_bytes? : Int = 67108864,
+  slot_failover? : Bool = false,
 ) -> SnapshotPosition {
   copy_snapshot_impl(
     connection,
@@ -63,10 +65,12 @@ pub async fn copy_snapshot(
     publication~,
     consume,
     batch_rows~,
+    copy_connections~,
     max_frame_bytes~,
     max_batch_bytes~,
     temporary=false,
     table=None,
+    slot_failover~,
   )
 }
 
@@ -77,16 +81,26 @@ async fn copy_snapshot_impl(
   publication~ : String,
   consume : async (SnapshotEvent) -> Unit,
   batch_rows~ : Int,
+  copy_connections? : Int = 1,
   max_frame_bytes~ : Int,
   max_batch_bytes~ : Int,
   temporary~ : Bool,
   table~ : UInt?,
   schema_store? : &SchemaStore,
   after_copy? : async (Connection, SnapshotPosition) -> Unit,
+  on_snapshot? : (SnapshotPosition) -> Unit,
+  before_snapshot_schema? : async (SnapshotPosition) -> Unit,
   on_schema? : async (Relation, SchemaSnapshot) -> Unit,
+  activity_control? : ApplyControl,
+  copy_rows? : Bool = true,
+  slot_failover? : Bool = false,
+  worker? : SessionWorker,
+  before_read? : async (ActivityHandle?) -> Unit,
+  batch? : BatchRuntime,
 ) -> SnapshotPosition {
   identifier(slot)
   identifier(publication)
+  validate_copy_connections(copy_connections)
   if batch_rows <= 0 ||
     batch_rows > 1024 ||
     max_frame_bytes < 64 ||
@@ -94,7 +108,14 @@ async fn copy_snapshot_impl(
     max_batch_bytes < max_frame_bytes {
     raise InvalidConfig("invalid snapshot row/frame/batch limit")
   }
-  let exporter = connect(connection, max_frame_bytes, true)
+  let exporter = connect(
+    connection,
+    max_frame_bytes,
+    true,
+    workload=SnapshotExporter,
+    worker?,
+    metrics?=activity_control.map(control => control.metrics_data),
+  )
   defer exporter.close()
   let source = @async.with_timeout(connection.timeout_ms, () => {
     identify(exporter, connection, slot, publication)
@@ -107,9 +128,18 @@ async fn copy_snapshot_impl(
   if pubs.length() != 1 {
     raise UnsafeResume("publication missing")
   }
-  let lifetime = if temporary { " TEMPORARY" } else { "" }
+  if slot_failover {
+    @async.with_timeout(connection.timeout_ms, () => {
+      require_slot_failover(exporter)
+    })
+  }
   let created = exporter.snapshot_query(
-    "CREATE_REPLICATION_SLOT \{slot}\{lifetime} LOGICAL pgoutput EXPORT_SNAPSHOT",
+    create_slot_sql(
+      slot,
+      temporary~,
+      export_snapshot=true,
+      failover=slot_failover,
+    ),
     connection.timeout_ms,
     max_batch_bytes,
   )
@@ -119,8 +149,25 @@ async fn copy_snapshot_impl(
     raise Protocol("invalid exported slot metadata")
   }
   let lsn = Lsn::parse(cell(created, 0, 1))
+  if on_snapshot is Some(notify) {
+    notify({ lsn, source, })
+  }
+  if before_snapshot_schema is Some(prepare) {
+    prepare({ lsn, source, })
+  }
+  let activity = activity_control.map(control => {
+    control.observe(InitialTableCopy)
+  })
+  defer (if activity is Some(activity) { activity.close() })
   let snapshot = sql_literal(cell(created, 0, 2))
-  let reader = connect(connection, max_frame_bytes, false)
+  let reader = connect(
+    connection,
+    max_frame_bytes,
+    false,
+    workload=SnapshotReader,
+    worker?,
+    metrics?=activity_control.map(control => control.metrics_data),
+  )
   defer reader.close()
   ignore(
     reader.snapshot_query(
@@ -198,55 +245,80 @@ async fn copy_snapshot_impl(
     // Inheritance children are listed separately, so ONLY avoids copying them
     // twice. Partition roots expand when selected by publish_via_partition_root.
     let only = if cell(meta, 0, 2) == "p" { "" } else { "ONLY " }
-    let filter = match table.get(2) {
-      Some(Some(expression)) => " WHERE " + expression
-      _ => ""
-    }
-    ignore(
-      reader.snapshot_query(
-        "DECLARE mooncdc_snapshot NO SCROLL CURSOR FOR SELECT \{projection} FROM \{only}\{qualified}\{filter}",
-        connection.timeout_ms,
-        max_batch_bytes,
-      ),
-    )
-    consume(TableBegin(relation))
-    for ;; {
-      let rows = reader.snapshot_query(
-        "FETCH FORWARD \{batch_rows} FROM mooncdc_snapshot",
-        connection.timeout_ms,
-        max_batch_bytes,
+    let row_filter = table.get(2).bind(value => value)
+    let filter = row_filter.map_or("", expression => " WHERE " + expression)
+    if copy_rows && copy_connections == 1 {
+      ignore(
+        reader.snapshot_query(
+          "DECLARE mooncdc_snapshot NO SCROLL CURSOR FOR SELECT \{projection} FROM \{only}\{qualified}\{filter}",
+          connection.timeout_ms,
+          max_batch_bytes,
+        ),
       )
-      if rows.is_empty() {
-        break
-      }
-      let values : Array[ReadOnlyArray[Value]] = rows.map(row => {
-        if row.length() != columns.length() {
-          raise Protocol("snapshot tuple column count")
-        }
-        ReadOnlyArray::from_array(
-          row.map(value => {
-            match value {
-              Some(text) => Text(text)
-              None => Null
-            }
-          }),
-        )
-      })
-      consume(TableRows(relation, ReadOnlyArray::from_array(values)))
     }
-    ignore(
-      reader.snapshot_query(
-        "CLOSE mooncdc_snapshot",
+    consume(TableBegin(relation))
+    if copy_rows && copy_connections > 1 {
+      // The planner remains in its imported snapshot and holds the table lock.
+      // Each worker owns its activity observation while this connection waits.
+      reader.copy_snapshot_parallel(
+        connection,
+        snapshot,
+        relation,
+        cell(meta, 0, 2) == "p",
+        row_filter,
+        copy_connections,
+        batch_rows,
+        max_frame_bytes,
+        max_batch_bytes,
+        activity,
+        rows => consume(TableRows(relation, rows)),
+        activity_control?,
+        worker?,
+        before_read?,
+        batch?,
+      )
+    } else if copy_rows {
+      if activity is Some(activity) {
+        let labels = "{" + activity.metric_worker() + "}"
+        let bounds : Array[Double] = [
+          0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024,
+        ]
+        // The compatibility serial path uses one logical-table cursor, even
+        // for an empty table or a partitioned parent; no block estimate exists.
+        activity.metrics.sample(
+          "mooncdc_copy_planned_partitions" + labels,
+          1,
+          bounds,
+        )
+        activity.metrics.sample(
+          "mooncdc_copy_effective_partitions" + labels,
+          1,
+          bounds,
+        )
+      }
+      reader.copy_snapshot_cursor(
+        columns.length(),
+        batch_rows,
         connection.timeout_ms,
         max_batch_bytes,
-      ),
-    )
+        activity,
+        rows => consume(TableRows(relation, rows)),
+        before_read?,
+        batch?,
+      )
+    }
     consume(TableEnd(relation))
+    if activity is Some(activity) {
+      activity.ping()
+    }
   }
   ignore(
     reader.snapshot_query("COMMIT", connection.timeout_ms, max_batch_bytes),
   )
   let position : SnapshotPosition = { lsn, source, }
+  if activity is Some(activity) {
+    activity.close()
+  }
   if after_copy is Some(finish) {
     finish(exporter, position)
   }

@@ -1,0 +1,283 @@
+///|
+import {
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/fs",
+  "moonbitlang/async@0.22.4/io",
+  "moonbitlang/async@0.22.4/process",
+  "moonbitlang/async@0.22.4/shell",
+  "moonbitlang/async@0.22.4/socket",
+  "moonbitlang/core/buffer",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+fn length(bytes : BytesView) -> Int raise {
+  let n = (bytes[0].to_int() << 24) |
+    (bytes[1].to_int() << 16) |
+    (bytes[2].to_int() << 8) |
+    bytes[3].to_int()
+  if n < 4 || n > 16777216 {
+    fail("invalid PostgreSQL frame length")
+  }
+  n
+}
+
+///|
+fn query_packet(sql : String) -> Bytes {
+  let body = @utf8.encode(sql)
+  let out = @buffer.Buffer()
+  out.write_byte(b'Q')
+  out.write_int_be(body.length() + 5)
+  out.write_bytes(body)
+  out.write_byte(b'\x00')
+  out.to_bytes()
+}
+
+///|
+async fn main {
+  let built = @shell.Cmd("moon", [
+    "test", "source_migrations_process_wbtest.mbt", "--target", "native", "--build-only",
+  ]).output()
+  errdefer eprintln(built.stderr())
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("one native whitebox executable required")
+  }
+  let service = @env.get_env_var("MOONCDC_EXAMPLE_SERVICE").unwrap_or("pg18")
+  let port = match service {
+    "pg17" => 55417
+    "pg18" => 55418
+    _ => fail("invalid service")
+  }
+  let dir = @fs.tmpdir(prefix="mooncdc-migration-")
+  defer @fs.rmdir(dir, recursive=true)
+  let name = dir
+    .split("/")
+    .collect()
+    .last()
+    .unwrap()
+    .to_owned()
+    .to_lower()
+    .replace_all(old=".", new="_")
+    .replace_all(old="-", new="_")
+  let sql = async fn(database : String, query : String) -> String {
+    let result = @shell.Cmd("docker", [
+      "compose", "-p", "mooncdc-test", "-f", "integration/compose.yaml", "exec",
+      "-T", service, "psql", "-U", "cdc", "-d", database, "-v", "ON_ERROR_STOP=1",
+      "-Atc", query,
+    ]).output()
+    errdefer eprintln(result.stderr())
+    result.check()
+    result.stdout().trim().to_owned()
+  }
+  for index, stage in ["before_send", "before_commit", "after_commit"] {
+    let database = name + "_\{index}"
+    ignore(sql("postgres", "CREATE DATABASE \{database}"))
+    defer @async.protect_from_cancel(() => {
+      ignore(sql("postgres", "DROP DATABASE \{database} WITH (FORCE)"))
+    })
+    let listener = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+    defer listener.close()
+    let mut boundary = false
+    let mut seen_migration = false
+    let mut closing = false
+    let mut stopping = false
+    let mut downstream : @socket.Tcp? = None
+    let mut upstream : @socket.Tcp? = None
+    let output = @process.redirect_to_file(dir + "/worker.log")
+    defer output.close()
+    @async.with_timeout(30000, () => {
+      @async.with_task_group(group => {
+        let proxy = group.spawn(() => {
+          let (client, _) = listener.accept()
+          downstream = Some(client)
+          defer client.close()
+          let server = @socket.Tcp::connect(
+            @socket.Addr::parse("127.0.0.1:\{port}"),
+          )
+          upstream = Some(server)
+          defer server.close()
+          let header = client.read_exactly(4)
+          let body = client.read_exactly(length(header[:]) - 4)
+          server.write(header)
+          server.write(body)
+          @async.with_task_group(relay => {
+            relay.spawn_bg(() => {
+              try {
+                while !closing {
+                  let header = client.read_exactly(5)
+                  let body = client.read_exactly(length(header[1:]) - 4)
+                  if header[0] == b'Q' && !seen_migration {
+                    let query = @utf8.decode(body)
+                    if query.contains(
+                        "INSERT INTO etl._sqlx_migrations(version",
+                      ) {
+                      seen_migration = true
+                      if stage == "before_send" {
+                        boundary = true
+                        while !closing {
+                          @async.sleep(5)
+                        }
+                        break
+                      }
+                      if stage == "before_commit" {
+                        // Pause after the history INSERT and before COMMIT. Enable
+                        // server-side disconnect checks so closing this owned relay
+                        // aborts the sleeping transaction instead of awaiting 30s.
+                        assert_true(query.has_suffix("; COMMIT;\u0000"))
+                        let query = "SET client_connection_check_interval=10; " +
+                          query[:query.length() - 1]
+                          .to_owned()
+                          .replace(
+                            old="; COMMIT;",
+                            new="; SELECT pg_sleep(30); COMMIT;",
+                          )
+                        server.write(query_packet(query))
+                        continue
+                      }
+                    }
+                  }
+                  server.write(header)
+                  server.write(body)
+                }
+              } catch {
+                error => if !stopping { raise error }
+              }
+            })
+            relay.spawn_bg(() => {
+              try {
+                while !closing {
+                  let header = server.read_exactly(5)
+                  let body = server.read_exactly(length(header[1:]) - 4)
+                  if stage == "after_commit" &&
+                    seen_migration &&
+                    header[0] == b'C' &&
+                    body == b"COMMIT\x00" {
+                    boundary = true
+                    while !closing {
+                      @async.sleep(5)
+                    }
+                    break
+                  }
+                  client.write(header)
+                  client.write(body)
+                }
+              } catch {
+                error => if !stopping { raise error }
+              }
+            })
+          })
+        })
+        let child = @process.spawn(
+          group,
+          executable,
+          ["source_migrations_process_wbtest.mbt:0-1"],
+          extra_env={
+            "MOONCDC_TEST_PORT": listener.addr.port().to_string(),
+            "MOONCDC_MIGRATION_DATABASE": database,
+          },
+          stdout=output,
+          stderr=output,
+          cancel_handler=@process.hard_cancel(),
+        )
+        @async.with_timeout(15000, () => {
+          while !boundary {
+            if child.try_wait() is Some(code) {
+              fail(
+                "worker exited before boundary \{code}: \{@fs.read_file(dir + "/worker.log").text()}",
+              )
+            }
+            if stage == "before_commit" && seen_migration {
+              boundary = sql(
+                  database, "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND application_name='mooncdc_source_migrations' AND wait_event='PgSleep' AND xact_start IS NOT NULL",
+                ) ==
+                "1"
+            }
+            @async.sleep(10)
+          }
+        })
+        stopping = true
+        @shell.Cmd("kill", ["-KILL", child.pid.to_string()]).run()
+        assert_eq(child.wait(), -9)
+        closing = true
+        if downstream is Some(socket) {
+          socket.close()
+        }
+        if upstream is Some(socket) {
+          socket.close()
+        }
+        proxy.cancel()
+        proxy.wait() catch {
+          @async.WaitedTaskAlreadyCancelled => ()
+          error => raise error
+        }
+      })
+    })
+    @async.with_timeout(5000, () => {
+      while sql(
+              database, "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND application_name='mooncdc_source_migrations'",
+            ) !=
+            "0" {
+        @async.sleep(20)
+      }
+    })
+    let expected = if stage == "after_commit" { "1" } else { "0" }
+    assert_eq(
+      sql(database, "SELECT count(*) FROM etl._sqlx_migrations"),
+      expected,
+    )
+    assert_eq(
+      sql(
+        database, "SELECT count(*) FROM etl._sqlx_migrations WHERE NOT success",
+      ),
+      "0",
+    )
+    let oid_query = "SELECT p.oid::text || ':' || p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='etl' ORDER BY p.oid"
+    let functions = sql(database, oid_query)
+    if stage != "after_commit" {
+      assert_eq(functions, "")
+    } else {
+      assert_true(!functions.is_empty())
+      assert_eq(
+        sql(database, "SELECT execution_time FROM etl._sqlx_migrations"),
+        "-1",
+      )
+    }
+    let recover = async fn() -> Unit {
+      let result = @shell.Cmd(
+        executable,
+        ["source_migrations_process_wbtest.mbt:0-1"],
+        env={
+          "MOONCDC_TEST_PORT": port.to_string(),
+          "MOONCDC_MIGRATION_DATABASE": database,
+        },
+      ).output()
+      result.check()
+      assert_true(result.stdout().contains("MIGRATION worker completed"))
+      let mut count = 0
+      for line in result.stdout().split("\n") {
+        if line.has_prefix("{") &&
+          @json.parse(line)
+          is { "type": "result", "message": String(message), .. } {
+          assert_eq(message, "")
+          count += 1
+        }
+      }
+      assert_eq(count, 1)
+    }
+    recover()
+    if stage == "after_commit" {
+      assert_eq(sql(database, oid_query), functions)
+    }
+    let history_query = "SELECT version::text || ':' || encode(checksum,'hex') || ':' || installed_on::text || ':' || execution_time::text FROM etl._sqlx_migrations ORDER BY version"
+    let history = sql(database, history_query)
+    recover()
+    assert_eq(sql(database, history_query), history)
+    println(
+      "MIGRATION CRASH: \{service} \{stage}, SIGKILL and fresh-process convergence passed",
+    )
+  }
+}

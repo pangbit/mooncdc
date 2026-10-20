@@ -1,0 +1,16 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/core/bench",
+  "moonbitlang/core/string",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/async/fs",
+}
+
+import {
+  "moonbitlang/core/json",
+  "moonbitlang/core/env",
+} for "wbtest"
+
+options(
+  "native-stub": [ "host_memory.c" ],
+)

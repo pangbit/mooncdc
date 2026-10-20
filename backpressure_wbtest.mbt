@@ -6,6 +6,8 @@ async test "backpressure waits for durable prefix and resumes without losing tra
     let dir = @fs.tmpdir(prefix="mooncdc-pressure-")
     defer @fs.rmdir(dir, recursive=true)
     let config : ConnectionConfig = {
+      hostaddr: None,
+      keepalive: TcpKeepaliveConfig::new(),
       host: "127.0.0.1",
       port: server.addr.port(),
       user: "user",

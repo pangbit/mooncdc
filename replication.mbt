@@ -1,4 +1,18 @@
 ///|
+/// pgoutput v2 buffers streamed, possibly aborted transactions until Stream Commit.
+/// V1 remains the default and the pipeline protocol.
+pub(all) enum PgOutputProtocol {
+  V1
+  V2Streaming
+} derive(Eq, Debug)
+
+///|
+pub extend PgOutputProtocol with Eq::{equal, not_equal}
+
+///|
+pub extend PgOutputProtocol with Debug::{to_repr}
+
+///|
 fn identifier(value : String) -> Unit raise {
   if value.is_empty() || value.length() > 63 {
     raise InvalidConfig("identifier length")
@@ -49,6 +63,18 @@ async fn start_replication(
   start : Lsn,
   binary? : Bool = false,
   messages? : Bool = false,
+  protocol? : PgOutputProtocol = V1,
+) -> Unit {
+  validate_replication_position(conn, source, durable, start)
+  begin_replication(conn, source, start, binary~, messages~, protocol~)
+}
+
+///|
+async fn validate_replication_position(
+  conn : Connection,
+  source : Source,
+  durable : Lsn,
+  start : Lsn,
 ) -> Unit {
   // A logical replication connection in database mode permits SQL before COPY BOTH.
   let query = "SELECT plugin, database, restart_lsn::text, confirmed_flush_lsn::text, wal_status, invalidation_reason, active::text FROM pg_replication_slots WHERE slot_name = '\{source.slot}'"
@@ -81,7 +107,6 @@ async fn start_replication(
   if start > Lsn::parse(cell(current, 0, 2)) {
     raise UnsafeResume("start position is ahead of server WAL")
   }
-  begin_replication(conn, source, start, binary~, messages~)
 }
 
 ///|
@@ -93,13 +118,18 @@ async fn begin_replication(
   start : Lsn,
   binary~ : Bool,
   messages~ : Bool,
+  protocol? : PgOutputProtocol = V1,
 ) -> Unit {
   let out = @buffer.Buffer()
   let transfer = if binary { ", binary 'true'" } else { "" }
   let logical = if messages { ", messages 'true'" } else { "" }
+  let (version, streaming) = match protocol {
+    V1 => ("1", "")
+    V2Streaming => ("2", ", streaming 'on'")
+  }
   cstring(
     out,
-    "START_REPLICATION SLOT \{source.slot} LOGICAL \{start.to_string()} (proto_version '1', publication_names '\{source.publication}'\{transfer}\{logical})",
+    "START_REPLICATION SLOT \{source.slot} LOGICAL \{start.to_string()} (proto_version '\{version}', publication_names '\{source.publication}'\{transfer}\{logical}\{streaming})",
   )
   conn.send(b'Q', out.to_bytes())
   let (tag, body) = conn.read()
@@ -112,7 +142,11 @@ async fn begin_replication(
 }
 
 ///|
-async fn Connection::feedback(self : Connection, durable : Lsn) -> Unit {
+async fn Connection::feedback(
+  self : Connection,
+  durable : Lsn,
+  request_reply? : Bool = false,
+) -> Unit {
   let out = @buffer.Buffer()
   out.write_byte(b'r')
   // Receive/write/flush/apply are conservatively the business-durable position.
@@ -120,6 +154,6 @@ async fn Connection::feedback(self : Connection, durable : Lsn) -> Unit {
     out.write_uint64_be(durable.value)
   }
   out.write_int64_be((@async.now() - 946684800000L) * 1000L)
-  out.write_byte(b'\x00')
+  out.write_byte(if request_reply { b'\x01' } else { b'\x00' })
   self.send(b'd', out.to_bytes())
 }

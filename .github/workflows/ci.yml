@@ -5,19 +5,55 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Resource evidence is scoped: the controlled compiler window used 256 tasks.
+# The b96a741 Linux database diagnostic peaked at 264 under temporary 512/stop384,
+# kept CPU4/memory6GiB/swap0, and restored 256 after cleanup. These are fixture
+# budgets, not product minima or permanent permission to change a host limit.
+# The GitHub-hosted jobs below set no aggregate TasksMax/pids.max; a green run
+# here is separate evidence and must not claim that diagnostic's cgroup profile.
+env:
+  MOONBIT_TOOLCHAIN: '0.10.14+7d59c7ec9'
 jobs:
+  commit-subjects:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test subject grammar and Git event ranges
+        run: python3 -B tools/commit-subject-check_test.py
+      - name: Check introduced non-merge commit subjects
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: python3 -B tools/commit-subject-check.py --github-event "$GITHUB_EVENT_PATH" --event-name "$GITHUB_EVENT_NAME"
   codec-reference:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Configure accepted Linux build stack
+        run: |
+          printf 'ulimit -S -s 65536\n' > "$RUNNER_TEMP/mooncdc-build-env.sh"
+          echo "BASH_ENV=$RUNNER_TEMP/mooncdc-build-env.sh" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: false
       - name: Install MoonBit
         run: |
-          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh -o "$RUNNER_TEMP/install-moonbit.sh"
+          bash "$RUNNER_TEMP/install-moonbit.sh" "$MOONBIT_TOOLCHAIN"
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+          test "$("$HOME/.moon/bin/moon" version | sed -n '1p')" = 'moon 0.1.20260920 (914d7da 2026-09-20)'
+          test "$("$HOME/.moon/bin/moonc" -v)" = 'v0.10.14+7d59c7ec9 (2026-09-18)'
       - run: moon update
       - run: moon run tools/codec-reference-test.mbtx
+      - run: moon run tools/config-reference-test.mbtx
+      - run: moon run tools/protocol-reference-test.mbtx
+      - run: moon run tools/memory-reference-test.mbtx
+      - run: moon run tools/memory-sampler-reference-test.mbtx
   native:
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -25,20 +61,60 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      - name: Configure accepted Linux build stack
+        if: runner.os == 'Linux'
+        run: |
+          printf 'ulimit -S -s 65536\n' > "$RUNNER_TEMP/mooncdc-build-env.sh"
+          echo "BASH_ENV=$RUNNER_TEMP/mooncdc-build-env.sh" >> "$GITHUB_ENV"
       - name: Install MoonBit
         run: |
-          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh -o "$RUNNER_TEMP/install-moonbit.sh"
+          bash "$RUNNER_TEMP/install-moonbit.sh" "$MOONBIT_TOOLCHAIN"
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+          test "$("$HOME/.moon/bin/moon" version | sed -n '1p')" = 'moon 0.1.20260920 (914d7da 2026-09-20)'
+          test "$("$HOME/.moon/bin/moonc" -v)" = 'v0.10.14+7d59c7ec9 (2026-09-18)'
       - run: moon version --all
       - run: moon update
-      - run: moon check --target native --deny-warn
-      - run: moon test --target native
+      - run: moon check . cmd/replicator internal/memory internal/yaml --target native --deny-warn
+      - name: Build native debug tests (Linux 64 MiB stack)
+        timeout-minutes: 15
+        run: |
+          if [[ "$RUNNER_OS" == 'Linux' ]]; then ulimit -S -s 65536; fi
+          moon test . cmd/replicator internal/memory internal/yaml --target native --frozen --build-only
+      - name: Run native debug tests (8 MiB stack)
+        timeout-minutes: 5
+        run: |
+          ulimit -S -s 8192
+          moon test . cmd/replicator internal/memory internal/yaml --target native --frozen
+      - name: Build native release tests (Linux 64 MiB stack)
+        timeout-minutes: 25
+        run: |
+          if [[ "$RUNNER_OS" == 'Linux' ]]; then ulimit -S -s 65536; fi
+          moon test . cmd/replicator internal/memory internal/yaml --target native --frozen --release --build-only
+      - name: Run native release tests (8 MiB stack)
+        timeout-minutes: 5
+        run: |
+          ulimit -S -s 8192
+          moon test . cmd/replicator internal/memory internal/yaml --target native --frozen --release
+      # Pure response-parser tests; `moon run` would upload a registry dry-run.
       - run: moon test tools/publish-check.mbtx
-      - run: moon build --target native --release
+      - name: Check maintenance parser and allocation regressions
+        run: |
+          moon test tools/package-test.mbtx --target native
+          moon test tools/replicator-config-test.mbtx --target native
+          moon test tools/cli-active-promotion-test.mbtx --target native
+          moon test tools/active-store-promotion-test.mbtx --target native
+          python3 -B tools/package-footprint-sample_test.py
+      - name: Build release CLI
+        timeout-minutes: 15
+        run: moon build --target native --release --frozen
+      - run: moon run tools/replicator-config-test.mbtx
+      - run: moon run tools/connection-options-asan.mbtx
+      - run: moon run tools/memory-sampler-asan.mbtx
       - run: moon info --target native && moon fmt --check
       - run: git diff --exit-code -- '*.mbti'
       - run: moon doc && moon package --list
-      - run: moon run tools/package-test.mbtx
+      - run: moon run tools/package-test.mbtx --target native
   postgres:
     runs-on: ubuntu-latest
     strategy:
@@ -53,10 +129,17 @@ jobs:
             slot_port: 55427
     steps:
       - uses: actions/checkout@v5
+      - name: Configure accepted Linux build stack
+        run: |
+          printf 'ulimit -S -s 65536\n' > "$RUNNER_TEMP/mooncdc-build-env.sh"
+          echo "BASH_ENV=$RUNNER_TEMP/mooncdc-build-env.sh" >> "$GITHUB_ENV"
       - name: Install MoonBit
         run: |
-          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh -o "$RUNNER_TEMP/install-moonbit.sh"
+          bash "$RUNNER_TEMP/install-moonbit.sh" "$MOONBIT_TOOLCHAIN"
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+          test "$("$HOME/.moon/bin/moon" version | sed -n '1p')" = 'moon 0.1.20260920 (914d7da 2026-09-20)'
+          test "$("$HOME/.moon/bin/moonc" -v)" = 'v0.10.14+7d59c7ec9 (2026-09-18)'
       - run: docker compose -p mooncdc-test -f integration/compose.yaml up -d --wait ${{ matrix.service }}
       - run: moon version --all
       - run: moon update
@@ -80,11 +163,39 @@ jobs:
       - run: moon run tools/pipeline-crash-test.mbtx
         env:
           MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
+      - run: moon run tools/pipeline-crash-test.mbtx
+        env:
+          MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
+          MOONCDC_PIPELINE_FAILOVER: 'true'
       - run: moon run tools/clickhouse-test.mbtx
         env:
           MOONCDC_TEST_PORT: ${{ matrix.port }}
+      - run: moon run tools/replicator-test.mbtx
+        env:
+          MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
+      - run: moon run tools/replicator-test.mbtx
+        env:
+          MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
+          MOONCDC_PIPELINE_FAILOVER: 'true'
+          MOONCDC_REPLICATOR_FORMAT: yaml
+      - run: moon run tools/standby-test.mbtx
+        env:
+          MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
+      - run: moon run tools/standby-test.mbtx
+        env:
+          MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
+          MOONCDC_STANDBY_FAILOVER: 'true'
+      - run: moon run tools/migration-crash-test.mbtx
+        env:
+          MOONCDC_EXAMPLE_SERVICE: ${{ matrix.service }}
       - if: matrix.service == 'pg18'
         run: moon run tools/clickhouse-crash-test.mbtx
+      # This driver exercises both PG17 and PG18 with pre-provisioned images.
+      - name: Prepare active-store promotion images
+        if: matrix.service == 'pg18'
+        run: docker pull postgres:17.11
+      - if: matrix.service == 'pg18'
+        run: moon run tools/active-store-promotion-test.mbtx --target native
       - if: always()
         run: docker compose -p mooncdc-clickhouse-test -f integration/clickhouse.compose.yaml down -v
       - name: Start isolated WAL invalidation fixture

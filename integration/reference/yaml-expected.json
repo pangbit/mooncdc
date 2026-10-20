@@ -1,0 +1,250 @@
+[
+  {
+    "name": "empty",
+    "value": {}
+  },
+  {
+    "name": "comments",
+    "value": {}
+  },
+  {
+    "name": "mapping",
+    "value": {
+      "id": "demo",
+      "source": {
+        "host": "localhost",
+        "port": 5432
+      }
+    }
+  },
+  {
+    "name": "scalar cases",
+    "value": {
+      "a": true,
+      "b": "True",
+      "c": "TRUE",
+      "d": false,
+      "e": "False",
+      "f": "yes",
+      "g": "on",
+      "h": null,
+      "i": "Null",
+      "j": "NULL",
+      "k": null,
+      "l": null
+    }
+  },
+  {
+    "name": "numbers",
+    "value": {
+      "a": 123,
+      "b": 16,
+      "c": 15,
+      "d": -42,
+      "e": 42,
+      "f": 1.5,
+      "g": 1000.0,
+      "h": "1_000",
+      "i": "0b10",
+      "j": "1:20"
+    }
+  },
+  {
+    "name": "large integer",
+    "value": {
+      "a": 9223372036854775807,
+      "b": -9223372036854775808,
+      "c": 1.8446744073709552e+19
+    }
+  },
+  {
+    "name": "quoted secrets",
+    "value": {
+      "a": "00123",
+      "b": "true",
+      "c": "",
+      "d": "it's secret"
+    }
+  },
+  {
+    "name": "escape",
+    "value": {
+      "a": "中😀\n\t"
+    }
+  },
+  {
+    "name": "literal",
+    "value": {
+      "a": "first\nsecond\n",
+      "b": "first\nsecond"
+    }
+  },
+  {
+    "name": "folded",
+    "value": {
+      "a": "first second"
+    }
+  },
+  {
+    "name": "flow",
+    "value": {
+      "a": [
+        1,
+        true,
+        null,
+        {
+          "b": "value"
+        }
+      ]
+    }
+  },
+  {
+    "name": "block sequence",
+    "value": {
+      "a": [
+        "one",
+        "two"
+      ]
+    }
+  },
+  {
+    "name": "anchors",
+    "value": {
+      "a": {
+        "host": "localhost",
+        "port": 5432
+      },
+      "b": {
+        "host": "localhost",
+        "port": 5432
+      }
+    }
+  },
+  {
+    "name": "repeated anchor",
+    "value": {
+      "a": "one",
+      "b": "one",
+      "c": "two",
+      "d": "two"
+    }
+  },
+  {
+    "name": "self anchor",
+    "value": {
+      "a": [
+        null
+      ]
+    }
+  },
+  {
+    "error": true,
+    "name": "unknown alias"
+  },
+  {
+    "name": "merge remains literal",
+    "value": {
+      "a": {
+        "b": 1
+      },
+      "c": {
+        "<<": {
+          "b": 1
+        },
+        "d": 2
+      }
+    }
+  },
+  {
+    "name": "tags",
+    "value": {
+      "a": "12",
+      "b": 12,
+      "c": true,
+      "d": null,
+      "e": null,
+      "f": null,
+      "g": "12",
+      "h": "12"
+    }
+  },
+  {
+    "name": "verbatim tag",
+    "value": {
+      "a": "12"
+    }
+  },
+  {
+    "error": true,
+    "name": "utf8 tag"
+  },
+  {
+    "name": "tag directive",
+    "value": {
+      "a": "12"
+    }
+  },
+  {
+    "name": "integer keys",
+    "value": {
+      "": "c",
+      "-2": "b",
+      "1": "a"
+    }
+  },
+  {
+    "name": "key collision",
+    "value": {
+      "1": "b"
+    }
+  },
+  {
+    "error": true,
+    "name": "duplicate key"
+  },
+  {
+    "error": true,
+    "name": "duplicate numeric key"
+  },
+  {
+    "error": true,
+    "name": "multiple documents"
+  },
+  {
+    "error": true,
+    "name": "empty document"
+  },
+  {
+    "error": true,
+    "name": "array root"
+  },
+  {
+    "error": true,
+    "name": "scalar root"
+  },
+  {
+    "error": true,
+    "name": "broken flow"
+  },
+  {
+    "error": true,
+    "name": "broken indentation"
+  },
+  {
+    "error": true,
+    "name": "dot infinity rejected by config"
+  },
+  {
+    "name": "crlf",
+    "value": {
+      "a": "one",
+      "b": "two"
+    }
+  },
+  {
+    "name": "bom",
+    "value": {
+      "﻿a": "one"
+    }
+  }
+]

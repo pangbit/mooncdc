@@ -2,6 +2,7 @@
 pub(all) enum StateRecord {
   Pipeline
   ReplicationCheckpoint
+  Schemas
   TableMetadata(UInt)
 } derive(Eq, Debug)
 
@@ -48,7 +49,9 @@ pub async fn[T] with_state_store(
 }
 
 ///|
-fn StateSession::check(self : StateSession) -> Unit raise {
+/// Reject a session after its owning `with_state_store` scope has ended.
+/// Destinations must check before issuing external side effects.
+pub fn StateSession::check(self : StateSession) -> Unit raise {
   if !self.active {
     raise CheckpointError("state session is closed")
   }

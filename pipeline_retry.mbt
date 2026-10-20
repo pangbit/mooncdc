@@ -7,8 +7,8 @@ pub(all) enum TableRetryPolicy {
 } derive(Eq, Debug, ToJson, @json.FromJson)
 
 ///|
-/// A destination may classify a table-local failure explicitly. Shared flush
-/// failures still stop the pipeline regardless of this classification.
+/// A destination may classify a failure explicitly. Copy failures use per-table
+/// retry; main apply replays from its checkpoint. Copy-side flush errors are fatal.
 pub(all) suberror TableReplicationError {
   Retryable(String)
   Manual(String)
@@ -85,6 +85,9 @@ async fn PipelineDestination::retry_table(
     return false
   }
   self.store.set_phase(oid, Pending)
+  self.control.metrics_data.increment(
+    "mooncdc_worker_retries_total{worker_type=\"table_sync\",trigger=\"manual\"}",
+  )
   self.retry_attempts.remove(oid)
   self.copy_jobs.push(oid)
   self.copy_ready.broadcast()
@@ -106,6 +109,9 @@ async fn PipelineDestination::schedule_retries(
         if table.phase is Errored(_, TimedRetry(at), attempts) {
           if at <= now {
             self.store.set_phase(table.oid, Pending)
+            self.control.metrics_data.increment(
+              "mooncdc_worker_retries_total{worker_type=\"table_sync\",trigger=\"timed\"}",
+            )
             self.retry_attempts[table.oid] = attempts + 1
             self.copy_jobs.push(table.oid)
             self.copy_ready.broadcast()

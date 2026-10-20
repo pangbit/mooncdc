@@ -14,13 +14,18 @@
 
 `integration/reference/etl/` contains two unmodified source DDL migrations from
 [Supabase ETL](https://github.com/supabase/etl/tree/c1eb3f8f746c1c0394c103e7fdf8f17527de5fd4),
-Apache-2.0, with its license retained. They provide real upstream payloads in isolated tests.
+Apache-2.0, with its license retained. They provide real upstream payloads in isolated tests
+and are embedded unchanged in `source_migrations_sql.mbt` by the checked-in `.mbtx`
+generator. The optional migrator follows SQLx 0.9.0's PostgreSQL lock/history/checksum
+format; its implementation is independently written in MoonBit.
 
 `tools/codec-reference-test.mbtx` downloads the same frozen ETL commit, verifies
 the source archive hash and builds its unmodified codec with the upstream lockfile.
 `integration/reference/codec_driver.rs` and `schema_driver.rs` are our comparison
 fixtures; they call the upstream codec/planner without copying those implementations.
 The production float converter uses the platform C runtime with a private C locale.
+
+## Implementation provenance
 
 Protocol references inform an independent MoonBit implementation. No PostgreSQL client
 implementation or other Mooncakes CDC package is copied or adapted. Official

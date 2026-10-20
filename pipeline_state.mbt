@@ -11,6 +11,7 @@ priv enum StoredPhase {
 priv struct StoredTable {
   oid : UInt
   phase : StoredPhase
+  decoding : StoredDecoding?
 } derive(ToJson, @json.FromJson)
 
 ///|
@@ -20,6 +21,9 @@ priv struct PipelineState {
   destination_id : String
   initial_lsn : String?
   checkpoint_initialized : Bool
+  // None denotes legacy state whose unacknowledged target writes are unknown.
+  write_horizon : String?
+  promotion : TimelinePromotion?
   tables : Array[StoredTable]
 } derive(ToJson, @json.FromJson)
 
@@ -48,10 +52,37 @@ fn parse_pipeline_state(bytes : Bytes) -> PipelineState raise {
       raise CheckpointError("pipeline state checksum")
     }
     let state : PipelineState = @json.from_json(@json.parse(@utf8.decode(body)))
-    if state.version != 1 ||
+    if (state.version != 1 && state.version != 2) ||
       state.destination_id.is_empty() ||
       state.tables.length() > 1024 {
       raise CheckpointError("pipeline state version or bounds")
+    }
+    if state.version == 2 &&
+      (
+        state.promotion is Some(_) ||
+        state.checkpoint_initialized ||
+        state.tables.any(table => {
+          !(table.phase is Pending) || table.decoding is Some(_)
+        })
+      ) {
+      raise CheckpointError("invalid pipeline recreation intent")
+    }
+    if state.write_horizon is Some(lsn) && Lsn::parse(lsn).value == 0 {
+      raise CheckpointError("zero pipeline write horizon")
+    }
+    if state.promotion is Some(intent) {
+      if state.version != 1 ||
+        !state.checkpoint_initialized ||
+        intent.from != state.source ||
+        { ..intent.to, timeline: intent.from.timeline, } != intent.from ||
+        timeline_number(intent.to.timeline) <=
+        timeline_number(intent.from.timeline) ||
+        state.write_horizon != Some(intent.horizon) ||
+        Lsn::parse(intent.position).value == 0 ||
+        Lsn::parse(intent.position) > Lsn::parse(intent.fork) ||
+        Lsn::parse(intent.horizon) > Lsn::parse(intent.fork) {
+        raise CheckpointError("invalid timeline promotion intent")
+      }
     }
     identifier(state.source.slot)
     identifier(state.source.publication)
@@ -61,6 +92,25 @@ fn parse_pipeline_state(bytes : Bytes) -> PipelineState raise {
         raise CheckpointError("duplicate or invalid table OID")
       }
       seen[table.oid] = true
+      if table.decoding is Some(decoding) {
+        let id = decoding.snapshot_id()
+        let cutoff = match table.phase {
+          Catchup(lsn) | Ready(lsn) => Lsn::parse(lsn)
+          _ => raise CheckpointError("decoder outside completed table state")
+        }
+        if id.commit_lsn.value == 0 ||
+          id.message_lsn > id.commit_lsn ||
+          id > { commit_lsn: cutoff, message_lsn: { value: 0, }, } ||
+          decoding.replicated.length() > 1600 ||
+          decoding.identity.length() != decoding.replicated.length() {
+          raise CheckpointError("invalid stored decoding state")
+        }
+        for index, identity in decoding.identity {
+          if identity && !decoding.replicated[index] {
+            raise CheckpointError("unpublished identity in stored decoder")
+          }
+        }
+      }
       match table.phase {
         Errored(reason, policy, attempts) =>
           if reason.is_empty() ||
@@ -83,7 +133,8 @@ fn parse_pipeline_state(bytes : Bytes) -> PipelineState raise {
       if Lsn::parse(lsn).value == 0 {
         raise CheckpointError("zero initial position")
       }
-    } else if state.checkpoint_initialized || !state.tables.is_empty() {
+    } else if state.checkpoint_initialized ||
+      (state.version == 1 && !state.tables.is_empty()) {
       raise CheckpointError("uninitialized pipeline contains progress")
     }
     state
@@ -133,7 +184,7 @@ async fn PipelineStore::set_phase(
     let tables = state.tables.map(table => {
       if table.oid == oid {
         found = true
-        { ..table, phase, }
+        { ..table, phase, decoding: None, }
       } else {
         table
       }

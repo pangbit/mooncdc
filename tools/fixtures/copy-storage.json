@@ -1,0 +1,84 @@
+{
+  "provenance": "Synthetic Docker layout, container, volume and byte-count examples for parser tests; not host measurements or a live environment dump.",
+  "root": "/tmp/mooncdc-copy-runtime-synthetic",
+  "project": "mooncdccopy-0123456789abcdef",
+  "parent": "mooncdccopy0123456789abcdef.slice",
+  "overlayfs_info": {
+    "cgroup_driver": "systemd",
+    "cgroup_version": "2",
+    "driver": "overlayfs",
+    "root": "/var/lib/docker",
+    "driver_status": [
+      [
+        "driver-type",
+        "io.containerd.snapshotter.v1"
+      ]
+    ]
+  },
+  "overlay2_info": {
+    "cgroup_driver": "systemd",
+    "cgroup_version": "2",
+    "driver": "overlay2",
+    "root": "/var/lib/docker",
+    "driver_status": [
+      [
+        "Backing Filesystem",
+        "extfs"
+      ]
+    ]
+  },
+  "overlayfs_container": {
+    "id": "1111111111111111111111111111111111111111111111111111111111111111",
+    "project": "mooncdccopy-0123456789abcdef",
+    "service": "primary",
+    "parent": "mooncdccopy0123456789abcdef.slice",
+    "log": "/var/lib/docker/containers/1111111111111111111111111111111111111111111111111111111111111111/1111111111111111111111111111111111111111111111111111111111111111-json.log",
+    "size_rw": 4096,
+    "upper": null,
+    "mounts": [
+      {
+        "Type": "volume",
+        "Name": "mooncdccopy-0123456789abcdef_primary",
+        "Source": "/var/lib/docker/volumes/mooncdccopy-0123456789abcdef_primary/_data",
+        "Destination": "/var/lib/postgresql/data",
+        "RW": true
+      },
+      {
+        "Type": "bind",
+        "Source": "/tmp/mooncdc-copy-runtime-synthetic/source/integration/standby-pg_hba.conf",
+        "Destination": "/etc/mooncdc/pg_hba.conf",
+        "RW": false
+      }
+    ]
+  },
+  "overlay2_container": {
+    "id": "1111111111111111111111111111111111111111111111111111111111111111",
+    "project": "mooncdccopy-0123456789abcdef",
+    "service": "primary",
+    "parent": "mooncdccopy0123456789abcdef.slice",
+    "log": "/var/lib/docker/containers/1111111111111111111111111111111111111111111111111111111111111111/1111111111111111111111111111111111111111111111111111111111111111-json.log",
+    "size_rw": 4096,
+    "upper": "/var/lib/docker/overlay2/owned-test-layer/diff",
+    "mounts": [
+      {
+        "Type": "volume",
+        "Name": "mooncdccopy-0123456789abcdef_primary",
+        "Source": "/var/lib/docker/volumes/mooncdccopy-0123456789abcdef_primary/_data",
+        "Destination": "/var/lib/postgresql/data",
+        "RW": true
+      },
+      {
+        "Type": "bind",
+        "Source": "/tmp/mooncdc-copy-runtime-synthetic/source/integration/standby-pg_hba.conf",
+        "Destination": "/etc/mooncdc/pg_hba.conf",
+        "RW": false
+      }
+    ]
+  },
+  "volume": {
+    "name": "mooncdccopy-0123456789abcdef_primary",
+    "project": "mooncdccopy-0123456789abcdef",
+    "driver": "local",
+    "mountpoint": "/var/lib/docker/volumes/mooncdccopy-0123456789abcdef_primary/_data"
+  }
+}

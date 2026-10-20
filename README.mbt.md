@@ -1,22 +1,31 @@
 # MoonCDC
 
-MoonBit 编写的 PostgreSQL 变更订阅库。使用原生 `pgoutput` 协议 v1，按完整的
+MoonBit 编写的 PostgreSQL → ClickHouse CDC 库与独立同步工具。库与 CLI 同等支持，
+共用 `run_pipeline` 核心；首批验收覆盖 PG17/18，边界和判据见
+[当前交付范围](docs/RELEASE_SCOPE.md)。底层订阅使用原生 `pgoutput` 协议 v1，按完整的
 已提交事务交付数据，提供显式确认、持久检查点和有限次数断线重连。
 
-**0.1.0 发布候选，尚未发布到 Mooncakes。** Native 后端；实测版本及环境见
-[测试报告](docs/reports/VALIDATION_FOLLOWUP.md)。采用至少一次投递，业务端必须处理重放。
+**0.1.0 发布候选，尚未发布到 Mooncakes。** Native 后端；验收方法及历史证据索引见
+[测试说明](docs/TESTING.md)。
+采用至少一次投递，业务端必须处理重放。
+
+2026-10-20 的固定核心提交已通过 Linux PG17/18 库4格和 CLI8格验收。
+编译窗口的256 tasks 与数据库矩阵不同：本次矩阵内核峰值264，诊断临时采用
+512上限、384停止水位，结束已恢复256。这是测试夹具预算，不是产品最低需求，
+也不代表512已获永久授权或最终发布提交的远端CI已通过；版本绑定见测试说明。
 
 ## 安装与使用
 
 发布后通过 `moon add pangbit/mooncdc` 安装。发布前可在本仓库运行示例，或按照
 [发布检查](docs/RELEASING.md) 使用打包源码做独立消费者验证。
 
-在 `moon.mod` 中设置 `preferred_target = "native"`，在使用方 `moon.pkg` 导入：
+在 `moon.mod` 中设置 `preferred_target = "native"`，在使用方 `moon.pkg` 导入。
+以下示例统一使用默认别名 `@mooncdc`：
 
 ```moonbit nocheck
 ///|
 import {
-  "pangbit/mooncdc" @cdc,
+  "pangbit/mooncdc",
 }
 ```
 
@@ -29,17 +38,46 @@ test "parse a PostgreSQL WAL position" {
 }
 ```
 
+嵌入 `run_pipeline` 的宿主可读取 worker 活动与健康状态；`ready` 表示正在运行且
+未检测到卡住，不表示全量复制完成或已经追平 WAL。
+
+```mbt check
+///|
+test "pipeline health before startup and during shutdown" {
+  let control = @mooncdc.ApplyControl()
+  assert_true(control.health().live)
+  assert_false(control.health().ready)
+  assert_eq(control.activities().length(), 0)
+  control.stop()
+  assert_eq(control.health().status, "stopping")
+}
+```
+
+需要 HTTP 探针时，用 `with_health_server(control, () => { ... })` 包裹 pipeline
+初始化及运行；默认端口 9001，提供 `/livez` 和 `/readyz`，未调用则不启动监听器。
+宿主负责调用 `control.stop()` 并等待 pipeline 排空，详见 [健康接口](docs/API.md#limits-and-diagnostics)。
+
+`run_pipeline` 默认复制全部初始行；可用 `table_sync_copy=SkipAllTables`，或
+`IncludeTables([oid, ...])` / `SkipTables([oid, ...])` 按源表 OID 选择初始行。
+跳过的表仍会重置目标、建立 schema 并接入后续 WAL；这不是流式过滤，也不会在重启时
+补齐已完成表的历史行，详见 [pipeline 契约](docs/API.md#persistent-table-pipeline)。
+
+`with_state_schema_store` 可把 schema 历史保存在文件或 PostgreSQL StateStore。
+为 schema 与 pipeline 使用两个独立 namespace，并将同一个 `schemas` 传给目标端和
+`run_pipeline`，即可在 PostgreSQL 中持久保存恢复所需的 schema，详见
+[状态存储](docs/API.md#external-state-stores)。
+
 典型消费流程如下；完整可运行程序见 [examples](examples/README.md)。
 
 ```mbt nocheck
-let config : @cdc.ConnectionConfig = {
-  host: "127.0.0.1", port: 55418, user: "cdc",
-  password: password_from_environment, database: "postgres",
-  security: @cdc.LocalPlaintext, timeout_ms: 5000,
-}
-@cdc.subscribe(
+let config = @mooncdc.ConnectionConfig::new(
+  host="127.0.0.1", port=55418, user="cdc",
+  password=password_from_environment, database="postgres",
+  security=@mooncdc.LocalPlaintext,
+)
+@mooncdc.subscribe(
   config, slot="my_slot", publication="my_publication",
-  start=@cdc.Resume, checkpoint_path="./state/checkpoint",
+  start=@mooncdc.Resume, checkpoint_path="./state/checkpoint",
   sub => {
     for ;; {
       let tx = sub.next()
@@ -63,6 +101,8 @@ let config : @cdc.ConnectionConfig = {
 - `Null`、`Text`、`UnchangedToast` 分别表示 NULL、文本值和未变化的外部字段。
   可用 `subscribe(..., binary=true)` 请求二进制传输；`Binary(Bytes)` 保留原始类型编码，
   调用方结合列 OID 解码。默认仍为文本，二进制模式也可能收到回退文本。
+- 独立订阅可显式选择 `protocol=V2Streaming`，缓冲未提交分段并在提交后交付；
+  完整资源与回滚契约见 [API](docs/API.md)。流水线继续使用协议v1。
 - `ack` 只越过连续完成的事务；检查点完成文件同步、原子替换及父目录同步后，
   才更新可反馈位置。接收位置不能代替业务持久位置。
 - `tx.id` 标识事务，`tx.event_id(index)` 标识数据变更；重复元数据不改变数据事件 ID。
@@ -82,6 +122,7 @@ let config : @cdc.ConnectionConfig = {
   目标端元数据；逐表复制错误可持久化并定时或人工重试。详见 [API](docs/API.md)。
 - `ClickHouseDestination` 支持 ReplacingMergeTree 当前值视图和 MergeTree 操作历史，
   接入全量/增量、列 DDL 及持久恢复。支持范围见 [API](docs/API.md#clickhouse-destination)。
+- 正式模块仅提供 PostgreSQL → ClickHouse；BigQuery、Snowflake、Iceberg 的实现、CLI 与测试保留在未发布扩展（仅仓库内：`extensions/README.md`）。DuckLake 继续作为扩展路线图，不能视为已实现。
 - 不提供自动切主或两阶段事务；各目标端的 schema 支持范围单独列明。
   不承诺跨系统恰好一次。
 
@@ -115,6 +156,8 @@ moon run tools/checkpoint-crash-test.mbtx
 或示例子进程。详细命令、TLS 与清理说明见 [TESTING](docs/TESTING.md)。
 
 ## 文档与维护
+
+可运行入口与配置见 [独立 replicator](docs/REPLICATOR.md)。
 
 - [示例](examples/README.md) · [API](docs/API.md) · [测试](docs/TESTING.md)
 - [运行与 WAL 监控](docs/OPERATIONS.md) · [发布](docs/RELEASING.md)

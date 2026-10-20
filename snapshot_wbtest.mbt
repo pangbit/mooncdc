@@ -304,6 +304,7 @@ async test "live snapshot partitions and ordinary inheritance match pgoutput" {
           slot="cdc_parts",
           publication="cdc_parts",
           batch_rows=1,
+          copy_connections=3,
           event => {
             match event {
               TableBegin(r) => relations[r.oid] = r

@@ -1,0 +1,6 @@
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/core/deque",
+  "moonbitlang/core/hashmap",
+  "moonbitlang/core/string",
+}

@@ -1,0 +1,1973 @@
+[
+  {
+    "name": "start",
+    "status": "ok",
+    "value": {
+      "first": true,
+      "kind": "S",
+      "xid": 7
+    }
+  },
+  {
+    "name": "start-trailing",
+    "status": "ok",
+    "value": {
+      "first": true,
+      "kind": "S",
+      "xid": 7
+    }
+  },
+  {
+    "name": "start-truncated-0",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "start-truncated-1",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "start-truncated-2",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "start-truncated-3",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "start-truncated-4",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "start-truncated-5",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "continue",
+    "status": "ok",
+    "value": {
+      "first": false,
+      "kind": "S",
+      "xid": 7
+    }
+  },
+  {
+    "name": "continue-trailing",
+    "status": "ok",
+    "value": {
+      "first": false,
+      "kind": "S",
+      "xid": 7
+    }
+  },
+  {
+    "name": "continue-truncated-0",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "continue-truncated-1",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "continue-truncated-2",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "continue-truncated-3",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "continue-truncated-4",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "continue-truncated-5",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stop",
+    "status": "ok",
+    "value": {
+      "kind": "E"
+    }
+  },
+  {
+    "name": "stop-trailing",
+    "status": "ok",
+    "value": {
+      "kind": "E"
+    }
+  },
+  {
+    "name": "stop-truncated-0",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "commit",
+    "status": "ok",
+    "value": {
+      "commit": "0/64",
+      "end": "0/65",
+      "kind": "c",
+      "time": "42",
+      "xid": 7
+    }
+  },
+  {
+    "name": "commit-trailing",
+    "status": "ok",
+    "value": {
+      "commit": "0/64",
+      "end": "0/65",
+      "kind": "c",
+      "time": "42",
+      "xid": 7
+    }
+  },
+  {
+    "name": "commit-truncated-0",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-1",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-2",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-3",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-4",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-5",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-6",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-7",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-8",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-9",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-10",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-11",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-12",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-13",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-14",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-15",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-16",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-17",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-18",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-19",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-20",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-21",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-22",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-23",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-24",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-25",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-26",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-27",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-28",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "commit-truncated-29",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "abort",
+    "status": "ok",
+    "value": {
+      "kind": "A",
+      "subxid": 7,
+      "xid": 7
+    }
+  },
+  {
+    "name": "abort-trailing",
+    "status": "ok",
+    "value": {
+      "kind": "A",
+      "subxid": 7,
+      "xid": 7
+    }
+  },
+  {
+    "name": "abort-truncated-0",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "abort-truncated-1",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "abort-truncated-2",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "abort-truncated-3",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "abort-truncated-4",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "abort-truncated-5",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "abort-truncated-6",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "abort-truncated-7",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "abort-truncated-8",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "subabort",
+    "status": "ok",
+    "value": {
+      "kind": "A",
+      "subxid": 8,
+      "xid": 7
+    }
+  },
+  {
+    "name": "subabort-trailing",
+    "status": "ok",
+    "value": {
+      "kind": "A",
+      "subxid": 8,
+      "xid": 7
+    }
+  },
+  {
+    "name": "subabort-truncated-0",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "subabort-truncated-1",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "subabort-truncated-2",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "subabort-truncated-3",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "subabort-truncated-4",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "subabort-truncated-5",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "subabort-truncated-6",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "subabort-truncated-7",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "subabort-truncated-8",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-insert-0",
+    "status": "ok",
+    "value": {
+      "kind": "I",
+      "new": [
+        [
+          "b",
+          ""
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-0",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "b",
+          ""
+        ],
+        [
+          "u"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-old-75-0",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "b",
+          ""
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": [
+        [
+          "b",
+          ""
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "K",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-delete-75-0",
+    "status": "ok",
+    "value": {
+      "kind": "D",
+      "new": null,
+      "old": [
+        [
+          "b",
+          ""
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "K",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-old-79-0",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "b",
+          ""
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": [
+        [
+          "b",
+          ""
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "O",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-delete-79-0",
+    "status": "ok",
+    "value": {
+      "kind": "D",
+      "new": null,
+      "old": [
+        [
+          "b",
+          ""
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "O",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-insert-1",
+    "status": "ok",
+    "value": {
+      "kind": "I",
+      "new": [
+        [
+          "b",
+          "00ff80"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-1",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "b",
+          "00ff80"
+        ],
+        [
+          "u"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-old-75-1",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "b",
+          "00ff80"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": [
+        [
+          "b",
+          "00ff80"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "K",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-delete-75-1",
+    "status": "ok",
+    "value": {
+      "kind": "D",
+      "new": null,
+      "old": [
+        [
+          "b",
+          "00ff80"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "K",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-old-79-1",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "b",
+          "00ff80"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": [
+        [
+          "b",
+          "00ff80"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "O",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-delete-79-1",
+    "status": "ok",
+    "value": {
+      "kind": "D",
+      "new": null,
+      "old": [
+        [
+          "b",
+          "00ff80"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "O",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-insert-2",
+    "status": "ok",
+    "value": {
+      "kind": "I",
+      "new": [
+        [
+          "b",
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-2",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "b",
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+        ],
+        [
+          "u"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-old-75-2",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "b",
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": [
+        [
+          "b",
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "K",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-delete-75-2",
+    "status": "ok",
+    "value": {
+      "kind": "D",
+      "new": null,
+      "old": [
+        [
+          "b",
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "K",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-old-79-2",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "b",
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": [
+        [
+          "b",
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "O",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-delete-79-2",
+    "status": "ok",
+    "value": {
+      "kind": "D",
+      "new": null,
+      "old": [
+        [
+          "b",
+          "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "O",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-insert-3",
+    "status": "ok",
+    "value": {
+      "kind": "I",
+      "new": [
+        [
+          "t",
+          "e4bda0e5a5bdf09f8c99"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-3",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "t",
+          "e4bda0e5a5bdf09f8c99"
+        ],
+        [
+          "u"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-old-75-3",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "t",
+          "e4bda0e5a5bdf09f8c99"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": [
+        [
+          "t",
+          "e4bda0e5a5bdf09f8c99"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "K",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-delete-75-3",
+    "status": "ok",
+    "value": {
+      "kind": "D",
+      "new": null,
+      "old": [
+        [
+          "t",
+          "e4bda0e5a5bdf09f8c99"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "K",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-old-79-3",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "t",
+          "e4bda0e5a5bdf09f8c99"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": [
+        [
+          "t",
+          "e4bda0e5a5bdf09f8c99"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "O",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-delete-79-3",
+    "status": "ok",
+    "value": {
+      "kind": "D",
+      "new": null,
+      "old": [
+        [
+          "t",
+          "e4bda0e5a5bdf09f8c99"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "O",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-insert-4",
+    "status": "ok",
+    "value": {
+      "kind": "I",
+      "new": [
+        [
+          "n"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-4",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "n"
+        ],
+        [
+          "u"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-old-75-4",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "n"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": [
+        [
+          "n"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "K",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-delete-75-4",
+    "status": "ok",
+    "value": {
+      "kind": "D",
+      "new": null,
+      "old": [
+        [
+          "n"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "K",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-update-old-79-4",
+    "status": "ok",
+    "value": {
+      "kind": "U",
+      "new": [
+        [
+          "n"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": [
+        [
+          "n"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "O",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-delete-79-4",
+    "status": "ok",
+    "value": {
+      "kind": "D",
+      "new": null,
+      "old": [
+        [
+          "n"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old_kind": "O",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-message-true-0",
+    "status": "ok",
+    "value": {
+      "content": "",
+      "kind": "M",
+      "lsn": "0/5A",
+      "prefix": "schema",
+      "transactional": true,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-message-true-1",
+    "status": "ok",
+    "value": {
+      "content": "00ff80",
+      "kind": "M",
+      "lsn": "0/5A",
+      "prefix": "schema",
+      "transactional": true,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-message-true-2",
+    "status": "ok",
+    "value": {
+      "content": "44444c20e4b8ade69687",
+      "kind": "M",
+      "lsn": "0/5A",
+      "prefix": "schema",
+      "transactional": true,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-message-true-3",
+    "status": "ok",
+    "value": {
+      "content": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+      "kind": "M",
+      "lsn": "0/5A",
+      "prefix": "schema",
+      "transactional": true,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-message-flags",
+    "status": "ok",
+    "value": {
+      "content": "00ff",
+      "kind": "M",
+      "lsn": "0/5A",
+      "prefix": "schema",
+      "transactional": false,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-message-trailing",
+    "status": "ok",
+    "value": {
+      "content": "00ff",
+      "kind": "M",
+      "lsn": "0/5A",
+      "prefix": "schema",
+      "transactional": true,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-tuple-trailing",
+    "status": "ok",
+    "value": {
+      "kind": "I",
+      "new": [
+        [
+          "b",
+          "00ff"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-tuple-unknown-type",
+    "status": "ok",
+    "value": {
+      "kind": "I",
+      "new": [
+        [
+          "z"
+        ],
+        [
+          "n"
+        ]
+      ],
+      "old": null,
+      "old_kind": null,
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "stream-message-truncated-0",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-1",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-2",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-3",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-4",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-5",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-6",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-7",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-8",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-9",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-10",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-11",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-12",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-13",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-14",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-15",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-16",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-17",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-18",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-19",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-20",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-21",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-message-truncated-22",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-0",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-1",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-2",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-3",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-4",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-5",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-6",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-7",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-8",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-9",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-10",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-11",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-12",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-13",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-14",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "stream-tuple-truncated-15",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation",
+    "status": "ok",
+    "value": {
+      "columns": [
+        {
+          "key": true,
+          "modifier": -1,
+          "name": "id",
+          "oid": 23
+        },
+        {
+          "key": true,
+          "modifier": -1,
+          "name": "value",
+          "oid": 25
+        }
+      ],
+      "identity": 102,
+      "kind": "R",
+      "name": "protocol",
+      "namespace": "public",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "relation-trailing",
+    "status": "ok",
+    "value": {
+      "columns": [
+        {
+          "key": true,
+          "modifier": -1,
+          "name": "id",
+          "oid": 23
+        },
+        {
+          "key": true,
+          "modifier": -1,
+          "name": "value",
+          "oid": 25
+        }
+      ],
+      "identity": 102,
+      "kind": "R",
+      "name": "protocol",
+      "namespace": "public",
+      "relation": 1,
+      "xid": 7
+    }
+  },
+  {
+    "name": "relation-truncated-0",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-1",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-2",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-3",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-4",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-5",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-6",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-7",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-8",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-9",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-10",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-11",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-12",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-13",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-14",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-15",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-16",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-17",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-18",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-19",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-20",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-21",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-22",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-23",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-24",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-25",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-26",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-27",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-28",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-29",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-30",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-31",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-32",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-33",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-34",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-35",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-36",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-37",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-38",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-39",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-40",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-41",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-42",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-43",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-44",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-45",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-46",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-47",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-48",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-49",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-50",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-51",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-52",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-53",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "relation-truncated-54",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "type",
+    "status": "ok",
+    "value": {
+      "kind": "Y",
+      "name": "custom",
+      "namespace": "public",
+      "oid": 25,
+      "xid": 7
+    }
+  },
+  {
+    "name": "type-trailing",
+    "status": "ok",
+    "value": {
+      "kind": "Y",
+      "name": "custom",
+      "namespace": "public",
+      "oid": 25,
+      "xid": 7
+    }
+  },
+  {
+    "name": "type-truncated-0",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "type-truncated-1",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-2",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-3",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-4",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-5",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-6",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-7",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-8",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-9",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-10",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-11",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-12",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-13",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-14",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-15",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-16",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-17",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-18",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-19",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-20",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-21",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "type-truncated-22",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate",
+    "status": "ok",
+    "value": {
+      "cascade": true,
+      "kind": "T",
+      "relations": [
+        1
+      ],
+      "restart_identity": true,
+      "xid": 7
+    }
+  },
+  {
+    "name": "truncate-trailing",
+    "status": "ok",
+    "value": {
+      "cascade": true,
+      "kind": "T",
+      "relations": [
+        1
+      ],
+      "restart_identity": true,
+      "xid": 7
+    }
+  },
+  {
+    "name": "truncate-truncated-0",
+    "status": "panic",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-1",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-2",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-3",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-4",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-5",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-6",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-7",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-8",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-9",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-10",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-11",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-12",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "truncate-truncated-13",
+    "status": "error",
+    "value": null
+  },
+  {
+    "name": "start-bad-flag",
+    "status": "ok",
+    "value": {
+      "first": false,
+      "kind": "S",
+      "xid": 7
+    }
+  },
+  {
+    "name": "commit-bad-flag",
+    "status": "ok",
+    "value": {
+      "commit": "0/64",
+      "end": "0/65",
+      "kind": "c",
+      "time": "42",
+      "xid": 7
+    }
+  }
+]

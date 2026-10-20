@@ -7,6 +7,8 @@ async test "feedback uses durable prefix after ack gaps write failure and keepal
     defer @fs.rmdir(dir, recursive=true)
     let path = dir + "/checkpoint"
     let config : ConnectionConfig = {
+      hostaddr: None,
+      keepalive: TcpKeepaliveConfig::new(),
       host: "127.0.0.1",
       port: server.addr.port(),
       user: "user",

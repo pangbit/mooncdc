@@ -1,0 +1,551 @@
+///|
+import {
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/fs",
+  "moonbitlang/async@0.22.4/shell",
+  "moonbitlang/async@0.22.4/process",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+}
+
+///|
+fn ordinary_test_count(
+  outline : String,
+  required_packages : Array[String],
+) -> Int raise {
+  assert_true(!required_packages.is_empty())
+  let seen : Map[String, Bool] = Map([])
+  let packages : Map[String, Bool] = Map([])
+  let mut count = 0
+  for line in outline.split("\n").filter(line => !line.trim().is_empty()) {
+    guard line.trim().split_once(". ") is Some((ordinal, identity)) else {
+      fail("invalid ordinary test outline")
+    }
+    assert_eq(@string.parse_int(ordinal), count + 1)
+    let identity = identity.to_owned()
+    assert_true(identity.contains(" index="))
+    guard identity.split_once(" ") is Some((package_name, _)) else {
+      fail("missing ordinary package name")
+    }
+    packages[package_name.to_owned()] = true
+    assert_false(
+      seen.contains(identity),
+      msg="duplicate ordinary test identity",
+    )
+    seen[identity] = true
+    count += 1
+  }
+  assert_true(count > 0, msg="empty ordinary test discovery")
+  assert_eq(packages.length(), required_packages.length())
+  for name in required_packages {
+    assert_true(
+      packages.contains(name),
+      msg="missing ordinary package: " + name,
+    )
+  }
+  count
+}
+
+///|
+fn require_ordinary_summary(output : String, count : Int) -> Unit raise {
+  assert_true(count > 0)
+  let summaries = output
+    .split("\n")
+    .filter(line => line.has_prefix("Total tests:"))
+    .collect()
+  assert_eq(summaries.length(), 1)
+  assert_eq(summaries[0], "Total tests: \{count}, passed: \{count}, failed: 0.")
+}
+
+///|
+test "active-store discovery requires nonempty sequential unique identities" {
+  assert_eq(
+    ordinary_test_count("1. p a.mbt:1 index=0\n2. p/c b.mbt:1 index=0\n", [
+      "p", "p/c",
+    ]),
+    2,
+  )
+  for
+    invalid in [
+      "", "garbage\n", "2. p a.mbt:1 index=0\n", "1. p a.mbt:1\n", "1. p a.mbt:1 index=0\n2. p a.mbt:1 index=0\n",
+    ] {
+    try ordinary_test_count(invalid, ["p"]) catch {
+      _ => ()
+    } noraise {
+      _ => fail("invalid ordinary discovery accepted")
+    }
+  }
+}
+
+///|
+test "active-store discovery rejects omitted groups and equal-count substitutions" {
+  for
+    invalid in [
+      "1. p a.mbt:1 index=0\n2. p b.mbt:1 index=0\n", "1. p a.mbt:1 index=0\n2. other b.mbt:1 index=0\n",
+      "1. p a.mbt:1 index=0\n",
+    ] {
+    try ordinary_test_count(invalid, ["p", "p/c"]) catch {
+      _ => ()
+    } noraise {
+      _ => fail("incomplete ordinary package coverage accepted")
+    }
+  }
+}
+
+///|
+test "active-store summary rejects stale incomplete failed and duplicate results" {
+  let count = ordinary_test_count(
+    "1. p a.mbt:1 index=0\n2. p/c b.mbt:1 index=0\n",
+    ["p", "p/c"],
+  )
+  require_ordinary_summary("Total tests: 2, passed: 2, failed: 0.\n", count)
+  for
+    invalid in [
+      "Total tests: 439, passed: 439, failed: 0.\n", "Total tests: 1, passed: 1, failed: 0.\n",
+      "Total tests: 2, passed: 1, failed: 1.\n", "Total tests: 2, passed: 1, failed: 0.\n",
+      "prefix Total tests: 2, passed: 2, failed: 0.\n", "Total tests: 2, passed: 2, failed: 0.\nTotal tests: 2, passed: 2, failed: 0.\n",
+    ] {
+    try require_ordinary_summary(invalid, count) catch {
+      _ => ()
+    } noraise {
+      _ => fail("invalid ordinary result accepted")
+    }
+  }
+}
+
+///|
+async fn main {
+  let repo = @env.get_env_var("PWD").unwrap()
+  let root = @fs.tmpdir(prefix="mooncdc-active-store-")
+  let evidence = root + "/evidence"
+  let snapshot = root + "/source"
+  @fs.mkdir(evidence)
+  @fs.mkdir(snapshot)
+  @fs.write_file("/tmp/mooncdc-active-store-root.txt", root)
+  println("PROMOTION ROOT: " + root)
+  let vars = @env.get_env_vars()
+  for key in vars.keys().to_array() {
+    if key.has_prefix("APP_") || key.has_prefix("MOONCDC_") {
+      vars.remove(key)
+    }
+  }
+  vars["RUST_LOG"] = "error"
+  let records : Array[Json] = []
+  let workers : Array[Json] = []
+  let pids : Array[String] = []
+  let run = async fn(
+    name : String,
+    program : String,
+    args : Array[String],
+    cwd : String,
+    extra : Map[String, String],
+  ) -> @shell.Output {
+    let env = vars.copy()
+    for key, value in extra {
+      env[key] = value
+    }
+    let result = @shell.Cmd(program, args, cwd~, env~, inherit_env=false).output(
+      timeout_ms=300000,
+      max_output_bytes=20000000,
+    )
+    @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
+    @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
+    records.push({
+      "name": name.to_json(),
+      "program": program.to_json(),
+      "args": args.to_json(),
+      "cwd": cwd.to_json(),
+      "env": extra.to_json(),
+      "exit_code": result.exit_code().to_json(),
+    })
+    @fs.write_file(
+      evidence + "/commands.json",
+      records.to_json().stringify(indent=2),
+    )
+    println(
+      "PROMOTION AUDIT: " + name + " exit=" + result.exit_code().to_string(),
+    )
+    result
+  }
+  run("source", "git", ["rev-parse", "HEAD", "HEAD^{tree}"], repo, Map([])).check()
+  run("initial-status", "git", ["status", "--porcelain=v1"], repo, Map([])).check()
+  run("tested-source", "git", ["diff", "--binary", "HEAD"], repo, Map([])).check()
+  run("toolchain", "moon", ["version", "--all"], repo, Map([])).check()
+  run("host", "uname", ["-a"], repo, Map([])).check()
+  run("docker", "docker", ["version"], repo, Map([])).check()
+  run(
+    "images",
+    "docker",
+    [
+      "image", "inspect", "postgres:17.11", "postgres:18.6", "--format", "{{.Id}} {{json .RepoDigests}}",
+    ],
+    repo,
+    Map([]),
+  ).check()
+  let tracked = @shell.Cmd(
+    "git",
+    [
+      "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".",
+      ":(exclude)docs/reports/evidence",
+    ],
+    cwd=repo,
+  ).output()
+  tracked.check()
+  let paths = tracked
+    .stdout()
+    .split("\u0000")
+    .filter(p => !p.is_empty())
+    .map(p => p.to_owned())
+    .collect()
+  for path in paths {
+    let parts = path.split("/").collect()
+    if parts.length() > 1 {
+      @fs.mkdir(
+        snapshot + "/" + parts[:parts.length() - 1].join("/"),
+        recursive=true,
+        allow_exist=true,
+      )
+    }
+    @fs.write_file(snapshot + "/" + path, @fs.read_file(repo + "/" + path))
+  }
+  @shell.Cmd("cp", ["-R", repo + "/.mooncakes", snapshot + "/.mooncakes"]).run()
+  run("tracked-sha256", "shasum", ["-a", "256"] + paths, repo, Map([])).check()
+  let ordinary_args = [
+    ".", "cmd/replicator", "internal/memory", "internal/yaml", "--target", "native",
+    "--frozen", "--deny-warn",
+  ]
+  let required_packages = [
+    "pangbit/mooncdc", "pangbit/mooncdc/cmd/replicator", "pangbit/mooncdc/internal/memory",
+    "pangbit/mooncdc/internal/yaml",
+  ]
+  let ordinary_outline = run(
+    "ordinary-outline",
+    "moon",
+    ["test", "--outline"] + ordinary_args,
+    snapshot,
+    Map([]),
+  )
+  ordinary_outline.check()
+  let ordinary_count = ordinary_test_count(
+    ordinary_outline.stdout(),
+    required_packages,
+  )
+  for
+    (name, args) in [
+      ("check", ["check", "--target", "native", "--frozen", "--deny-warn"]),
+      ("ordinary", ["test"] + ordinary_args),
+      ("release", ["build", "--target", "native", "--release", "--frozen"]),
+    ] {
+    run(name, "moon", args, snapshot, Map([])).check()
+  }
+  let file = "timeline_active_promotion_live_wbtest.mbt"
+  let built = run(
+    "build-worker",
+    "moon",
+    [
+      "test", file, "--target", "native", "--build-only", "--frozen", "--deny-warn",
+    ],
+    snapshot,
+    Map([]),
+  )
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("one native worker required")
+  }
+  let services = match @env.get_env_var("MOONCDC_EXAMPLE_SERVICE") {
+    Some(service) => [service]
+    None => ["pg17", "pg18"]
+  }
+  let backends = match @env.get_env_var("MOONCDC_ACTIVE_STORE") {
+    Some(backend) => [backend]
+    None => ["legacy", "file"]
+  }
+  require_ordinary_summary(
+    @fs.read_file(evidence + "/ordinary.stdout").text(),
+    ordinary_count,
+  )
+  for service in services {
+    let image = match service {
+      "pg17" => "postgres:17.11"
+      "pg18" => "postgres:18.6"
+      _ => fail("expected pg17 or pg18")
+    }
+    for backend in backends {
+      assert_true(backend == "legacy" || backend == "file")
+      let name = service + "-" + backend
+      let dir = evidence + "/" + name
+      @fs.mkdir(dir)
+      let project = root
+        .split("/")
+        .last()
+        .unwrap()
+        .to_owned()
+        .to_lower()
+        .replace_all(old=".", new="-") +
+        "-" +
+        name
+      let prefix = [
+        "compose",
+        "-p",
+        project,
+        "-f",
+        snapshot + "/integration/standby.compose.yaml",
+      ]
+      let env = {
+        "MOONCDC_STANDBY_IMAGE": image,
+        "MOONCDC_SYNC_SLOT": "mooncdc_physical",
+        "MOONCDC_SLOT_SYNC": "on",
+      }
+      let compose = async fn(stage : String, args : Array[String]) -> String {
+        let result = run(
+          name + "-" + stage,
+          "docker",
+          prefix + args,
+          snapshot,
+          env,
+        )
+        result.check()
+        result.stdout().trim().to_owned()
+      }
+      defer @async.protect_from_cancel(() => {
+        ignore(compose("logs", ["logs", "--no-color"]))
+        ignore(compose("down", ["down", "--volumes", "--remove-orphans"]))
+        for
+          (kind, args) in [
+            (
+              "containers",
+              [
+                "ps",
+                "-a",
+                "--filter",
+                "label=com.docker.compose.project=" + project,
+                "--format",
+                "{{.Names}}",
+              ],
+            ),
+            (
+              "volumes",
+              [
+                "volume",
+                "ls",
+                "--filter",
+                "label=com.docker.compose.project=" + project,
+                "--format",
+                "{{.Name}}",
+              ],
+            ),
+          ] {
+          let result = run(
+            name + "-cleanup-" + kind,
+            "docker",
+            args,
+            repo,
+            Map([]),
+          )
+          result.check()
+          assert_eq(result.stdout(), "")
+        }
+      })
+      ignore(
+        compose("primary-up", [
+          "up", "-d", "--wait", "--pull", "never", "primary",
+        ]),
+      )
+      ignore(
+        compose("basebackup", [
+          "run", "--rm", "--no-deps", "--pull", "never", "--entrypoint", "pg_basebackup",
+          "standby", "--dbname=host=primary user=cdc password=mooncdc-test-only dbname=postgres",
+          "-D", "/var/lib/postgresql/data/pgdata", "-R", "-X", "stream", "--checkpoint=fast",
+          "-C", "-S", "mooncdc_physical",
+        ]),
+      )
+      ignore(
+        compose("standby-up", [
+          "up", "-d", "--wait", "--pull", "never", "standby",
+        ]),
+      )
+      let port = compose("primary-port", ["port", "primary", "5432"])
+        .split(":")
+        .last()
+        .unwrap()
+        .to_owned()
+      let standby = compose("standby-port", ["port", "standby", "5432"])
+        .split(":")
+        .last()
+        .unwrap()
+        .to_owned()
+      for phase in ["active", "restart"] {
+        let child_env = vars.copy()
+        child_env["MOONCDC_TEST_PORT"] = port
+        child_env["MOONCDC_STANDBY_PORT"] = standby
+        child_env["MOONCDC_ACTIVE_STORE_DIR"] = dir
+        child_env["MOONCDC_ACTIVE_STORE"] = backend
+        child_env["MOONCDC_ACTIVE_STORE_PHASE"] = phase
+        let output = @process.redirect_to_file(dir + "/" + phase + ".log")
+        defer output.close()
+        @async.with_task_group(group => {
+          let child = @process.spawn(
+            group,
+            executable,
+            [file + ":0-1"],
+            extra_env=child_env,
+            inherit_env=false,
+            stdout=output,
+            stderr=output,
+            cancel_handler=@process.hard_cancel(),
+          )
+          let pid = child.pid.to_string()
+          pids.push(pid)
+          let code = @async.with_timeout(150000, () => {
+            if phase == "active" {
+              while !@fs.exists(dir + "/cutover.ready") {
+                if child.try_wait() is Some(code) {
+                  fail(
+                    "active worker exited before cutover: " +
+                    code.to_string() +
+                    " " +
+                    @fs.read_file(dir + "/active.log").text(),
+                  )
+                }
+                @async.sleep(20)
+              }
+              assert_eq(child.try_wait(), None)
+              @fs.write_file(dir + "/same-pid-before-cutover.txt", pid)
+              ignore(
+                compose("fence-primary", ["stop", "--timeout", "30", "primary"]),
+              )
+              assert_eq(
+                compose("promote", [
+                  "exec", "-T", "standby", "psql", "-U", "cdc", "-d", "postgres",
+                  "-v", "ON_ERROR_STOP=1", "-Atc", "SELECT pg_promote(true,30)::text",
+                ]),
+                "true",
+              )
+              @fs.write_file(
+                dir + "/cutover.done",
+                "fenced own primary; actual standby promoted",
+              )
+              while !@fs.exists(dir + "/promoted.state") {
+                if child.try_wait() is Some(code) {
+                  fail(
+                    "worker exited before new durable binding: " +
+                    code.to_string() +
+                    " " +
+                    @fs.read_file(dir + "/active.log").text(),
+                  )
+                }
+                @async.sleep(20)
+              }
+              assert_eq(child.try_wait(), None)
+              @fs.write_file(dir + "/same-pid-after-cutover.txt", pid)
+              @fs.write_file(
+                dir + "/same-pid.confirmed",
+                "parent observed same live worker",
+              )
+            }
+            child.wait()
+          })
+          workers.push({
+            "scenario": name.to_json(),
+            "phase": phase.to_json(),
+            "pid": pid.to_json(),
+            "exit_code": code.to_json(),
+          })
+          @fs.write_file(
+            evidence + "/workers.json",
+            workers.to_json().stringify(indent=2),
+          )
+          assert_eq(code, 0)
+          let log = @fs.read_file(dir + "/" + phase + ".log").text()
+          let mut results = 0
+          for line in log.split("\n") {
+            if line.has_prefix("{") &&
+              @json.parse(line)
+              is { "type": "result", "message": String(message), .. } {
+              assert_eq(message, "", msg=log)
+              results += 1
+            }
+          }
+          assert_eq(results, 1)
+          assert_true(
+            log.contains(
+              "ACTIVE STORE: " + phase + " passed; backend=" + backend,
+            ),
+          )
+          println(
+            "ACTIVE STORE CHILD: " +
+            name +
+            " " +
+            phase +
+            " pid=" +
+            pid +
+            " exit=" +
+            code.to_string(),
+          )
+        })
+      }
+      ignore(
+        compose("drop-owned", [
+          "exec", "-T", "standby", "psql", "-U", "cdc", "-d", "postgres", "-v", "ON_ERROR_STOP=1",
+          "-Atc", "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_type='logical'; DROP PUBLICATION active_store; DROP SCHEMA active_store CASCADE",
+        ]),
+      )
+      let resources = compose("resources", [
+        "exec", "-T", "standby", "psql", "-U", "cdc", "-d", "postgres", "-v", "ON_ERROR_STOP=1",
+        "-Atc", "SELECT 'slots='||count(*) FROM pg_replication_slots WHERE slot_type='logical'; SELECT 'clients='||count(*) FROM pg_stat_activity WHERE application_name LIKE 'mooncdc%'; SELECT 'publications='||count(*) FROM pg_publication; SELECT 'tables='||count(*) FROM pg_tables WHERE schemaname NOT IN('pg_catalog','information_schema')",
+      ])
+      assert_eq(resources, "slots=0\nclients=0\npublications=0\ntables=0")
+    }
+  }
+  let stopped = run(
+    "workers-cleanup",
+    "ps",
+    ["-p", pids.join(","), "-o", "pid=,comm="],
+    repo,
+    Map([]),
+  )
+  assert_eq(stopped.exit_code(), 1)
+  assert_eq(stopped.stdout().trim(), "")
+  for
+    (name, args) in [
+      ("info", ["info", "--target", "native", "--frozen"]),
+      ("fmt", ["fmt"]),
+      (
+        "driver-fmt",
+        ["fmt", "tools/active-store-promotion-test.mbtx", "--check"],
+      ),
+    ] {
+    run(name, "moon", args, repo, Map([])).check()
+  }
+  for path in paths {
+    assert_eq(
+      @fs.read_file(repo + "/" + path).binary(),
+      @fs.read_file(snapshot + "/" + path).binary(),
+      msg="tested source changed: " + path,
+    )
+  }
+  run("final-sha256", "shasum", ["-a", "256"] + paths, repo, Map([])).check()
+  assert_eq(
+    @fs.read_file(evidence + "/tracked-sha256.stdout").binary(),
+    @fs.read_file(evidence + "/final-sha256.stdout").binary(),
+  )
+  @fs.write_file(
+    evidence + "/summary.json",
+    (
+      {
+        "ordinary_tests": ordinary_count.to_json(),
+        "ordinary_packages": required_packages.to_json(),
+        "workers": workers.length().to_json(),
+        "source_unchanged": true,
+        "cleanup": true,
+        "scope": "PG17/18 legacy/file Ready-state same-process active promotion and fresh-process resume; no partial COPY, consecutive promotion, pressure or cloud",
+      } : Json).stringify(indent=2),
+  )
+  println(
+    "ACTIVE STORE audit passed: " +
+    workers.length().to_string() +
+    " workers;\{ordinary_count} ordinary;source unchanged;owned resources removed",
+  )
+}

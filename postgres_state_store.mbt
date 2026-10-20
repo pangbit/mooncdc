@@ -10,6 +10,7 @@ pub struct PostgresStateStore {
   priv mut owner : String?
   priv mut poisoned : Bool
   priv mutex : @async.Mutex
+  priv metrics : RuntimeMetrics?
 }
 
 ///|
@@ -18,6 +19,7 @@ pub fn PostgresStateStore::new(
   store_id~ : String,
   schema? : String = "public",
   table? : String = "mooncdc_state",
+  control? : ApplyControl,
 ) -> PostgresStateStore raise {
   validate_connection(config)
   if store_id.is_empty() {
@@ -32,6 +34,7 @@ pub fn PostgresStateStore::new(
     owner: None,
     poisoned: false,
     mutex: @async.Mutex(),
+    metrics: control.map(control => control.metrics_data),
   }
 }
 
@@ -42,7 +45,13 @@ pub impl StateStore for PostgresStateStore with fn acquire(self, owner) {
   if self.owner is Some(_) {
     raise CheckpointError("state store already in use")
   }
-  let conn = connect(self.config, 33554432, false)
+  let conn = connect(
+    self.config,
+    33554432,
+    false,
+    workload=StateStore,
+    metrics?=self.metrics,
+  )
   errdefer conn.close()
   @async.with_timeout(self.config.timeout_ms, () => {
     ignore(conn.query("SET synchronous_commit=on; SET search_path=pg_catalog"))
@@ -107,7 +116,13 @@ pub impl StateStore for PostgresStateStore with fn load(self, key) {
   let rows = if self.owner is Some(_) {
     self.query_owned(sql)
   } else {
-    let conn = connect(self.config, 33554432, false)
+    let conn = connect(
+      self.config,
+      33554432,
+      false,
+      workload=StateStore,
+      metrics?=self.metrics,
+    )
     defer conn.close()
     @async.with_timeout(self.config.timeout_ms, () => conn.query(sql)) catch {
       Server("42P01", _) => return None

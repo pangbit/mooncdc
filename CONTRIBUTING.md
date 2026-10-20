@@ -14,5 +14,18 @@ or Chinese. Never include credentials, private datasets, database directories or
 5. Review `pkg.generated.mbti`. Use a Conventional Commit such as
    `fix(checkpoint): preserve contiguous acknowledgement after write failure`.
 
+Check a draft without creating a commit:
+`python3 -B tools/commit-subject-check.py --subject "fix(checkpoint): preserve durable progress"`.
+The checker accepts custom types, optional scopes and `!` before the colon.
+It imposes no title-length limit or required body. It checks structure; English
+wording, the chosen type and the accuracy of the summary still require review.
+Non-ASCII letters produce a review hint, since English titles can quote Unicode
+identifiers. Do not treat a structural pass as proof of English language.
+
+CI checks only non-merge commits introduced by the push or PR. It does not lint
+all historical commits, the PR title or GitHub's synthetic merge title. See
+[development](docs/DEVELOPMENT.md#commit-subject-checks) for range selection and
+local commands. No global hook installation is required.
+
 Contributions are licensed under Apache-2.0, like the rest of the repository.
 Do not hand-edit generated interfaces or refresh snapshots without inspecting them.

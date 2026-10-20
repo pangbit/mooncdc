@@ -1,10 +1,14 @@
 .DS_Store
 _build/
 target/
-target
 .mooncakes/
 .moonagent/
 .test-artifacts/
+__pycache__/
+*.pyc
 *.checkpoint
 *.checkpoint.lock
 *.checkpoint.tmp
+/docs/reports/evidence/
+/AGENTS.md
+/MoonCDC_REQUIREMENTS.md

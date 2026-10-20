@@ -46,18 +46,31 @@ impl Destination for SchemaProbe with fn write_rows(self, _relation, rows, _id) 
 
 ///|
 impl Destination for SchemaProbe with fn write_transaction(self, tx) {
-  for change in tx.changes {
+  for index, change in tx.changes {
     if change is Message(message) &&
       message.schema_snapshot(commit_lsn=tx.commit_lsn, publication="cdc_ddl")
       is Some(schema) {
       assert_eq(self.store.get(schema.oid, schema.id), Some(schema))
       self.seen.push(schema)
     }
-    if change is Insert(_, _) {
+    if change is Insert(relation, values) {
+      let schemas = tx.replicated_schemas(index)
+      assert_eq(schemas.length(), 1)
+      assert_eq(schemas[0].schema.oid, relation.oid)
+      assert_eq(schemas[0].columns().length(), values.length())
+      assert_eq(schemas[0].schema.id, self.seen.last().unwrap().id)
+      if self.rows == 2 {
+        assert_false(tx.id.contains("/copy/"))
+        println(
+          "LIVE: main no-op DDL row, protocol relation resent=\{tx.changes.any(change => change is RelationChanged(_))}",
+        )
+        assert_eq(schemas[0].replicated, [true, false, true, true])
+        assert_eq(schemas[0].identity, [true, false, true, false])
+      }
       self.rows += 1
     }
   }
-  if self.rows == 2 {
+  if self.rows == 3 {
     self.control.stop()
   }
   Durable
@@ -103,6 +116,7 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
       let dir = @fs.tmpdir(prefix="mooncdc-ddl-")
       defer @fs.rmdir(dir, recursive=true)
       let path = dir + "/state"
+      defer (if @fs.exists(path) { drop_slot(sql, pipeline_status(path).slot) })
       let control = ApplyControl()
       with_file_schema_store(dir + "/schemas", identity="ddl/source/target", store => {
         let probe : SchemaProbe = {
@@ -116,6 +130,11 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
         @async.with_task_group(group => {
           let writer = group.spawn(() => {
             while !probe.injected {
+              @async.sleep(10)
+            }
+            while !pipeline_status(path).tables.all(table => {
+                    table.phase is (Ready(_) | Catchup(_))
+                  }) {
               @async.sleep(10)
             }
             // ALTER TABLE blocks until the initial snapshot releases ACCESS SHARE.
@@ -134,6 +153,20 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
                 "ALTER PUBLICATION cdc_ddl_other SET TABLE cdc_ddl.items(a,c); ALTER PUBLICATION cdc_ddl SET TABLE cdc_ddl.items(a,c,d); INSERT INTO cdc_ddl.items(a,c,d) VALUES(3,3,'last')",
               ),
             )
+            while probe.rows < 2 {
+              @async.sleep(10)
+            }
+            ignore(sql.query("ALTER TABLE cdc_ddl.items OWNER TO CURRENT_USER"))
+            ignore(
+              sql.query(
+                "ALTER TABLE cdc_ddl.items ALTER COLUMN b DROP NOT NULL",
+              ),
+            )
+            ignore(
+              sql.query(
+                "INSERT INTO cdc_ddl.items(a,c,d) VALUES(4,4,'no-relation')",
+              ),
+            )
           })
           run_pipeline(
             config,
@@ -146,7 +179,7 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
           )
           writer.wait()
         })
-        assert_eq(probe.seen.length(), 3)
+        assert_eq(probe.seen.length(), 5)
         assert_true(probe.seen[0].id < probe.seen[1].id)
         assert_eq(probe.seen[0].id.commit_lsn, probe.seen[1].id.commit_lsn)
         assert_true(probe.seen[1].id < probe.seen[2].id)
@@ -156,7 +189,7 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
         assert_eq(probe.seen[1].columns[2].primary_key_ordinal, Some(1))
         assert_eq(probe.seen[1].columns[1].primary_key_ordinal, None)
         assert_true(probe.seen[1].columns[3].default_expression is Some(_))
-        assert_eq(store.all().length(), 4)
+        assert_eq(store.all().length(), 6)
         let initial = store.all()[0]
         let before = initial.project(initial.relation(["a", "b", "c"]))
         let added = probe.seen[0].project(
@@ -184,7 +217,7 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
         )
       })
       with_file_schema_store(dir + "/schemas", identity="ddl/source/target", store => {
-        assert_eq(store.all().length(), 4)
+        assert_eq(store.all().length(), 6)
       })
       with_file_schema_store(dir + "/missing", identity="ddl/source/target", store => {
         let probe : SchemaProbe = {
@@ -212,7 +245,6 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
           _ => fail("missing schema accepted on resume")
         }
       })
-      drop_slot(sql, pipeline_status(path).slot)
       println(
         "LIVE: unmodified upstream DDL trigger, ordered versions, rollback, publication scope and durable schema-before-target passed",
       )

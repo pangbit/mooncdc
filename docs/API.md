@@ -4,7 +4,136 @@ The compiler-generated [interface](../pkg.generated.mbti) is authoritative.
 Run `moon doc` for browsable API documentation. The public types belong to the root
 `pangbit/mooncdc` package; examples are separate executable packages.
 
+The current, unpublished module supports the PostgreSQL → ClickHouse library and
+replicator CLI through the same pipeline core. See [release scope](RELEASE_SCOPE.md).
+Other destination APIs are retained in the unpublished extension module.
+
+## Connection settings
+
+Prefer `ConnectionConfig::new(host~, user~, password?, database?, port?, security?,
+timeout_ms?, hostaddr?, keepalive?)`. It validates configuration without opening sockets;
+defaults are port 5432, database postgres, empty password, verified TLS and a 5000ms
+connection timeout. Passwords remain excluded from Debug output.
+
+`hostaddr` is an optional numeric IPv4/IPv6 address, without a port or IPv6 scope. It
+overrides only the TCP destination: `host` still supplies the TLS certificate name.
+Plaintext retains the numeric loopback host restriction and also rejects non-loopback
+hostaddr overrides. DNS is used only when hostaddr is absent.
+
+`TcpKeepaliveConfig::new(idle_secs?=30, interval_secs?=10, retries?=3)` enables TCP keepalive
+on every PostgreSQL connection. All values must be positive; the operating system can
+reject unsupported values. These settings do not replace replication feedback, application
+progress detection, or query deadlines, and do not promise an exact disconnect time.
+
+Source compatibility: `ConnectionConfig` gained `hostaddr` and `keepalive` fields. Existing
+record literals must add `hostaddr: None, keepalive: TcpKeepaliveConfig::new()` or move to
+the constructor. Record updates using `..config` retain both fields automatically.
+
+PostgreSQL startup options select a workload profile independently of connection
+and client operation deadlines. Metadata/state/migration sessions use statement,
+lock and idle-in-transaction timeouts of 30s/10s/60s. WAL and snapshot readers use
+0/30s/0 so long streams and copy callbacks can retain their snapshot. Snapshot
+exporters use 0/0/0 because slot creation can wait for writers, and no further
+query may invalidate an exported snapshot; their separate reader still has the
+30s lock bound. Pipeline slot creation temporarily disables lock_timeout and
+restores 30s before reuse. Existing client deadlines and cancellation still apply.
+Application names identify queries, state, migrations, WAL, snapshot reader and
+exporter in `pg_stat_activity`; per-pipeline/per-table suffixes are not yet supplied.
+
 ## Lifecycle
+
+`ApplyControl::prometheus(pipeline_id?, destination?, project?, stall_timeout_ms?=300000)`
+renders scoped Prometheus text without changing worker state. Counters belong to the
+control and include retries/replays; use a fresh control for a fresh metrics lifetime.
+Optional label values are escaped and limited to 1024 UTF-8 bytes each. Built-in labels
+never contain relation names, connection strings or error messages.
+`with_metrics_server(control, run, port?=9000, listen_address?, pipeline_id?, destination?, project?,
+stall_timeout_ms?=300000)` validates and binds a separate IPv4/IPv6 listener before
+calling `run`. `/health` returns `OK`; other paths render the same metrics. All methods
+are accepted and HEAD omits the body. The scope closes its listener and accepted
+connections on normal return, failure and cancellation. It uses a 5s request timeout
+and allows at most 128 simultaneous clients. Metrics never acknowledge data or stop
+workers. See [metric definitions and limitations](METRICS.md).
+Omitting `listen_address` keeps the existing all-interface IPv4/IPv6 listener.
+An explicit numeric IPv4 or unbracketed IPv6 address binds only that address,
+without DNS resolution or IPv4 fallback. `validate_metrics_listen_address(address)`
+checks this syntax without creating a listener; the port remains a separate option.
+
+`run_pipeline(..., memory_backpressure=MemoryBackpressureConfig::new())` enables
+shared host/cgroup pressure sampling every 100ms. Activation defaults to 0.85 and
+resume to 0.75; resume requires usage strictly below that threshold. The library
+option is opt-in. Configuration validates before opening pipeline connections.
+
+Pressure gates new main-WAL reads, snapshot FETCH commands and private table WAL
+reads. Existing reads can complete; destination writes, timed flushes, checkpoint
+acknowledgements and periodic feedback continue. Pressure activates immediate
+flush of pending apply writes ahead of the ordinary timer. Snapshot Accepted rows flush
+before waiting. Stop cancels blocked source waits, and the pipeline scope joins
+the sampler after its consumers exit. Paused source activity does not appear
+stalled, but a concurrent blocked destination write still does.
+
+This is emergency source pausing, not a hard memory limit. Transaction/frame
+limits remain independent.
+The replicator CLI enables these pressure defaults unless its
+`memory_backpressure` field is explicitly null; see [configuration](REPLICATOR.md).
+
+`run_pipeline(..., batch=BatchConfig::new())` separately enables advisory decoded
+batch targets: `memory_budget_ratio=0.2`, `max_bytes=33554432`, and
+`max_fill_ms=10000`. The ratio must be in (0,1], bytes positive, and fill time
+nonnegative; zero flushes each item. The fill deadline starts at the first item
+and does not restart when more data arrives. Native UTF-16 row/metadata size hints
+are estimates, not heap measurements. Capacity and active ownership determine
+each target, capped by `max_bytes`; an indivisible item can exceed it.
+
+With `batch` and a destination that returns true from `supports_wal_batches`,
+main WAL and private table WAL decode and release individual events. ClickHouse
+opts in; the default for custom destinations is false. `write_wal_batch` receives
+an ordered `WalBatch`, whose `end_lsn` is Some only after a validated Commit.
+`event_id` preserves the original row ordinal or logical-message LSN across
+batch splits, table projection and replay; `replicated_schemas` retains each
+event's exact schema. The default writer rejects event batches rather than
+passing a partial object to `write_transaction`.
+
+The receiver has one delivery slot, and the apply worker accumulates one batch.
+They register two governor positions. A copy worker owns one position during
+snapshot and adds its receiver position during event catchup; extra snapshot
+readers also register their ownership. Byte target, first-event deadline,
+pressure and stop drain partial batches. Every Accepted batch flushes before
+another accumulates; Commit also drains, even for an empty table projection.
+Checkpoint and table handover advance only after Commit and the cumulative
+target barrier. Cancellation, malformed Commit or disconnect before it can leave
+visible target fragments, but keep the old checkpoint for stable-ID replay.
+This contract does not provide atomic visibility of an entire source transaction.
+
+Public `subscribe`/`next` still deliver complete `Transaction` values. Without
+event opt-in, pipeline apply keeps the compatible whole-transaction collector,
+registers 16 pending positions plus one decoder and can exceed the target by a
+whole transaction. Cumulative transaction byte/event and metadata limits apply
+to both decoders; releasing events never resets those limits. A single event,
+wire frame, metadata cache or target encoding can exceed the advisory target.
+Registrations release on failure and cancellation. This v1 event path is separate
+from the opt-in pgoutput v2 collector described below. Pipelines continue to use v1.
+
+Both options share one sampler. With only `batch`, capacity refresh continues
+without pressure pausing. `memory_refresh_interval_ms` overrides the period in
+`MemoryBackpressureConfig`; otherwise that period, or 100ms, applies. A supplied
+period must be positive. Omitting both options preserves library behavior.
+The replicator CLI enables a default `batch` when omitted; explicit null disables
+it. It shares `memory_refresh_interval_ms` even when pressure is disabled. Library
+calls retain opt-in batching; see [configuration](REPLICATOR.md).
+
+`run_pipeline(..., table_sync_monitor_refresh_interval_ms?=10000)` runs a separate
+sampler while each copy owns its exported slot, including catchup. Positive Int
+milliseconds are required. The sampler queries its own connection, using current
+WAL on a primary and replay WAL on a standby. Missing/invalidated private slots cancel
+that copy and enter the existing table retry policy; incompatible metadata is fatal.
+Other sampling errors are counted and retried after the period. Sampling never advances
+the checkpoint. Owner completion, failure and cancellation interrupt and join pending
+sampling handshakes/queries. The same interval also samples current source WAL (or
+standby replay) LSN through a separate bounded SQL connection for main apply and
+private catchup workers. Sampling continues while source reads are paused or the
+destination is blocked, and never changes checkpoints, feedback or worker activity.
+See [metrics](METRICS.md) for lag positions, sample age and aggregation semantics.
 
 `subscribe(config, slot~, publication~, start~, checkpoint_path~, consume, ...)`
 authenticates, identifies the source, validates the slot, enters COPY BOTH, and starts
@@ -41,14 +170,19 @@ different source or destination. The same source binding, checksums and replay c
 `SnapshotPosition.save_checkpoint_in(store)` persists an initial snapshot for later Resume.
 
 `StateStore` implements exclusive acquire/release, atomic load, and owner-checked durable
-save for Pipeline, ReplicationCheckpoint and TableMetadata records. Implementations must
+save for Pipeline, ReplicationCheckpoint, Schemas and TableMetadata records. Implementations must
 exclude competing processes and reject stale owners; a successful save establishes durability.
 Failed saves do not advance the in-memory pipeline/checkpoint. `state_store_status(store)`
 observes an atomic status without acquiring ownership. `with_state_store(store, session => ...)`
 releases ownership on return, error or cancellation; retained sessions reject further writes.
 
+`session.check()` exposes the existing local lifetime check to external destinations.
+Call it before external side effects and after an asynchronous wait that could retire
+the scope. It checks that this scope is active; it does not query the backing store,
+renew ownership, fence a remote writer, or authorize an acknowledgement.
+
 `FileStateStore.new(existing_directory)` uses an advisory `.lock` plus atomic fsynced records.
-`PostgresStateStore.new(config, store_id~, schema?="public", table?="mooncdc_state")` uses
+`PostgresStateStore.new(config, store_id~, schema?="public", table?="mooncdc_state", control?)` uses
 one PostgreSQL session advisory lock per store ID and a shared record table. Acquisition
 creates the table if absent (the schema must exist); schema/table names and IDs are escaped.
 Writes use synchronous_commit=on and transactional upserts. Concurrent table initialization
@@ -56,6 +190,8 @@ is serialized. A failed owner connection is closed and never silently reconnecte
 acquisition is required; backend termination releases the PostgreSQL advisory lock.
 Keep the state table outside the source publication; use a separate metadata database
 when the source publication includes all tables.
+Passing `control` records explicit state queries in its `postgres_store` query histogram,
+including failed/cancelled requests, without changing ownership or reconnect rules.
 
 For store-backed pipelines, `Destination.bind_state(session)` runs before startup after
 source/destination validation. `session.get_metadata(oid)` / `put_metadata(oid, json)` let
@@ -64,6 +200,22 @@ is durable. Metadata is checksummed, OID-bound and retains exact JSON numeric te
 are 16 MiB per record and 127 JSON container levels. The default bind hook does nothing.
 Custom destination operations must still fence their own earlier asynchronous writes;
 state-store ownership alone does not establish distributed fencing of destination data.
+
+`with_state_schema_store(schema_state, identity~, schemas => ...)` persists the full
+versioned schema history through a StateStore rather than a local schema file. Pass
+`schemas` to the destination and `run_pipeline(..., schema_store=schemas)`. Use a
+separate namespace from the pipeline's StateStore (different directory or PostgreSQL
+store ID), since both scopes hold exclusive ownership concurrently. For example,
+PostgreSQL IDs `pipeline-1/state` and `pipeline-1/schemas` can share the same metadata
+table while keeping independent ownership. Keep both namespaces and the schema
+identity stable on restart. This permits recovery without a local schema file.
+
+The checksummed schema envelope, 16 MiB bound, exact-version conflict checks and
+checkpoint-based pruning match the file schema implementation. Cache changes occur
+only after the record save succeeds; a failed write/prune preserves the previous
+cache. The scoped SchemaStore rejects use after return. Existing `with_file_schema_store`
+files remain compatible and are not migrated automatically. Custom StateStore
+implementations with exhaustive matches must add the new `Schemas` record kind.
 
 ## Positions and replay
 
@@ -112,9 +264,28 @@ SQL type decoding; use each column's OID to interpret its wire format. PostgreSQ
 fall back to text for types without binary output, so handle both Text and Binary.
 The transfer choice is retained during reconnect. Adding the Binary variant requires
 consumers with exhaustive Value matches to add a branch.
-Only committed transactions and UTF-8 text encoding are supported.
-Streaming large in-progress transactions, two-phase transactions and automatic
-failover are not implemented. Unknown messages fail explicitly.
+Only committed deliveries and UTF-8 text encoding are supported. Two-phase
+transactions and automatic endpoint selection/HA routing are not implemented. Unknown
+messages fail explicitly.
+
+`subscribe(..., protocol=V2Streaming)` negotiates `proto_version=2, streaming=on`.
+The default is `V1`. v2 accepts Stream Start/Stop/Commit/Abort and XID-prefixed
+row, relation, type, truncate and transactional-message records. It retains
+interleaved uncommitted transactions privately and delivers a complete Transaction
+only at Stream Commit. Root abort discards its buffer; subtransaction abort
+truncates at that subtransaction's first arrival offset, including later nested
+or released records. Relation/type wire metadata remain connection-scoped.
+
+The transaction byte/event limits additionally bound the aggregate of all open
+stream buffers and an ordinary transaction; `max_pending_transactions` also
+limits the number of open streamed transactions. Stream-control bytes count
+toward the byte limit. Subtransaction abort does not reset cumulative quotas.
+An overrun fails without provisional delivery or checkpoint advancement; reopen
+with suitable limits to replay. These bounds do not promise an exact RSS limit.
+Reconnect retains v2/binary/messages negotiation, discards incomplete buffers,
+and replays from the durable checkpoint. Committed row/message IDs use the same
+identity scheme as v1. This standalone mode is separate from pipeline WalBatch
+delivery; `run_pipeline`, private COPY catchup and the CLI continue to use v1.
 
 `subscribe(..., messages=true)` requests logical messages. Transactional messages from
 `pg_logical_emit_message` appear as `Change::Message(LogicalMessage)` in commit order;
@@ -168,7 +339,18 @@ queries currently allow up to 1024 tables and 1024 published columns per table.
 Callbacks provide backpressure; each database operation uses `connection.timeout_ms`.
 Object/string overhead and data retained by the consumer are outside these wire limits.
 
-An existing slot is refused. On callback failure, timeout or cancellation both sockets
+`copy_connections` defaults to 1 (range 1–256) on `copy_snapshot` and
+`copy_snapshot_to`. Values above 1 use multiple read connections importing the same
+exported snapshot. Physical tables are split into disjoint CTID ranges, with open
+first/last boundaries; partition roots schedule their leaf tables. Planning uses
+current storage size and catalog row estimates without scanning the table first.
+At most the configured number of readers process those jobs, in addition to the
+exporter and metadata reader. Empty tables still produce begin/end and target setup.
+Row order is unspecified. All callbacks and destination operations remain serial;
+copy batch IDs share one sequence within the snapshot attempt. One failed or cancelled
+worker cancels its siblings and closes every imported transaction before returning.
+
+An existing slot is refused. On callback failure, timeout or cancellation all sockets
 close, the read transaction ends, and no SnapshotPosition or checkpoint is produced.
 The new persistent slot remains, retaining WAL: explicitly inspect/drop that owned slot
 and discard partial target state before starting a fresh copy. This API does not persist
@@ -178,6 +360,18 @@ before saving either form of checkpoint also requires a deliberate fresh bootstr
 ## Destinations and durability
 
 Implement the public `Destination` trait to receive snapshots and committed transactions.
+
+External adapters can construct the existing `CdcError` variants for shared error
+classification. The variants and payloads are unchanged; making their constructors
+public does not change core error matching or recovery semantics.
+
+`Transaction.destination_events()` and `WalBatch.destination_events()` provide a
+read-only `DestinationEvents` view for adapters. It preserves ordered changes,
+stable event IDs and exact per-event schemas. `session` is an opaque delivery
+lifetime identity for fencing in-memory replay debt, not a durable event ID.
+The view has no `end_lsn` or acknowledgement API. A fragment's `commit_lsn` does
+not prove receipt of Commit and must never be used to advance a checkpoint.
+The existing Transaction, WalBatch, Destination and acknowledgement APIs remain.
 
 When a `schema_store` is supplied to `copy_snapshot_to` or `run_pipeline`,
 `bind_snapshot_schema(relation, schema)` receives the exact imported-snapshot schema
@@ -215,17 +409,126 @@ Use transaction IDs and copy batch IDs to make destination effects idempotent. T
 contract does not itself provide schema planning or built-in cloud destinations.
 The pipeline below adds durable per-table coordination. Existing checkpoints remain the source
 of truth for transaction recovery; the destination persists its own business/replay state.
+During concurrent table synchronization, a main transaction's projection can gain tables
+between attempts. Deduplicate pipeline row effects with `event_id`, not only `tx.id`, so an
+earlier partial projection cannot suppress newly owned table events during replay.
 
 ## Persistent table pipeline
 
 `run_pipeline(config, destination, publication~, destination_id~, state_path~, control~,
-slot_prefix?="mooncdc", copy_concurrency?=2, batch_rows?=256,
-table_retry_delay_ms?=10000, max_table_retries?=5)` owns a randomly named main
-replication slot and temporary slots for independent table snapshots. It manages destination
+slot_prefix?="mooncdc", copy_concurrency?=2, copy_connections_per_table?=1,
+table_sync_monitor_refresh_interval_ms?=10000, batch_rows?=256,
+table_retry_delay_ms?=10000, max_table_retries?=5,
+table_sync_copy?=IncludeAllTables, slot_failover?=false,
+invalidated_slot_behavior?=RejectInvalidatedSlot)` owns a randomly named main
+replication slot and, by default, temporary slots for independent table snapshots. It manages destination
 startup/shutdown and keeps a checksummed, atomically replaced state file plus a sibling
 `.checkpoint` file. Keep both files, their locks, and the destination's durable data together.
 The destination identity is caller supplied and must uniquely identify the target dataset.
 Source, destination and slot-prefix mismatches fail before target startup.
+
+`slot_failover=true` requires PostgreSQL 17 or later. It creates failover-enabled
+main and table-copy slots, and upgrades an existing main slot when needed.
+Disabling the option never downgrades an existing main slot. Private copy slots
+become persistent: durable table state owns their deterministic names, and the
+pipeline drops them after closing the exporter on success or failure. Startup
+cleans recorded copy slots before reconciling publication membership, including
+removed tables and restarts with failover disabled. Cleanup waits for inactive
+slots within the connection timeout and refuses incompatible plugin/database or
+temporary slots. Cleanup failure stops the pipeline; completed handover is kept.
+
+`copy_snapshot` and `copy_snapshot_to` accept the same `slot_failover` option;
+their standalone slots remain caller-owned after success or failure. Configure
+physical-standby slot synchronization separately. Standalone snapshot handoffs
+and `subscribe` retain their strict timeline binding.
+
+A new `run_pipeline` process with `slot_failover=true` can resume its existing
+state on a promoted source. System ID, database, slot, publication, destination
+and slot prefix must still match. Before target startup it validates the new
+`TIMELINE_HISTORY`, finds the stored timeline's fork, and requires the checkpoint,
+initial snapshot, table cutoffs and durable target write horizon to precede or
+equal that fork. The main slot must already be persistent, failover-enabled and
+valid, with restart/confirmed-flush positions no greater than the checkpoint.
+Configure the promoted connection and fence the old primary before restarting.
+
+New pipelines persist the write horizon before main/private WAL target or schema
+writes and before snapshot schema persistence. Partial v1 batches use Commit-start
+LSN plus one, so a fork at the Commit record's start rejects those rows. This is
+not an acknowledgement. Each increasing horizon adds a durable state write.
+Legacy state without this field remains usable on its original timeline but
+cannot be automatically rebound; later writes do not invent its missing history.
+Explicit slot recreation initializes a new horizon when resynchronizing all tables.
+
+Promotion persists an intent, rewrites only the checkpoint's source binding at
+the same position, then completes the pipeline binding. A restart validates the
+same ancestry and slot again and accepts only the old/new checkpoint pair named
+by that intent. Completed tables keep their state; an interrupted intent cannot
+start target work. A second promotion during an unfinished intent fails closed.
+An active pipeline can also re-enter these startup checks when its main worker
+reconnects to the same source on a different timeline with `slot_failover=true`.
+It first closes and joins every old source worker and flushes accepted target
+writes, then reloads the owner-protected records. It retains its destination and
+state owner; a failed owner connection remains fatal and requires a fresh scope.
+Promotion reentry has a separate count bounded by `max_table_retries`, waits for
+`table_retry_delay_ms` in Initializing, and is interruptible by stop. A controller
+must fence the old primary and route the configured endpoint to the promoted
+source; this does not configure a standby, DNS/HA routing or distributed ownership.
+The active CLI matrix covers completed COPY with an independent healthy PostgreSQL
+state/schema store; active COPY overlap and other state backends need further live
+evidence. See validation [validation scope](VALIDATION.md).
+
+`invalidated_slot_behavior=RecreateInvalidatedSlot` explicitly permits recovery from
+an existing owned slot whose WAL has been invalidated. The default rejects it without
+resetting the destination or changing its checkpoint. Missing/incompatible slots,
+changed source/destination identity, corrupt checkpoints and empty publications remain
+fatal; this option does not bypass those checks or enable timeline promotion recovery.
+
+Recreation resets every table state to Pending, drops owned copy slots and the invalid
+main slot, creates a new main slot with the requested failover setting, saves its
+consistent point as the new checkpoint, then copies the selected tables again. Tables
+excluded by `table_sync_copy` are reset and initialized empty; changes lost with the
+old WAL cannot be recovered for them. Included tables obtain a new consistent snapshot
+and resume WAL from it. Target metadata/schema history is retained for safe reset and
+schema reconciliation. Do not manually consume or advance a pipeline's slot.
+
+A temporary pipeline-state version 2 records the durable recreation intent. It contains
+only Pending table states and no completed decoding state; the old checkpoint is not
+usable as a new-slot resume frontier. A process restarted with the recreate option
+finishes or repeats this intent before any target work. It can repeat slot creation
+after an interrupted creation reply. Normal operation returns to version 1. Older
+library versions reject the in-progress version 2 state; preserve both records and
+restart with this implementation and the explicit recreate option to finish recovery.
+
+If a slot becomes invalid while running, all old source tasks close and the destination
+flushes before a new source worker group starts. Its bind/startup/shutdown lifetime is
+kept across this recovery. The recreation retry count is bounded by `max_table_retries`
+and uses `table_retry_delay_ms`; intentional recovery waits are initializing/unready and
+stop wakes them immediately. A target flush failure aborts recovery without publishing
+a new checkpoint. This is resynchronization after lost WAL, not recovery of lost events.
+
+Pipeline worker connections expose stable `application_name` values in
+`pg_stat_activity`: `mooncdc_replication:apply:<pipeline>` for main WAL apply,
+`mooncdc_snapshot:table_sync:<pipeline>:<oid>` for snapshot readers, and
+`mooncdc_snapshot_export:table_sync:<pipeline>:<oid>` for exporters/private WAL.
+`<pipeline>` is the first 16 hex characters of SHA256 of the persisted main slot
+name. It remains stable across restarts and retries without exposing destination
+configuration or adding a new user identifier. Names fit PostgreSQL's 63-byte
+limit, including the largest table OID. Other connections retain workload names.
+
+`table_sync_copy` selects initial rows by source table OID: `IncludeAllTables`
+(default), `SkipAllTables`, `IncludeTables([oid, ...])`, or `SkipTables([oid, ...])`.
+Duplicate OIDs are rejected before starting; an empty IncludeTables list skips all
+initial rows and an empty SkipTables list copies all. This is not a streaming
+filter: every published table still joins CDC. Skipped tables still acquire an
+independent snapshot/slot, capture schema and decoding masks, reset/create the
+destination and finish its empty-write durability barrier before handing over.
+They omit rows existing at their own snapshot, including pre-snapshot WAL effects.
+Use this policy only when that intentionally partial target state is desired.
+
+Changing the policy on restart affects new/unfinished table copies, including
+retries, but never recopies or clears tables that already completed handover.
+The policy is supplied for each run rather than persisted as immutable source
+identity. Standalone `copy_snapshot` and `copy_snapshot_to` continue to copy rows.
 
 `pipeline_status(path)` reads Pending, Copying, Catchup(cutoff), Ready(cutoff) and
 Errored(reason, retry, attempts) per OID.
@@ -259,11 +562,36 @@ ManualRetry. TimedRetry persists its Unix-millisecond deadline; waiting releases
 `control.retry_table(oid)` on an active pipeline resets the budget and queues a fresh snapshot,
 returning false for unknown, healthy or NoRetry tables. Restarting alone does not retry ManualRetry.
 Every retry fences/reset the unfinished table; it does not replay an old partial snapshot.
-State/checkpoint, unsafe source identity and shared cumulative-flush failures still stop the pipeline.
-Main-stream destination errors still fail the whole transaction/pipeline; attributing and isolating
-those errors per table, additional OS transport classifications and stored decoding-mask recovery
-remain separate work. Operators must inspect Errored statuses even while the pipeline is running.
-Schema changes during a table copy remain unsupported. Cancellation leaves conservative replay positions;
+State/checkpoint, unsafe source identity and copy-side cumulative-flush failures still stop
+the pipeline. A transient main-apply source or destination write/flush failure closes the failed
+subscription and replays from the persisted checkpoint in a new subscription. It reuses
+`table_retry_delay_ms` and `max_table_retries` with a separate budget for the whole run;
+initial source setup consumes the same budget and successful attempts do not reset it.
+The destination is started once and table-copy workers remain active; completed tables
+are not recopied. Manual/permanent,
+unclassified and exhausted failures propagate the original error. A stop during the retry
+delay wakes immediately, drains the destination and leaves failed work unacknowledged.
+Standalone `Subscription.apply_to` still propagates errors without this retry loop.
+
+Pipeline source connection, identification, slot setup, publication discovery and streaming
+I/O opt into worker recovery. Every streaming attempt creates a fresh subscription from
+the durable checkpoint; pending transactions are replayed. Pipeline subscriptions disable
+the inner reconnect loop, so source and destination failures consume one bounded budget.
+Standalone `subscribe` retains its original reconnect policy and pending delivery behavior.
+Source identity/slot safety, authentication, protocol, callback and state/schema-store
+errors do not become retriable merely because they occur in the worker. Only explicitly
+marked I/O/call boundaries enter retry classification; source socket OS errors exclude
+permission and path failures. Startup and state/schema-store failures outside a destination
+call are not retried. Destinations must keep retry effects idempotent and preserve ordering of
+older in-flight operations before accepting replay; an HTTP timeout alone does not prove
+that remote work stopped. A destination must classify its own unsafe metadata/recovery
+failures as non-retryable rather than reporting a transient write failure.
+Main-stream errors never skip individual tables: a failed attempt replays conservatively or
+exits after policy/budget evaluation. Additional table/destination transport classifications
+remain separate work. Operators must inspect Errored statuses even
+while the pipeline is running.
+Initial COPY holds the source table lock; subsequent private WAL catchup uses the same
+decoding policy as main apply. Cancellation leaves conservative replay positions;
 `control.stop()` drains accepted writes. Owned persistent slots retain WAL after exit and
 require explicit operator cleanup when the pipeline is permanently retired.
 
@@ -287,8 +615,25 @@ identity~, run)` provides an exclusive, checksummed atomic file implementation w
 is idempotent; conflicting schema content fails. Cache publication follows successful
 file persistence. `prune([(oid, bound), ...])` preserves the newest version at/before each
 bound and every newer version. Choose bounds no newer than both the durable source
-checkpoint and any version still required by destination recovery. Automatic pruning is
-not implied. Access after the scope closes fails.
+checkpoint and any version still required by destination recovery. Access after the
+scope closes fails.
+
+`Destination.schema_retention(oid)` opts a table into pipeline cleanup by returning the
+earliest schema still referenced by durable destination metadata. Its default is None,
+which preserves all versions. ClickHouse reports its current schema, or the earlier
+of both endpoints while DDL is Applying. After a checkpoint is successfully persisted,
+the pipeline considers tables seen in relation/row/DDL events, takes the minimum of this
+retention version and `SchemaId.before_lsn(persisted_checkpoint)`, and prunes only tables
+owned by main apply at that checkpoint. Copying, errored and future-cutoff tables are
+excluded. Cleanup runs under the pipeline destination lock, so it cannot race a reset
+or DDL transition. Lookup/prune errors keep candidates for a later checkpoint; they
+do not fail replication or authorize any additional acknowledgement. This is best-effort
+maintenance: a table with no retention metadata is reconsidered after a later relation
+or DDL event. Custom destinations must report a conservative bound, including pending
+DDL and other recovery references, before enabling cleanup. Stored handover decoders also
+pin their exact schema version. The pipeline discards that payload only after a durable
+checkpoint reaches the handover and the current connection has materialized its decoder;
+failed state writes preserve the payload and block pruning for that pass.
 
 Pass the scoped store as `run_pipeline(..., schema_store=store)`. The pipeline records a
 full-table bootstrap schema inside each imported snapshot before target reset, using the
@@ -309,6 +654,26 @@ identity; `all_primary_keys_replicated()` checks complete source-key coverage in
 constructor validates mask widths and identity membership. `with_schema(next)` retains masks
 for metadata-only DDL; a replacement Relation is required when membership/width changes.
 
+With a SchemaStore, `tx.replicated_schemas(index)` returns the immutable schemas selected
+for that event: one for Relation/Insert/Update/Delete, one per relation for Truncate,
+and an empty array for other events, invalid indexes or raw subscriptions. This keeps
+different schema versions within one transaction distinct. Raw changes, JSON and event
+IDs remain unchanged. Destinations must apply the returned schema before writing its row;
+ClickHouse does this automatically.
+
+Each main attempt starts its schema lookup at the durable checkpoint. A table's handover
+can raise that bound; a preceding DDL selects its exact version, and repeated protocol
+Relation metadata preserves the connection's established schema lineage. DDL enters a
+pending state retaining both masks. If a row arrives without a replacement Relation, the
+pipeline combines those masks with the pending snapshot; if no local masks exist, it may
+restore the completed copy's persisted decoder once the transaction reaches its cutoff.
+Truncate requires a complete connection decoder. Copies seed that decoder from their
+imported snapshot and can hand over only a complete state. The cutoff and compact snapshot
+ID/publication/identity masks are saved in one pipeline-state write after target durability.
+Missing exact snapshots, invalid masks and future handover versions fail closed. Legacy
+state without a decoder still accepts a fresh Relation but cannot supply a relation-less
+fallback. Source retries reset the main decoder and retain independent copy decoders.
+
 `before.plan_change(after, map_name?)` plans column DDL by physical ordinal, with source-table
 changes distinguished from publication-membership changes. It validates destination name
 collisions, orders drops before renames and additions, and breaks rename cycles with reserved
@@ -319,11 +684,30 @@ Names in the plan are already mapped. Planning does not execute DDL or imply tha
 supports every operation; destinations must validate capabilities before starting a plan.
 
 The pipeline negotiates logical messages and rejects nontransactional DDL. Actual DDL
-production requires upstream source helpers/event triggers installed by the operator;
-the library never installs database-wide triggers. The pinned unmodified SQL in
-`integration/reference/etl` is exercised only in isolated tests. Destination DDL execution,
-stored decoding-mask recovery and automatic schema-retention coordination
-remain separate work.
+production requires upstream source helpers/event triggers. Applications may preinstall
+them, call `run_source_migrations(connection, control?)`, or opt into installation with
+`run_pipeline(..., source_migrations=true)`. The library defaults this option to false
+for compatibility with existing embedded applications; the standalone replicator defaults
+its `run_source_migrations` config to true, as does the reference. A stopped control does
+not run migrations. Physical standbys skip installation; their primary must have the
+helpers installed and replayed before replication starts.
+Optional `control` records explicit migration queries as `out_of_band`; pipelines and
+the standalone CLI pass their existing control. Query observations never advance state.
+
+The two pinned SQL files in `integration/reference/etl` are embedded unchanged. Installation
+requires privileges to create schema/functions and the database-wide event trigger
+(PostgreSQL superuser for the latter). The migrator shares `etl._sqlx_migrations`, SHA-384
+checksums and the database advisory lock with SQLx 0.9.0. Unrelated successful versions are
+preserved; any dirty history or changed checksum for an owned version is rejected. Each
+pending migration and success record commit in one transaction. A failed connection closes
+and rolls back any uncommitted migration; retry validates committed history. Do not edit
+applied SQL or repair checksum history to conceal drift. This API only installs source
+helpers, not Supabase's state-store tables, and does not support down migrations.
+
+Migration sessions use a 30s statement/client query timeout, 10s lock timeout and 60s idle
+transaction timeout. Connection setup uses `ConnectionConfig.timeout_ms`. Lock ownership
+ends with the migration connection scope. Target-specific DDL capabilities remain part of
+each destination's contract.
 
 ## Typed text cells
 
@@ -382,6 +766,16 @@ A client deadline does not prove the server has stopped the request. HTTP writes
 are synchronous and return Durable only after server acknowledgement. StateStore
 ownership does not fence a previously running remote HTTP request.
 
+An admitted ClickHouse transaction keeps the instance's ordering lock even if its
+source caller is cancelled. Replay, table reset and shutdown wait until that batch
+finishes or fails under its own per-request deadlines. Cancellation while waiting
+for admission remains immediate and sends no requests. This synchronous destination
+serializes all tables, so its barrier is broader than the reference's per-table
+background-task fences. Cancellation of an admitted batch can take as long as its
+remaining operations; an outer timeout cannot override the drain. After a request's
+own timeout or a process exit, no additional remote-cancellation or distributed-ordering
+guarantee is claimed.
+
 Source underscores are doubled and schema/table names joined with `_`. For example,
 `public.my_table` becomes `public_my__table`. ReplacingMergeTree requires published
 primary keys and creates a `<target>__current` view; its underlying rows carry
@@ -414,12 +808,45 @@ replay deduplication depends on ClickHouse engine and server window configuratio
 
 ## Limits and diagnostics
 
+`ApplyControl.activities()` returns approximate monotonic inactivity observations
+for `run_pipeline` workers. `health(stall_timeout_ms=300000)` evaluates them without
+database calls. Copy workers use the configured allowance; WAL workers use the
+larger of it and the server's `wal_sender_timeout` (60 seconds when disabled or
+unavailable). An age equal to the allowance is inactive. Every worker counts, so a
+healthy worker cannot hide a stalled one. Slot acquisition and retry waits have no
+activity registration; completed/cancelled workers remove their registrations.
+
+`PipelineHealth.live` permits initialization and draining, but fails on inactivity.
+`ready` requires Running, at least one observation and no inactive workers. `status`
+is the readiness reason: `ok`, `initializing`, `inactive`, or `stopping`. Stop wins
+over inactivity and immediately removes readiness while retaining liveness.
+Readiness can be true during initial copy; it is not a durability or lag assertion.
+Pipeline-owned WAL feedback requests keepalive replies to observe idle streams.
+Receiving keepalives cannot conceal a blocked apply write, flush or checkpoint.
+Raw `subscribe`/`apply_to` calls do not register pipeline observations.
+
+`with_health_server(control, run, port=9001, stall_timeout_ms=300000)` binds before
+invoking the async host callback. Wrap pipeline initialization and execution in
+that callback to expose startup, running and draining. Omitting the wrapper disables
+the listener. It serves GET/HEAD `/livez` and `/readyz`, with 200/503 and plain-text
+reasons matching the health policy. Unknown paths return 404; other verbs on probe
+paths return 405. The listener uses all interfaces with IPv4/IPv6 dual stack and
+falls back to IPv4 only for unsupported family/protocol errors. Other bind errors
+propagate before the callback starts. Port must be 1–65535 and timeout positive.
+
+The host owns `control.stop()` and awaits pipeline drain. Returning, raising or
+cancelling the callback closes the listener and its connections; the wrapper does
+not initiate worker shutdown. Each connection handles one request and closes, with
+a 5-second request deadline and 128 concurrent connections. Probe handlers make no
+database calls. A standalone configuration and signal-handling executable is still
+pending.
+
 | Option | Default | Meaning |
 |---|---:|---|
 | max_frame_bytes | 16 MiB | Protocol body length checked before allocation |
-| max_transaction_bytes | 64 MiB | Sum of pgoutput message bytes in a transaction |
-| max_transaction_events | 100000 | Changes including metadata |
-| max_pending_transactions | 16 | Queued plus delivered but unacknowledged transactions |
+| max_transaction_bytes | 64 MiB | Sum of message bytes per transaction; also aggregate open-buffer cap in v2 |
+| max_transaction_events | 100000 | Changes including metadata; also aggregate open-buffer cap in v2 |
+| max_pending_transactions | 16 | Outstanding committed transactions; also open streamed transaction count in v2 |
 | backpressure | false | Wait for durable acknowledgement when the queue is full |
 | max_metadata_entries | 4096 | Maximum relations and types, separately |
 | heartbeat_ms | 1000 | Feedback interval; choose well below server wal_sender_timeout |

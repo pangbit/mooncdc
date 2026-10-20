@@ -1,0 +1,37 @@
+services:
+  primary:
+    image: ${MOONCDC_STANDBY_IMAGE:-postgres:18.6}
+    environment:
+      POSTGRES_USER: cdc
+      POSTGRES_PASSWORD: mooncdc-test-only
+      POSTGRES_DB: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports: ["127.0.0.1::5432"]
+    volumes:
+      - primary:/var/lib/postgresql/data
+      - ./standby-pg_hba.conf:/etc/mooncdc/pg_hba.conf:ro
+    command: ["postgres", "-c", "hba_file=/etc/mooncdc/pg_hba.conf", "-c", "wal_level=logical", "-c", "max_replication_slots=16", "-c", "max_wal_senders=16", "-c", "synchronized_standby_slots=${MOONCDC_SYNC_SLOT:-}"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "cdc", "-d", "postgres"]
+      start_period: 30s
+      interval: 1s
+      timeout: 3s
+      retries: 30
+  standby:
+    image: ${MOONCDC_STANDBY_IMAGE:-postgres:18.6}
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports: ["127.0.0.1::5432"]
+    volumes:
+      - standby:/var/lib/postgresql/data
+      - ./standby-pg_hba.conf:/etc/mooncdc/pg_hba.conf:ro
+    command: ["postgres", "-c", "hba_file=/etc/mooncdc/pg_hba.conf", "-c", "hot_standby=on", "-c", "wal_level=logical", "-c", "max_replication_slots=16", "-c", "max_wal_senders=16", "-c", "hot_standby_feedback=${MOONCDC_SLOT_SYNC:-off}", "-c", "sync_replication_slots=${MOONCDC_SLOT_SYNC:-off}"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "cdc", "-d", "postgres"]
+      start_period: 30s
+      interval: 1s
+      timeout: 3s
+      retries: 30
+volumes:
+  primary:
+  standby:

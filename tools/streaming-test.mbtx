@@ -1,0 +1,288 @@
+///|
+import {
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/fs",
+  "moonbitlang/async@0.22.4/shell",
+  "moonbitlang/async@0.22.4/process",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn main {
+  let repo = @env.get_env_var("PWD").unwrap()
+  let root = @fs.tmpdir(prefix="mooncdc-streaming-")
+  let evidence = root + "/evidence"
+  let snapshot = root + "/source"
+  @fs.mkdir(evidence)
+  @fs.mkdir(snapshot)
+  @fs.write_file("/tmp/mooncdc-streaming-root.txt", root)
+  println("STREAMING ROOT: " + root)
+  let vars = @env.get_env_vars()
+  for key in vars.keys().to_array() {
+    if key.has_prefix("APP_") || key.has_prefix("MOONCDC_") {
+      vars.remove(key)
+    }
+  }
+  vars["RUST_LOG"] = "error"
+  let records : Array[Json] = []
+  let pids : Array[String] = []
+  let run = async fn(
+    name : String,
+    program : String,
+    args : Array[String],
+    cwd : String,
+    extra : Map[String, String],
+  ) -> @shell.Output {
+    let env = vars.copy()
+    for key, value in extra {
+      env[key] = value
+    }
+    let result = @shell.Cmd(program, args, cwd~, env~, inherit_env=false).output(
+      timeout_ms=300000,
+      max_output_bytes=20000000,
+    )
+    @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
+    @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
+    records.push({
+      "name": name.to_json(),
+      "program": program.to_json(),
+      "args": args.to_json(),
+      "cwd": cwd.to_json(),
+      "env": extra.to_json(),
+      "exit_code": result.exit_code().to_json(),
+    })
+    @fs.write_file(
+      evidence + "/commands.json",
+      records.to_json().stringify(indent=2),
+    )
+    println(
+      "STREAMING AUDIT: " + name + " exit=" + result.exit_code().to_string(),
+    )
+    result
+  }
+  run("source", "git", ["rev-parse", "HEAD", "HEAD^{tree}"], repo, Map([])).check()
+  run("initial-status", "git", ["status", "--porcelain=v1"], repo, Map([])).check()
+  run("tested-source", "git", ["diff", "--binary", "HEAD"], repo, Map([])).check()
+  run("toolchain", "moon", ["version", "--all"], repo, Map([])).check()
+  run("host", "uname", ["-a"], repo, Map([])).check()
+  run("docker", "docker", ["version"], repo, Map([])).check()
+  run(
+    "images",
+    "docker",
+    [
+      "image", "inspect", "postgres:17.11", "postgres:18.6", "--format", "{{.Id}} {{json .RepoDigests}}",
+    ],
+    repo,
+    Map([]),
+  ).check()
+  let tracked = @shell.Cmd(
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".", ":(exclude)docs/reports/evidence"],
+    cwd=repo,
+  ).output()
+  tracked.check()
+  let paths = tracked
+    .stdout()
+    .split("\u0000")
+    .filter(p => !p.is_empty())
+    .map(p => p.to_owned())
+    .collect()
+  for path in paths {
+    let parts = path.split("/").collect()
+    if parts.length() > 1 {
+      @fs.mkdir(
+        snapshot + "/" + parts[:parts.length() - 1].join("/"),
+        recursive=true,
+        allow_exist=true,
+      )
+    }
+    @fs.write_file(snapshot + "/" + path, @fs.read_file(repo + "/" + path))
+  }
+  @shell.Cmd("cp", ["-R", repo + "/.mooncakes", snapshot + "/.mooncakes"]).run()
+  run("tracked-sha256", "shasum", ["-a", "256"] + paths, repo, Map([])).check()
+  for
+    (name, args) in [
+      ("check", ["check", "--target", "native", "--frozen", "--deny-warn"]),
+      ("ordinary", ["test", "--target", "native", "--frozen", "--deny-warn"]),
+      ("release", ["build", "--target", "native", "--release", "--frozen"]),
+    ] {
+    run(name, "moon", args, snapshot, Map([])).check()
+  }
+  let file = "streaming_live_wbtest.mbt"
+  let built = run(
+    "build-worker",
+    "moon",
+    [
+      "test", file, "--target", "native", "--build-only", "--frozen", "--deny-warn",
+    ],
+    snapshot,
+    Map([]),
+  )
+  built.check()
+  guard @json.parse(built.stdout())
+    is { "artifacts_path": [String(executable)], .. } else {
+    fail("one native worker required")
+  }
+  let project = root
+    .split("/")
+    .last()
+    .unwrap()
+    .to_owned()
+    .to_lower()
+    .replace_all(old=".", new="-")
+  let compose_file = evidence + "/compose.yaml"
+  @fs.write_file(
+    compose_file,
+    (
+      #|services:
+      #|  pg:
+      #|    image: ${MOONCDC_STREAMING_IMAGE}
+      #|    environment:
+      #|      POSTGRES_USER: cdc
+      #|      POSTGRES_PASSWORD: mooncdc-test-only
+      #|      POSTGRES_DB: postgres
+      #|      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+      #|    ports: ["127.0.0.1::5432"]
+      #|    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=16", "-c", "max_wal_senders=16", "-c", "wal_sender_timeout=5s", "-c", "logical_decoding_work_mem=64kB"]
+      #|    healthcheck:
+      #|      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U cdc -d postgres"]
+      #|      start_period: 60s
+      #|      interval: 1s
+      #|      timeout: 3s
+      #|      retries: 30
+    ),
+  )
+  for
+    (service, image) in [("pg17", "postgres:17.11"), ("pg18", "postgres:18.6")] {
+    let env = { "MOONCDC_STREAMING_IMAGE": image }
+    let prefix = ["compose", "-p", project + "-" + service, "-f", compose_file]
+    let compose = async fn(stage : String, args : Array[String]) -> String {
+      let result = run(
+        service + "-" + stage,
+        "docker",
+        prefix + args,
+        repo,
+        env,
+      )
+      result.check()
+      result.stdout().trim().to_owned()
+    }
+    assert_eq(compose("initial-fixture", ["ps", "--quiet"]), "")
+    defer @async.protect_from_cancel(() => {
+      ignore(compose("logs", ["logs", "--no-color"]))
+      ignore(compose("down", ["down", "--volumes", "--remove-orphans"]))
+      let cleanup = run(
+        service + "-cleanup",
+        "docker",
+        [
+          "ps",
+          "-a",
+          "--filter",
+          "label=com.docker.compose.project=" + project + "-" + service,
+          "--format",
+          "{{.ID}} {{.Names}}",
+        ],
+        repo,
+        Map([]),
+      )
+      cleanup.check()
+      assert_eq(cleanup.stdout().trim(), "")
+      let volumes = run(
+        service + "-volume-cleanup",
+        "docker",
+        [
+          "volume",
+          "ls",
+          "--filter",
+          "label=com.docker.compose.project=" + project + "-" + service,
+          "--format",
+          "{{.Name}}",
+        ],
+        repo,
+        Map([]),
+      )
+      volumes.check()
+      assert_eq(volumes.stdout().trim(), "")
+    })
+    ignore(compose("up", ["up", "-d", "--wait", "--pull", "never"]))
+    let port = compose("port", ["port", "pg", "5432"])
+      .split(":")
+      .last()
+      .unwrap()
+      .to_owned()
+    let child_env = vars.copy()
+    child_env["MOONCDC_STREAMING_PORT"] = port
+    child_env["MOONCDC_STREAMING_EVIDENCE"] = evidence +
+      "/" +
+      service +
+      "-observations.json"
+    let output = @process.redirect_to_file(
+      evidence + "/" + service + "-worker.log",
+    )
+    defer output.close()
+    @async.with_task_group(group => {
+      let child = @process.spawn(
+        group,
+        executable,
+        [file + ":0-1"],
+        extra_env=child_env,
+        inherit_env=false,
+        stdout=output,
+        stderr=output,
+        cancel_handler=@process.hard_cancel(),
+      )
+      let pid = child.pid.to_string()
+      pids.push(pid)
+      let code = @async.with_timeout(120000, () => child.wait())
+      @fs.write_file(
+        evidence + "/" + service + "-worker.json",
+        {
+          "pid": pid.to_json(),
+          "executable": executable.to_json(),
+          "args": [file + ":0-1"],
+          "env": {
+            "MOONCDC_STREAMING_PORT": port.to_json(),
+            "MOONCDC_STREAMING_EVIDENCE": child_env["MOONCDC_STREAMING_EVIDENCE"].to_json(),
+          },
+          "exit_code": code.to_json(),
+        }
+        .to_json()
+        .stringify(indent=2),
+      )
+      assert_eq(code, 0)
+      let log = @fs.read_file(evidence + "/" + service + "-worker.log").text()
+      let mut results = 0
+      for line in log.split("\n") {
+        if line.has_prefix("{") &&
+          @json.parse(line)
+          is { "type": "result", "message": String(message), .. } {
+          assert_eq(message, "")
+          results += 1
+        }
+      }
+      assert_eq(results, 1)
+      assert_true(log.contains("STREAMING LIVE:"))
+      println("STREAMING " + service + " live passed")
+    })
+  }
+  let cleanup = run(
+    "worker-cleanup",
+    "ps",
+    ["-o", "pid=,command=", "-p", pids.join(",")],
+    repo,
+    Map([]),
+  )
+  assert_eq(cleanup.exit_code(), 1)
+  assert_eq(cleanup.stdout().trim(), "")
+  for path in paths {
+    assert_eq(
+      @fs.read_file(repo + "/" + path).binary(),
+      @fs.read_file(snapshot + "/" + path).binary(),
+    )
+  }
+  @fs.write_file(evidence + "/workers.json", pids.to_json().stringify())
+  println(
+    "STREAMING complete: two PostgreSQL workers; source bytes unchanged; owned containers, volumes and workers gone",
+  )
+}

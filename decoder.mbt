@@ -7,6 +7,8 @@ priv struct Decoder {
   mut time : Int64
   mut changes : Array[Change]
   mut bytes : Int
+  mut events : Int
+  mut ordinal : Int
   limit : Int
   event_limit : Int
   metadata_limit : Int
@@ -26,6 +28,8 @@ fn Decoder::new(
     time: 0,
     changes: [],
     bytes: 0,
+    events: 0,
+    ordinal: 0,
     limit,
     event_limit,
     metadata_limit,
@@ -74,18 +78,14 @@ fn Cursor::old_tuple(
 }
 
 ///|
-fn Decoder::decode(
-  self : Decoder,
-  data : Bytes,
-) -> (UInt, Lsn, Lsn, Int64, ReadOnlyArray[Change])? raise {
+fn Decoder::decode_event(self : Decoder, data : Bytes) -> DecodedWalEvent raise {
   let c = Cursor::new(data)
   let tag = c.byte()
   if self.bytes > self.limit - data.length() {
     raise LimitExceeded("transaction bytes")
   }
   self.bytes += data.length()
-  let mut result = None
-  match tag {
+  let result = match tag {
     b'B' => {
       if self.xid is Some(_) {
         raise Protocol("nested Begin")
@@ -93,6 +93,7 @@ fn Decoder::decode(
       self.final_lsn = c.u64()
       self.time = c.u64().reinterpret_as_int64()
       self.xid = Some(c.i32().reinterpret_as_uint())
+      Begin(self.header())
     }
     b'C' => {
       guard self.xid is Some(xid) else {
@@ -109,24 +110,22 @@ fn Decoder::decode(
         time != self.time {
         raise Protocol("inconsistent commit boundary")
       }
-      result = Some(
-        (
-          xid,
-          { value: commit_lsn, },
-          { value: end_lsn, },
-          time,
-          ReadOnlyArray::from_array(self.changes),
-        ),
-      )
+      let header : WalHeader = {
+        xid,
+        commit_lsn: { value: commit_lsn, },
+        commit_time_us: time,
+      }
       self.xid = None
-      self.changes = []
       self.bytes = 0
+      self.events = 0
+      self.ordinal = 0
+      Commit(header, { value: end_lsn, })
     }
     _ => {
       if self.xid is None {
         raise Protocol("change outside transaction")
       }
-      if self.changes.length() >= self.event_limit {
+      if self.events >= self.event_limit {
         raise LimitExceeded("transaction events")
       }
       let change = match tag {
@@ -233,11 +232,50 @@ fn Decoder::decode(
         b'O' => Origin({ value: c.u64(), }, c.cstring())
         _ => raise Protocol("unsupported pgoutput message \{tag.to_int()}")
       }
-      self.changes.push(change)
+      self.events += 1
+      let ordinal = match change {
+        Insert(_, _) | Update(_, _, _) | Delete(_, _) | Truncate(_, ..) => {
+          let ordinal = self.ordinal
+          self.ordinal += 1
+          Some(ordinal)
+        }
+        _ => None
+      }
+      Change(self.header(), change, ordinal)
     }
   }
   c.done()
   result
+}
+
+///|
+fn Decoder::header(self : Decoder) -> WalHeader raise {
+  guard self.xid is Some(xid) else {
+    raise Protocol("missing transaction header")
+  }
+  { xid, commit_lsn: { value: self.final_lsn, }, commit_time_us: self.time, }
+}
+
+///|
+// Compatibility collector. The event path never appends row values here.
+fn Decoder::decode(
+  self : Decoder,
+  data : Bytes,
+) -> (UInt, Lsn, Lsn, Int64, ReadOnlyArray[Change])? raise {
+  match self.decode_event(data) {
+    Begin(_) => None
+    Change(_, change, _) => {
+      self.changes.push(change)
+      None
+    }
+    Commit(header, end_lsn) => {
+      let changes = ReadOnlyArray::from_array(self.changes)
+      self.changes = []
+      Some(
+        (header.xid, header.commit_lsn, end_lsn, header.commit_time_us, changes),
+      )
+    }
+  }
 }
 
 ///|

@@ -1,7 +1,7 @@
 ///|
 import {
-  "moonbitlang/async",
-  "moonbitlang/async/shell",
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/shell",
   "moonbitlang/core/env",
 }
 
@@ -14,6 +14,11 @@ async fn main {
   @shell.Cmd(
     "moon",
     ["test", "clickhouse_http_wbtest.mbt", "--target", "native"],
+    env=Map([("MOONCDC_CLICKHOUSE_LIVE", "1")]),
+  ).run()
+  @shell.Cmd(
+    "moon",
+    ["test", "clickhouse_cancellation_wbtest.mbt", "--target", "native"],
     env=Map([("MOONCDC_CLICKHOUSE_LIVE", "1")]),
   ).run()
   @shell.Cmd(

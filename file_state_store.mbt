@@ -20,6 +20,7 @@ fn state_record_name(key : StateRecord) -> String {
   match key {
     Pipeline => "pipeline"
     ReplicationCheckpoint => "checkpoint"
+    Schemas => "schemas"
     TableMetadata(oid) => "table-" + oid.to_string()
   }
 }

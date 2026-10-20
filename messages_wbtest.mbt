@@ -35,6 +35,7 @@ test "logical messages remain in transaction order with stable independent ids" 
     session: "session",
     sequence: 1,
     projected_ids: None,
+    decoded_schemas: None,
   }
   assert_eq(tx.event_id(0), Some("tx/message/0/5A"))
   assert_eq(tx.event_id(1), None)
@@ -75,6 +76,8 @@ async test "nontransactional handler failure stops without ack or reconnect" {
     let dir = @fs.tmpdir(prefix="mooncdc-message-")
     defer @fs.rmdir(dir, recursive=true)
     let config : ConnectionConfig = {
+      hostaddr: None,
+      keepalive: TcpKeepaliveConfig::new(),
       host: "127.0.0.1",
       port: server.addr.port(),
       user: "user",
