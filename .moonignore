@@ -14,3 +14,8 @@ __pycache__/
 /moon.work
 /tools/package-footprint-sample*
 /tools/commit-subject-check*
+
+# Private administrative documents belong outside the repository.
+*申报书*
+*申请书*
+*申报材料*
