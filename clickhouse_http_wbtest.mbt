@@ -1,4 +1,168 @@
 ///|
+async fn ch_http_test_response(
+  status : Int,
+  exception_code : String?,
+  insert~ : Bool,
+  body~ : String,
+) -> String {
+  @async.with_timeout(3000, () => {
+    let server = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+    defer server.close()
+    @async.with_task_group(group => {
+      let peer = group.spawn(() => {
+        let (tcp, _) = server.accept()
+        let conn = @http.ServerConnection::new(tcp)
+        defer conn.close()
+        let request = conn.read_request()
+        assert_true(request.path.contains("wait_end_of_query=1"))
+        assert_true(request.path.contains("async_insert=0"))
+        ignore(conn.read_all())
+        // Unlike Exception-Code, Exception-Tag can appear on successful replies.
+        let headers = Map([
+          (
+            @http.CaseInsensitiveString("X-ClickHouse-Exception-Tag"),
+            "test-tag",
+          ),
+        ])
+        if exception_code is Some(code) {
+          headers[@http.CaseInsensitiveString("x-cLiCkHoUsE-eXcEpTiOn-CoDe")] = code
+        }
+        conn.send_response(status, "peer-secret", extra_headers=headers)
+        if status != 204 {
+          conn.write(body)
+        }
+        conn.end_response()
+      })
+      let http = ChHttp::new(
+        "http://127.0.0.1:\{server.addr.port()}/endpoint-secret",
+        "user-secret",
+        "password-secret",
+        2000,
+      )
+      let result = http.query(
+        "SELECT 'sql-secret'",
+        body=b"row-secret",
+        insert~,
+      )
+      peer.wait()
+      result
+    })
+  })
+}
+
+///|
+async test "ClickHouse HTTP exception headers override successful status" {
+  // ClickHouse can send a 200 status with progress headers before an exception:
+  // https://github.com/ClickHouse/ClickHouse/blob/26.4/src/Server/HTTP/WriteBufferFromHTTPServerResponse.cpp
+  for status in [200, 204, 299] {
+    for insert in [false, true] {
+      try
+        ignore(
+          ch_http_test_response(
+            status,
+            Some("159"),
+            insert~,
+            body="body-secret",
+          ),
+        )
+      catch {
+        Retryable(message) => {
+          assert_true(insert)
+          assert_eq(message, "ClickHouse HTTP \{status}, exception 159")
+        }
+        Manual(message) => {
+          assert_false(insert)
+          assert_eq(message, "ClickHouse HTTP \{status}, exception 159")
+        }
+        e => raise e
+      } noraise {
+        _ => fail("ClickHouse exception header was accepted as success")
+      }
+    }
+  }
+}
+
+///|
+async test "ClickHouse HTTP exception messages are bounded and redacted" {
+  for
+    (raw, expected) in [
+      ("", "unknown"),
+      ("header-secret", "unknown"),
+      ("16, 117", "unknown"),
+      ("-1", "unknown"),
+      ("1234567890123", "unknown"),
+      ("123456789012", "123456789012"),
+      ("0", "0"),
+    ] {
+    for status in [200, 500] {
+      try
+        ignore(
+          ch_http_test_response(
+            status,
+            Some(raw),
+            insert=true,
+            body="body-secret",
+          ),
+        )
+      catch {
+        Retryable(message) =>
+          assert_eq(message, "ClickHouse HTTP \{status}, exception \{expected}")
+        e => raise e
+      } noraise {
+        _ =>
+          fail("invalid or unexpected exception code was accepted as success")
+      }
+    }
+  }
+}
+
+///|
+async test "ClickHouse HTTP preserves success and retry classification" {
+  for insert in [false, true] {
+    for status in [200, 204, 299] {
+      let body = if status == 204 {
+        ""
+      } else {
+        "Code: 159 is ordinary query data"
+      }
+      assert_eq(ch_http_test_response(status, None, insert~, body~), body)
+    }
+    // Explicit expectations preserve the existing non-2xx policy as well as
+    // applying it to newly detected 2xx exceptions. Throttling takes priority.
+    for
+      (status, code, query_retry, insert_retry) in [
+        (200, Some("16"), false, false),
+        (200, Some("117"), false, false),
+        (500, Some("16"), false, false),
+        (500, Some("117"), false, false),
+        (503, Some("159"), false, true),
+        (500, None, false, true),
+        (300, None, false, true),
+        (408, Some("16"), true, true),
+        (429, Some("117"), true, true),
+      ] {
+      let retry = if insert { insert_retry } else { query_retry }
+      let expected = "ClickHouse HTTP \{status}, exception \{code.unwrap_or("unknown")}"
+      try
+        ignore(ch_http_test_response(status, code, insert~, body="body-secret"))
+      catch {
+        Retryable(message) => {
+          assert_true(retry)
+          assert_eq(message, expected)
+        }
+        Manual(message) => {
+          assert_false(retry)
+          assert_eq(message, expected)
+        }
+        e => raise e
+      } noraise {
+        _ => fail("ClickHouse error was accepted as success")
+      }
+    }
+  }
+}
+
+///|
 test "ClickHouse operation budgets floor server limits and reject overflow" {
   assert_eq(ch_timeout_seconds(0), "1")
   assert_eq(ch_timeout_seconds(999), "1")

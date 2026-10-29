@@ -116,8 +116,8 @@ async fn ChHttp::query(
     self.timeout_ms,
   )
   @async.with_timeout(timeout, () => {
-    // Waiting for completion prevents a successful HTTP status preceding a
-    // server-side execution error. Synchronous inserts acknowledge server work.
+    // Buffer until completion, but progress headers may already have sent a
+    // successful status. Check the exception header before acknowledging work.
     let client = @http.post_stream(
       self.endpoint + self.query_settings(operation),
       headers=Map([
@@ -143,13 +143,15 @@ async fn ChHttp::query(
       output.write_bytes(bytes)
     }
     let text = @utf8.decode_lossy(output.to_bytes())
-    if response.code < 200 || response.code >= 300 {
+    let exception_code = response.headers.get(
+      @http.CaseInsensitiveString("X-ClickHouse-Exception-Code"),
+    )
+    if response.code < 200 || response.code >= 300 || exception_code is Some(_) {
       // Server details may echo input data and SQL. Expose the bounded native
       // code, never the body, credentials or endpoint in persisted errors.
-      let code = response.headers
-        .get(@http.CaseInsensitiveString("X-ClickHouse-Exception-Code"))
-        .unwrap_or("unknown")
-      let code = if code.length() <= 12 &&
+      let code = exception_code.unwrap_or("unknown")
+      let code = if !code.is_empty() &&
+        code.length() <= 12 &&
         code.iter().all(ch => ch >= '0' && ch <= '9') {
         code
       } else {
