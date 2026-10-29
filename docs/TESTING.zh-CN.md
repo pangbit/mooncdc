@@ -92,6 +92,31 @@ docker compose -p mooncdc-test -f integration/compose.yaml down -v
 264 和单次临时 512 诊断上限是不同观察。新的受限运行需要独立资源预留、真实线程/进程
 采样和清理读回，不应把旧测试限制写成产品最低需求。
 
+<a id="copy-with-concurrent-row-changes"></a>
+
+## COPY 期间并发修改行
+
+`tools/copy-iud-test.mbtx` 执行库／CLI × ReplacingMergeTree／MergeTree 四个子例。
+先准备启用逻辑复制的隔离 PostgreSQL 18 和 ClickHouse 26.4；两端均使用回环地址和
+合成凭据 `cdc` / `mooncdc-test-only`，PostgreSQL 数据库为 `postgres`。
+
+```sh
+MOONCDC_TEST_PORT=55418 MOONCDC_CLICKHOUSE_PORT=18123 \
+  moon run tools/copy-iud-test.mbtx --target native --frozen
+```
+
+运行器各构建一次测试和 CLI；也可同时提供 `MOONCDC_COPY_IUD_TEST_EXE` 与
+`MOONCDC_COPY_IUD_CLI` 两个预构建程序路径。采用上文的编译／运行栈设置。
+CLI 子例要求 `PATH` 中有外部 `kill` 程序。可选的 `MOONCDC_COPY_IUD_EVIDENCE`
+目录须已存在且可写；未指定时由运行器创建。运行器启用真实测试体，并要求每例的
+准确测试身份与 PASS 标记，缺少配置或跳过测试体不能算通过。
+
+每例在首个真实快照 INSERT 转发前设置 gate，在持久状态仍为 `Copying`、COPY 完成
+计数为零时提交五笔 I/U/D 事务，再核对三条快照、五条 WAL 事件和最终当前值。
+仅在检查原始历史时暂停自有 ReplacingMergeTree 表的物理合并，不表示该引擎会永久
+保留历史。夹具清理自己创建的数据库／schema／槽；外部服务及其清理由调用方管理。
+结果见[定向验证记录](VALIDATION.zh-CN.md#unreleased-follow-up)。
+
 <a id="evidence-to-retain"></a>
 
 ## 应保留的证据

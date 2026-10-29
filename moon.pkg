@@ -18,6 +18,10 @@ import {
   "moonbitlang/core/bench",
 }
 
+import {
+  "moonbitlang/async/process",
+} for "wbtest"
+
 options(
   "native-stub": [ "cell_float.c", "health_errno.c", "connection_options.c" ],
 )

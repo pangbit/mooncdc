@@ -100,6 +100,34 @@ temporary 512-task diagnostic ceiling are distinct observations. A new constrain
 run needs its own reservation, actual thread/process measurements and cleanup
 readback; do not copy an old task limit as a product minimum.
 
+## COPY with concurrent row changes
+
+`tools/copy-iud-test.mbtx` runs four cases: library/CLI × ReplacingMergeTree/MergeTree.
+Provision isolated PostgreSQL 18 with logical replication enabled and ClickHouse 26.4
+first. Both endpoints must be loopback services using the synthetic credentials
+`cdc` / `mooncdc-test-only`; PostgreSQL uses database `postgres`.
+
+```sh
+MOONCDC_TEST_PORT=55418 MOONCDC_CLICKHOUSE_PORT=18123 \
+  moon run tools/copy-iud-test.mbtx --target native --frozen
+```
+
+The driver builds the test and CLI once, or accepts both
+`MOONCDC_COPY_IUD_TEST_EXE` and `MOONCDC_COPY_IUD_CLI` as prebuilt executable paths.
+Use the compilation/runtime stack settings above. The CLI tests require an
+external `kill` executable on `PATH`. An optional `MOONCDC_COPY_IUD_EVIDENCE`
+directory must already exist and be writable; otherwise the driver creates one.
+The driver enables live execution and requires the exact test identity and PASS
+marker for every case. Missing configuration or a skipped body cannot pass.
+
+Each case gates the first real snapshot INSERT before forwarding it, commits
+five I/U/D transactions while durable state is `Copying` and COPY completion is
+zero, then checks all three snapshot rows, five WAL events and the final current
+rows. Only the owned ReplacingMergeTree table has merges paused while raw history
+is inspected; this does not promise permanent history retention in that engine.
+The fixture cleans its own database/schema/slot namespaces. The caller owns the
+external services and their cleanup. See the [directed results](VALIDATION.md#unreleased-follow-up).
+
 ## Evidence to retain
 
 Record the source/dirty-tree inventory, toolchain/dependency hashes, enabled test

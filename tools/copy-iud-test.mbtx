@@ -1,0 +1,184 @@
+///|
+// Uses explicitly supplied, isolated PG18 / ClickHouse fixtures on loopback.
+// It never starts containers or maps host ports. Prebuilt test and CLI ELFs can
+// be injected when running in a shared container network namespace.
+import {
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/fs",
+  "moonbitlang/async@0.22.4/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+}
+
+///|
+fn required(name : String) -> String raise {
+  guard @env.get_env_var(name) is Some(value) && !value.is_empty() else {
+    fail("required environment variable: " + name)
+  }
+  value
+}
+
+///|
+fn port(name : String) -> String raise {
+  let value = required(name)
+  let number = @string.parse_int(value)
+  assert_true(number > 0 && number <= 65535)
+  assert_eq(number.to_string(), value, msg="port must be canonical decimal")
+  value
+}
+
+///|
+fn require_result(output : String, name : String, index : Int) -> Unit raise {
+  let marker = "LIVE: COPY_IUD " +
+    name +
+    " PASS snapshot=3 commits_while_copying=5 history=8 unique_wal_ids=5 gate=1 retries=0"
+  let mut markers = 0
+  let mut starts = 0
+  let mut results = 0
+  for line in output.split("\n") {
+    if line.has_prefix("LIVE: COPY_IUD ") {
+      assert_eq(line.to_owned(), marker)
+      markers += 1
+    }
+    if line.has_prefix("{") {
+      let event = @json.parse(line)
+      if event is { "type": String(kind), .. } &&
+        (kind == "start" || kind == "result") {
+        guard event is { "file": String(file), "index": actual_index, .. } else {
+          fail("test event omitted its identity")
+        }
+        assert_eq(file, "clickhouse_copy_iud_wbtest.mbt")
+        assert_eq(actual_index, index.to_json())
+        if kind == "start" {
+          starts += 1
+        } else {
+          guard event is { "message": String(message), .. } else {
+            fail("test result omitted its message")
+          }
+          assert_eq(message, "")
+          results += 1
+        }
+      }
+    }
+  }
+  assert_eq(markers, 1, msg="missing live marker: a skipped test is not a pass")
+  assert_eq(starts, 1, msg="expected exactly one selected test start")
+  assert_eq(results, 1, msg="expected exactly one successful test identity")
+}
+
+///|
+async fn main {
+  let pg_port = port("MOONCDC_TEST_PORT")
+  let ch_port = port("MOONCDC_CLICKHOUSE_PORT")
+  let repo = @env.current_dir().unwrap()
+  let evidence = match @env.get_env_var("MOONCDC_COPY_IUD_EVIDENCE") {
+    Some(path) => {
+      assert_true(
+        @fs.exists(path),
+        msg="explicit evidence directory must exist",
+      )
+      path
+    }
+    None => @fs.tmpdir(prefix="mooncdc-copy-iud-evidence-")
+  }
+  println("EVIDENCE: " + evidence)
+  let vars = @env.get_env_vars()
+  for key in vars.keys().to_array() {
+    if key.has_prefix("APP_") || key.has_prefix("MOONCDC_") {
+      vars.remove(key)
+    }
+  }
+  vars["RUST_LOG"] = "error"
+  let records : Array[Json] = []
+  let run = async fn(
+    name : String,
+    command : String,
+    args : Array[String],
+    extra : Map[String, String],
+  ) -> @shell.Output {
+    let env = vars.copy()
+    for key, value in extra {
+      env[key] = value
+    }
+    let result = @shell.Cmd(command, args, cwd=repo, env~, inherit_env=false).output(
+      timeout_ms=180000,
+      max_output_bytes=4000000,
+    )
+    @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
+    @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
+    records.push({
+      "name": name.to_json(),
+      "command": command.to_json(),
+      "args": args.to_json(),
+      "env": extra.to_json(),
+      "exit_code": result.exit_code().to_json(),
+    })
+    @fs.write_file(
+      evidence + "/commands.json",
+      records.to_json().stringify(indent=2),
+    )
+    result.check()
+    result
+  }
+  let (test_executable, cli_executable) = match
+    @env.get_env_var("MOONCDC_COPY_IUD_TEST_EXE") {
+    Some(test_executable) => (test_executable, required("MOONCDC_COPY_IUD_CLI"))
+    None => {
+      let cli = match @env.get_env_var("MOONCDC_COPY_IUD_CLI") {
+        Some(path) => path
+        None => {
+          ignore(
+            run(
+              "build-cli",
+              "moon",
+              ["build", "cmd/replicator", "--target", "native", "--frozen"],
+              Map([]),
+            ),
+          )
+          repo + "/_build/native/debug/build/cmd/replicator/replicator.exe"
+        }
+      }
+      let built = run(
+        "build-test",
+        "moon",
+        [
+          "test", "clickhouse_copy_iud_wbtest.mbt", "--target", "native", "--frozen",
+          "--build-only",
+        ],
+        Map([]),
+      )
+      guard @json.parse(built.stdout())
+        is { "artifacts_path": [String(path)], .. } else {
+        fail("expected one whitebox test executable")
+      }
+      (path, cli)
+    }
+  }
+  assert_true(@fs.exists(test_executable))
+  assert_true(@fs.exists(cli_executable))
+  let extra = {
+    "MOONCDC_COPY_IUD_LIVE": "1",
+    "MOONCDC_TEST_PORT": pg_port,
+    "MOONCDC_CLICKHOUSE_PORT": ch_port,
+    "MOONCDC_COPY_IUD_CLI": cli_executable,
+    "MOONCDC_COPY_IUD_EVIDENCE": evidence,
+  }
+  let identities : Array[Json] = []
+  for index, name in ["library-rmt", "library-mt", "cli-rmt", "cli-mt"] {
+    let identity = "clickhouse_copy_iud_wbtest.mbt:\{index}-\{index + 1}"
+    let result = run(name, test_executable, [identity], extra)
+    require_result(result.stdout(), name, index)
+    identities.push({
+      "identity": identity.to_json(),
+      "case": name.to_json(),
+      "passed": true,
+    })
+    @fs.write_file(
+      evidence + "/identities.json",
+      identities.to_json().stringify(indent=2),
+    )
+    println("PASS: " + identity + " " + name)
+  }
+  assert_eq(identities.length(), 4)
+}

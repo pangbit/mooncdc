@@ -7,8 +7,44 @@ English is the authoritative version.
 
 
 This records source-bound validation observations. It is not a registry
-publication receipt by itself. The 0.1.1 release record precedes the historical 0.1.0
-assembly and CI records below.
+publication receipt by itself. Unreleased directed results precede the 0.1.1
+release and historical 0.1.0 assembly/CI records below.
+
+<a id="unreleased-follow-up"></a>
+
+## Unreleased follow-up (2026-10-29)
+
+Product commit `72efbd45f37dc32bac9efd181d8cbb8170827613` adds PostgreSQL-compatible
+SCRAM password preparation, including complete normalization and raw-password
+fallback. Public library interfaces and dependency versions are unchanged;
+pinned PostgreSQL/Unicode sources and their licenses are recorded in
+[third-party notices](../THIRD_PARTY.md).
+
+- Five directed native tests passed: 31 preparation/normalization/fallback
+  vectors, SCRAM proof behavior and the existing ASCII challenge regression.
+- One isolated PostgreSQL 18.6 test passed with SCRAM-only host authentication:
+  ASCII, original Unicode and normalized passwords succeeded; the wrong password
+  returned SQLSTATE `28P01`. Package inclusion of the source data and license
+  notices was separately verified.
+- On that product commit, the [COPY/IUD fixture](../clickhouse_copy_iud_wbtest.mbt)
+  (SHA-256 `fbe23b8a3c569c593b45095e8ca8abf31d33554a78c5d4142a6bec5eb3c12681`)
+  passed all four library/CLI × engine cases against PostgreSQL 18.6 and
+  ClickHouse 26.4.5.143, with zero skips. Every case recorded five committed
+  transactions while COPY was gated, then verified three snapshot rows, five
+  distinct WAL events with source LSN intervals, eight history rows and three
+  final current rows. Actual retries were zero. Build, fixture execution and
+  cleanup took 156.4 seconds; all owned remote resources were removed and checked.
+
+The first COPY/IUD attempt failed a JSON whitespace comparison; the test now
+compares parsed rows with the same exact order, values and count. Its temporary
+artifact collection was also repaired. The failed attempt is retained separately
+and contributes no passing case to the four-case result.
+
+The Linux database checks use the recorded 64 MiB compilation / 8 MiB runtime stacks. The
+earlier PG17/18 and recovery evidence below remains bound to its recorded sources;
+this follow-up adds fresh PG18 overlap evidence without repeating the full matrix.
+It does not establish a new release, new-source public CI or registry installation.
+Reproduction prerequisites are in [testing](TESTING.md#copy-with-concurrent-row-changes).
 
 <a id="011-patch-candidate"></a>
 
