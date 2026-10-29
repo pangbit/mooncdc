@@ -73,6 +73,7 @@ docker compose -p mooncdc-test -f integration/compose.yaml up -d --wait pg18
 moon run tools/setup-db.mbtx pg18
 moon run tools/setup-tls.mbtx pg18
 MOONCDC_TEST_PORT=55418 MOONCDC_TEST_CA=.test-artifacts/tls-pg18/server.crt moon run tools/live-test.mbtx
+docker compose -p mooncdc-clickhouse-test -f integration/clickhouse.compose.yaml up -d --wait clickhouse
 MOONCDC_EXAMPLE_SERVICE=pg18 moon run tools/replicator-test.mbtx
 MOONCDC_EXAMPLE_SERVICE=pg18 MOONCDC_REPLICATOR_FORMAT=yaml MOONCDC_PIPELINE_FAILOVER=true moon run tools/replicator-test.mbtx
 docker compose -p mooncdc-clickhouse-test -f integration/clickhouse.compose.yaml down -v
