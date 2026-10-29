@@ -20,9 +20,11 @@ async fn Subscription::receive_event(
       _ => ()
     }
   }
-  // Decode replayed metadata to establish this connection's relation cache, but
-  // do not transfer rows already covered by the contiguous durable prefix.
-  if header.commit_lsn <= self.received {
+  // Decode replayed metadata to establish this connection's relation cache.
+  // received starts at recovery and then tracks retained Commit.end_lsn.
+  // Begin's final_lsn is the commit record's start. It may equal the previous
+  // exclusive end, so only a strictly earlier commit is replay.
+  if header.commit_lsn < self.received {
     return
   }
   if event is Begin(_) {
