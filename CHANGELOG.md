@@ -31,17 +31,6 @@ Directed Linux checks and the 265-identity ordinary debug gate are recorded in
 [validation](docs/VALIDATION.md#011-patch-candidate), together with the
 published-source CI and exact-version consumer results.
 
-### October 2026 contribution
-
-The October work includes the PostgreSQL → ClickHouse library and replicator
-release introduced by commit `44a41f8`, published as 0.1.0 on 2026-10-21, and
-these three subsequent correctness fixes. The contribution includes shared
-snapshot/WAL processing, durable state and recovery, ClickHouse writes and
-supported DDL, runnable examples and regression coverage. See the
-[scope](docs/RELEASE_SCOPE.md), [examples](examples/README.md) and
-[reference provenance](THIRD_PARTY.md); historical results retain their source
-bindings. This describes project work, not a competition submission or award.
-
 ## 0.1.0
 
 Published on 2026-10-21. The [public registry record](https://mooncakes.io/api/v0/modules/pangbit/mooncdc)

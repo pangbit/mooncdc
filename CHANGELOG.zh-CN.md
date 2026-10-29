@@ -31,15 +31,6 @@ Linux 定向检查及 265 个身份的普通 debug 门禁见
 [验证记录](docs/VALIDATION.zh-CN.md#011-patch-candidate)，同处记录已发布源码的 CI
 与精确版本消费者结果。
 
-### 2026 年 10 月贡献
-
-本月工作包含提交 `44a41f8` 引入的 PostgreSQL → ClickHouse 库与 replicator 发布，
-已于 2026-10-21 发布为 0.1.0，以及随后这三项正确性修复。贡献包括共用的快照/WAL
-处理、持久状态与恢复、ClickHouse 写入和已支持 DDL、可运行示例及回归覆盖。
-见[范围](docs/RELEASE_SCOPE.zh-CN.md)、[示例](examples/README.zh-CN.md)及
-[参考来源](THIRD_PARTY.zh-CN.md)；历史结果保留各自源码绑定。
-本说明记录项目工作，不代表已提交参赛或获奖。
-
 <a id="010"></a>
 
 ## 0.1.0
