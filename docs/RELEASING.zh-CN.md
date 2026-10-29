@@ -11,7 +11,10 @@
 
 
 遵循[MoonBit 发布指南](https://docs.moonbitlang.com/en/latest/toolchain/moon/package-manage-tour.html)。
-本仓库准备 0.1.0，CI 不执行发布。
+本仓库准备补丁版 0.1.1，CI 不执行发布。0.1.0 已于 2026-10-21 发布。
+0.1.1 复用[定向检查及普通 debug 门禁](VALIDATION.zh-CN.md#011-patch-candidate)，
+再让最终候选执行一次现有 CI，覆盖 release、PG17/18 与归档消费者。
+不在其他主机重复该矩阵。
 
 1. 审阅[测试](TESTING.zh-CN.md)中的单元、PostgreSQL 18/17、TLS、示例和恢复门槛。
    只复用绑定于相同源码、API、依赖和已启用测试体的证据，记录输入变化和缺口。
@@ -36,7 +39,7 @@
 6. 获准后推送精确提交并观察 GitHub CI。本地绿色不代表远端通过。
    发布时重新检查账号认证和版本可用性，不打印 token。
 7. 得到明确发布授权后运行 `moon publish`，在干净消费者检查注册库实际包，
-   并为匹配源码 revision 打 tag。发布验证后才更新 CHANGELOG 和 README。
+   并为匹配源码 revision 打 tag。发布验证后才更新 CHANGELOG 和 README 中的候选状态。
 
 GitHub push、CI 成功和 Mooncakes 发布必须分别报告。CI 不需要注册库凭据，
 不得向 pull request 暴露发布 token。
@@ -45,23 +48,25 @@ GitHub push、CI 成功和 Mooncakes 发布必须分别报告。CI 不需要注�
 
 ## 版本绑定及剩余注册库门槛
 
-候选内容在公开基线 `5a810d6c62e4ff4783c063159008e23760befc6a` 上的
+原 0.1.0 内容在公开基线 `5a810d6c62e4ff4783c063159008e23760befc6a` 上的
 `release/0.1.0` 组装，不合并 181 个本地审计提交。产品来源及历史 Linux 结果见
 [验证范围](VALIDATION.zh-CN.md)。产品相等可以支持复用；测试/工具变化需要自己的检查。
 产品输入由 `44a41f8c98b761d127623ba4b65a530bf29c2591` 引入，发布配置和验证文档
-有独立审阅提交。
+有独立审阅提交。0.1.1 产品候选在公开 `main` 的 `7233238` 上增加修复
+`fd8c7b7`、`ce42912` 与 `568fe7c`，保留相同公共 API、依赖及交付范围。
+记录最终分支提交与归档哈希，核对该精确提交的 CI。
 
-审阅尚未提交时，`git archive HEAD` 只导出旧提交。应使用明确的当前树清单做本地检查。
-获准 commit/push 后，先核对精确公开源码和该提交 CI，再添加公开永久链接或声称远端验收。
+`git archive HEAD` 只导出已提交文件。候选检查须绑定当前树清单，再在最终干净提交上
+执行归档消费者；核对该精确公开提交的 CI 后，才能声称远端验收。
 
 现有源码包消费者使用提取模块和本地 workspace，仅证明记录的源码/归档哈希下离线 API
-及 native 链接行为，不证明 namespace 权限、从 Mooncakes 解析 `pangbit/mooncdc@0.1.0`，
+及 native 链接行为，不证明 namespace 权限、从 Mooncakes 解析 `pangbit/mooncdc@0.1.1`，
 也不验证最终上传包。匿名查询可发现已索引版本；缺失不代表所有权或版本预留。
 授权上传前确认发布账号对 `pangbit` 的权限并即时复查版本。
 未明确变更前，保持现有名称、版本、仓库所有权和许可证。
 
 发布后，在本仓库及 workspace 外创建消费者，在 `moon.mod` 普通依赖中声明
-`"pangbit/mooncdc@0.1.0"`，在 `moon.pkg` 导入 root 包 `"pangbit/mooncdc"`。
+`"pangbit/mooncdc@0.1.1"`，在 `moon.pkg` 导入 root 包 `"pangbit/mooncdc"`。
 采用 README/API 公开示例，运行严格 native check/test 及 debug/release build/run，
 保留实际解析版本、注册库归档校验值及退出码。
 不得用 `moon.work`、本地路径、symlink 或依赖覆盖指向 checkout/提取包。

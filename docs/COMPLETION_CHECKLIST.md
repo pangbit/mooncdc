@@ -6,7 +6,7 @@
 English is the authoritative version.
 
 
-Version: 0.1.0 candidate; date: 2026-10-20. This is a gate list, not a publication
+Version: 0.1.1 candidate; date: 2026-10-29. This is a gate list, not a publication
 receipt. Bind each result to the reviewed source inventory and actual exit code.
 
 - [ ] Review product/test changes against the public base, including native C

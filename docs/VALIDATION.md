@@ -6,9 +6,43 @@
 English is the authoritative version.
 
 
-This records version-bound validation observations from 2026-10-20. It is not a
-registry publication receipt. Initial pre-CI assembly records are retained below;
-the reviewed-source GitHub results are recorded separately.
+This records source-bound validation observations. It is not a registry
+publication receipt. The 0.1.1 candidate results precede the historical 0.1.0
+assembly and CI records below.
+
+<a id="011-patch-candidate"></a>
+
+## 0.1.1 patch candidate (2026-10-29)
+
+The product source is `568fe7c387f04f1cc3f750749a2652cff8b31e0a`.
+Public interfaces and dependency versions are unchanged. Directed Linux checks
+used isolated loopback peers, the pinned MoonBit toolchain, a 64 MiB compilation
+stack and an 8 MiB runtime stack:
+
+| Fix / source | Executed result |
+| --- | --- |
+| ClickHouse exception headers, `fd8c7b7` | 3 tests / 44 scenarios passed; HTTP status and exception-header failures retain retry classification and error redaction |
+| Admitted COPY cancellation ordering, `ce42912` | 2 tests / 12 scenarios passed across both engine configurations, including reset/replay, shutdown, request deadlines and cancellation before admission |
+| Adjacent transaction boundary, `568fe7c` | 1 test / 4 combinations passed: At/Resume × Accepted/Durable, retaining adjacent transactions and filtering old/duplicate transactions |
+
+At `568fe7c`, the four-package ordinary debug run passed 264 of 265 identities
+(root 211, CLI 28, memory 18, YAML 8). The remaining migration test could not read
+two tracked SQL fixtures omitted from the custom verification bundle. Supplying
+those exact fixtures and rerunning only that test passed 1/1 without changing
+product code or assertions. The ordinary gate is closed by 264 + 1 results, not
+by a single all-green full run. Framework totals include environment-gated
+live/reference tests whose bodies were not enabled; these are not fresh live
+PostgreSQL or ClickHouse results. Owned remote fixtures were removed and cleanup
+was verified.
+
+The successful [six-job CI run at `7233238`](https://github.com/pangbit/mooncdc/actions/runs/39536560268)
+is the pre-patch baseline. Release metadata and the package-consumer driver's
+version handling are prepared after the product checks above. The final candidate
+commit still needs its own normal CI, including native release execution,
+PG17/18 integration and the archive consumer. Reuse the directed and ordinary
+debug evidence; no additional manual full database matrix is required before
+that CI run. After publication, verify one clean exact-version 0.1.1 registry
+consumer as described in [releasing](RELEASING.md).
 
 ## Inputs and reuse
 

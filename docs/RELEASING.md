@@ -9,7 +9,11 @@ English is the authoritative version.
 
 
 Follow [MoonBit's publishing guide](https://docs.moonbitlang.com/en/latest/toolchain/moon/package-manage-tour.html).
-This repository prepares version 0.1.0; it is not published by CI.
+This repository prepares patch version 0.1.1; it is not published by CI.
+Version 0.1.0 was published on 2026-10-21. For 0.1.1, reuse the
+[directed checks and ordinary debug gate](VALIDATION.md#011-patch-candidate), then
+run the final candidate through the existing CI once for release, PG17/18 and
+archive-consumer coverage. Do not duplicate that matrix on another host.
 
 1. Review the unit, PostgreSQL 18/17, TLS, example and recovery gates in
    [TESTING](TESTING.md). Reuse only evidence bound to the accepted source, API,
@@ -43,38 +47,39 @@ This repository prepares version 0.1.0; it is not published by CI.
    must be checked at publication time without printing tokens.
 7. With explicit publication authorization, run `moon publish`, inspect the installed
    registry package in a clean consumer and tag the matching source revision. Update
-   CHANGELOG and README only after publication is verified.
+   the candidate status in CHANGELOG and README only after publication is verified.
 
 Keep GitHub push, successful CI and Mooncakes publication as separate reported states.
 CI does not require registry credentials and must not expose publishing tokens to pull requests.
 
 ## Version binding and the remaining registry gate
 
-The candidate is assembled on `release/0.1.0` from public base
+The original 0.1.0 release was assembled on `release/0.1.0` from public base
 `5a810d6c62e4ff4783c063159008e23760befc6a`, without merging the 181 local audit
 commits. Accepted product provenance and the historical Linux result are recorded
 in [validation scope](VALIDATION.md). Production identity can justify reuse;
 changed tests/tools need new checks. Product inputs were introduced by
 `44a41f8c98b761d127623ba4b65a530bf29c2591`; publication configuration and validation documentation
-are reviewed in separate commits. Record the final branch commit and archive
+were reviewed in separate commits. The 0.1.1 product candidate extends public
+`main` at `7233238` with fixes `fd8c7b7`, `ce42912` and `568fe7c`; it retains the
+same public API, dependencies and release scope. Record the final branch commit and archive
 hash in the PR, and verify that exact commit's CI result.
 
-`git archive HEAD` exports the committed base while this review is uncommitted.
-Use an explicit current-tree inventory for local checks. After an authorized
-commit/push, verify exact public source targets and that commit's CI before
-adding public permalinks or claiming remote acceptance.
+`git archive HEAD` exports only committed files. Keep candidate checks bound to
+their current-tree inventory, then run the archive consumer from the final clean
+commit. Verify that exact public commit's CI before claiming remote acceptance.
 
 Existing source-package consumer evidence uses an extracted module and a local
 workspace. It proves offline public API/native-linking behavior at its recorded
 source and archive hashes. It does not establish namespace permission, resolve
-`pangbit/mooncdc@0.1.0` from Mooncakes, or validate the eventual uploaded archive.
+`pangbit/mooncdc@0.1.1` from Mooncakes, or validate the eventual uploaded archive.
 An anonymous public lookup can show an indexed version; absence is not ownership
 or a version reservation. Confirm the publishing account's right to `pangbit`
 and recheck the exact version immediately before an authorized upload. Keep the
 current name, version, repository ownership and licenses until explicitly changed.
 
 After publication, create a consumer outside this repository and its workspace,
-with a normal exact dependency `"pangbit/mooncdc@0.1.0"` in `moon.mod` and the
+with a normal exact dependency `"pangbit/mooncdc@0.1.1"` in `moon.mod` and the
 root package import `"pangbit/mooncdc"` in `moon.pkg`. Use the public README/API
 consumer examples, run strict native check/test and debug/release build/run,
 and retain the resolved version, registry archive checksum and actual exit codes.

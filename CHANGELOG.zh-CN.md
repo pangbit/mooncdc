@@ -8,11 +8,42 @@
 英文版本为权威版本。
 
 
+<a id="011"></a>
+
+## 0.1.1
+
+补丁候选；发布状态另用 `moon view pangbit/mooncdc@0.1.1` 核验。
+公共接口、依赖及 PostgreSQL → ClickHouse 库与 CLI 的支持范围不变。
+
+### 修复
+
+- 拒绝带有 `X-ClickHouse-Exception-Code` 的 ClickHouse HTTP 2xx 响应，
+  避免把失败写入视为成功；保留重试分类及有界、脱敏的错误报告。
+- 调用者取消后，已接纳的快照 COPY 插入仍持有目标顺序锁，直到请求完成或截止时间到达。
+  表重置和关闭等待该插入结束；等待接纳时仍可立即取消。
+- 当相邻事务的 commit LSN 等于前一事务的 end/checkpoint LSN 时，保留该新事务。
+  连续消费及 Resume 仍过滤真正的旧事务和重复事务。
+
+Linux 定向检查及 265 个身份的普通 debug 门禁见
+[验证记录](docs/VALIDATION.zh-CN.md#011-patch-candidate)。
+最终候选 CI 与已发布精确版本的消费者验证仍是独立发布门槛。
+
+### 2026 年 10 月贡献
+
+本月工作包含提交 `44a41f8` 引入的 PostgreSQL → ClickHouse 库与 replicator 发布，
+已于 2026-10-21 发布为 0.1.0，以及随后这三项正确性修复。贡献包括共用的快照/WAL
+处理、持久状态与恢复、ClickHouse 写入和已支持 DDL、可运行示例及回归覆盖。
+见[范围](docs/RELEASE_SCOPE.zh-CN.md)、[示例](examples/README.zh-CN.md)及
+[参考来源](THIRD_PARTY.zh-CN.md)；历史结果保留各自源码绑定。
+本说明记录项目工作，不代表已提交参赛或获奖。
+
 <a id="010"></a>
 
 ## 0.1.0
 
-本节记录为 0.1.0 准备的变更，不提供发布日期，也不作为注册库发布回执。
+已于 2026-10-21 发布。2026-10-29 核对的
+[公开注册库记录](https://mooncakes.io/api/v0/modules/pangbit/mooncdc)显示
+0.1.0 已收录、未撤回且构建成功。
 请用 `moon view pangbit/mooncdc@0.1.0` 查询精确版本；流程见[发布说明](docs/RELEASING.zh-CN.md)。
 
 <a id="validation-note"></a>

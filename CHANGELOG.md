@@ -6,11 +6,46 @@
 English is the authoritative version.
 
 
+## 0.1.1
+
+Patch candidate; publication is verified separately with
+`moon view pangbit/mooncdc@0.1.1`. Public interfaces, dependencies and the
+PostgreSQL → ClickHouse library/CLI scope are unchanged.
+
+### Fixes
+
+- Reject ClickHouse HTTP 2xx responses carrying `X-ClickHouse-Exception-Code`
+  instead of treating failed writes as successful. Preserve retry classification
+  and bounded, redacted error reports.
+- Keep admitted snapshot COPY inserts under the destination ordering lock until
+  completion or the request deadline, even if the caller is cancelled. Table
+  reset and shutdown wait for the insert; cancellation while waiting for
+  admission remains immediate.
+- Preserve an adjacent transaction whose commit LSN equals the preceding
+  transaction's end/checkpoint LSN. Continue filtering older and
+  duplicate transactions during continuous consumption and Resume.
+
+Directed Linux checks and the 265-identity ordinary debug gate are recorded in
+[validation](docs/VALIDATION.md#011-patch-candidate). Final candidate CI and the
+published-version consumer are separate release gates.
+
+### October 2026 contribution
+
+The October work includes the PostgreSQL → ClickHouse library and replicator
+release introduced by commit `44a41f8`, published as 0.1.0 on 2026-10-21, and
+these three subsequent correctness fixes. The contribution includes shared
+snapshot/WAL processing, durable state and recovery, ClickHouse writes and
+supported DDL, runnable examples and regression coverage. See the
+[scope](docs/RELEASE_SCOPE.md), [examples](examples/README.md) and
+[reference provenance](THIRD_PARTY.md); historical results retain their source
+bindings. This describes project work, not a competition submission or award.
+
 ## 0.1.0
 
-This entry describes the changes prepared for version 0.1.0. It records neither
-a publication date nor a registry publication receipt. Check the exact version
-with `moon view pangbit/mooncdc@0.1.0`; see [releasing](docs/RELEASING.md).
+Published on 2026-10-21. The [public registry record](https://mooncakes.io/api/v0/modules/pangbit/mooncdc)
+was checked on 2026-10-29: 0.1.0 is indexed, not yanked and has a successful build.
+Check the exact version with `moon view pangbit/mooncdc@0.1.0`;
+see [releasing](docs/RELEASING.md).
 
 ### Validation note
 

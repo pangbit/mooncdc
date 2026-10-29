@@ -15,6 +15,20 @@ enum PackagePhase {
 } derive(Eq, Debug)
 
 ///|
+fn manifest_version(manifest : String) -> String raise {
+  let prefix = "version = "
+  for line in manifest.split("\n") {
+    if line.has_prefix(prefix) {
+      guard @json.parse(line[prefix.length():].to_owned()) is String(version) else {
+        fail("expected string version in moon.mod")
+      }
+      return version
+    }
+  }
+  fail("missing version in moon.mod")
+}
+
+///|
 fn package_phase(args : Array[String]) -> PackagePhase raise {
   match args {
     [_] | [_, "--phase", "full"] => Full
@@ -433,7 +447,8 @@ async fn main {
   }
   run("package-list", "moon", ["package", "--list", "--frozen"], root).check()
   run("package", "moon", ["package", "--frozen"], root).check()
-  let archive = root + "/_build/publish/pangbit-mooncdc-0.1.0.zip"
+  let version = manifest_version(@fs.read_file(root + "/moon.mod").text())
+  let archive = root + "/_build/publish/pangbit-mooncdc-\{version}.zip"
   @fs.write_file(evidence + "/package.zip", @fs.read_file(archive))
   let listing = run("package-contents", "unzip", ["-Z1", archive], root)
   listing.check()
@@ -506,8 +521,11 @@ async fn main {
     #|name = "validation/consumer"
     #|preferred_target = "native"
     #|supported_targets = "native"
-    #|import { "pangbit/mooncdc@0.1.0", "moonbitlang/async@0.22.4" }
-  @fs.write_file(dir + "/consumer/moon.mod", manifest)
+  @fs.write_file(
+    dir + "/consumer/moon.mod",
+    manifest +
+    "\nimport { \"pangbit/mooncdc@\{version}\", \"moonbitlang/async@0.22.4\" }\n",
+  )
   let package_manifest =
     #|import { "pangbit/mooncdc" @cdc, "moonbitlang/async", "moonbitlang/async/fs" }
     #|pkgtype(kind: "executable")
