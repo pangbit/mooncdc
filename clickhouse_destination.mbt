@@ -266,13 +266,18 @@ pub impl Destination for ClickHouseDestination with fn write_rows(
         0,
       )
     })
-    self.http.insert(
-      self.qualified(table.name),
-      table.layout,
-      encoded,
-      self.max_insert_bytes,
-      Some("\{id.attempt}/\{id.relation_id}/\{id.sequence}"),
-    )
+    // Keep an admitted snapshot batch ordered like WAL writes. Source
+    // cancellation must not let a reset overtake its in-flight HTTP requests.
+    // Per-request deadlines still apply and do not prove remote cancellation.
+    @async.protect_from_cancel(() => {
+      self.http.insert(
+        self.qualified(table.name),
+        table.layout,
+        encoded,
+        self.max_insert_bytes,
+        Some("\{id.attempt}/\{id.relation_id}/\{id.sequence}"),
+      )
+    })
   }
   Durable
 }

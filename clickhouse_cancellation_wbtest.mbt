@@ -1,7 +1,22 @@
 ///|
 async test "ClickHouse admitted write survives caller cancellation before replay and shutdown" {
+  ch_test_admitted_write_cancellation(false)
+}
+
+///|
+async test "ClickHouse admitted snapshot write survives caller cancellation before reset and shutdown" {
+  ch_test_admitted_write_cancellation(true)
+}
+
+///|
+async fn ch_test_admitted_write_cancellation(copy : Bool) -> Unit {
   for engine in [ClickHouseEngine::ReplacingMergeTree, MergeTree] {
-    for action in ["replay", "shutdown", "deadline"] {
+    for
+      action in (if copy {
+        ["reset", "shutdown", "deadline"]
+      } else {
+        ["replay", "shutdown", "deadline"]
+      }) {
       @async.with_timeout(5000, () => {
         let server = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
         defer server.close()
@@ -24,6 +39,13 @@ async test "ClickHouse admitted write survives caller cancellation before replay
             target.running = true
             let schema = ch_test_schema(ch_test_columns(), 100)
             let relation = schema.schema.relation(["id", "value"])
+            target.copies[42U] = schema
+            target.attempts[42U] = "first"
+            let copy_id : TableCopyBatchId = {
+              attempt: "first",
+              relation_id: relation.oid,
+              sequence: 1,
+            }
             target.tables[42U] = {
               schema,
               name: "test",
@@ -65,6 +87,14 @@ async test "ClickHouse admitted write survives caller cancellation before replay
                         changed.wait()
                       }
                       requests.push("insert-finished")
+                    } else if action == "reset" {
+                      // Fail at the first reset request: this test observes the
+                      // ordering fence without simulating table creation.
+                      assert_true(body.has_prefix("DROP "))
+                      requests.push("reset")
+                      conn.send_response(500, "Injected reset failure")
+                      conn.end_response()
+                      return
                     } else {
                       assert_true(body.has_prefix("TRUNCATE"))
                       requests.push("truncate")
@@ -77,7 +107,15 @@ async test "ClickHouse admitted write survives caller cancellation before replay
               })
               let old = group.spawn(() => {
                 let result = @async.handle_cancellation(() => {
-                  target.write_transaction(tx)
+                  if copy {
+                    target.write_rows(
+                      relation,
+                      [[Text("1"), Text("old")]],
+                      Some(copy_id),
+                    )
+                  } else {
+                    target.write_transaction(tx)
+                  }
                 }) catch {
                   @async.TimeoutError => {
                     deadline = true
@@ -116,7 +154,15 @@ async test "ClickHouse admitted write survives caller cancellation before replay
               assert_false(old_finished)
               let discarded = group.spawn(() => {
                 @async.handle_cancellation(() => {
-                  target.write_transaction(replay)
+                  if copy {
+                    target.write_rows(
+                      relation,
+                      [[Text("2"), Text("discarded")]],
+                      Some({ ..copy_id, sequence: 2, }),
+                    )
+                  } else {
+                    target.write_transaction(replay)
+                  }
                 })
               })
               @async.sleep(5)
@@ -126,6 +172,16 @@ async test "ClickHouse admitted write survives caller cancellation before replay
               let next = group.spawn(() => {
                 if action == "replay" {
                   assert_eq(target.write_transaction(replay), Durable)
+                } else if action == "reset" {
+                  assert_true(
+                    try {
+                      target.reset_table(relation, attempt="second")
+                      false
+                    } catch {
+                      Manual("ClickHouse HTTP 500, exception unknown") => true
+                      _ => false
+                    },
+                  )
                 } else {
                   target.shutdown()
                 }
@@ -142,6 +198,8 @@ async test "ClickHouse admitted write survives caller cancellation before replay
                 requests,
                 if action == "replay" {
                   ["insert", "insert-finished", "truncate"]
+                } else if action == "reset" {
+                  ["insert", "insert-finished", "reset"]
                 } else {
                   ["insert", "insert-finished"]
                 },

@@ -773,12 +773,13 @@ A client deadline does not prove the server has stopped the request. HTTP writes
 are synchronous and return Durable only after server acknowledgement. StateStore
 ownership does not fence a previously running remote HTTP request.
 
-An admitted ClickHouse transaction keeps the instance's ordering lock even if its
-source caller is cancelled. Replay, table reset and shutdown wait until that batch
-finishes or fails under its own per-request deadlines. Cancellation while waiting
-for admission remains immediate and sends no requests. This synchronous destination
-serializes all tables, so its barrier is broader than the reference's per-table
-background-task fences. Cancellation of an admitted batch can take as long as its
+An admitted ClickHouse transaction or snapshot COPY batch keeps the instance's
+ordering lock even if its source caller is cancelled. Replay, table reset and
+shutdown wait until that batch finishes or fails under its own per-request
+deadlines. Cancellation while waiting for admission remains immediate and sends
+no requests. This synchronous destination serializes all tables, so its barrier
+is broader than the reference's per-table background-task fences.
+Cancellation of an admitted batch can take as long as its
 remaining operations; an outer timeout cannot override the drain. After a request's
 own timeout or a process exit, no additional remote-cancellation or distributed-ordering
 guarantee is claimed.
