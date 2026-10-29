@@ -12,7 +12,10 @@
 
 ## 0.1.1
 
-补丁候选；发布状态另用 `moon view pangbit/mooncdc@0.1.1` 核验。
+已于 2026-10-29 发布，用 `moon view pangbit/mooncdc@0.1.1` 核验。
+[精确注册库 manifest](https://mooncakes.io/api/v0/manifest/pangbit/mooncdc@0.1.1)记录的归档 SHA-256 为
+`d592a730ecf3027783c6d764670b789df11f092992afb52a85fee664434d6b33`，
+与 `0a38ed6` 的已审阅包相同。
 公共接口、依赖及 PostgreSQL → ClickHouse 库与 CLI 的支持范围不变。
 
 ### 修复
@@ -25,8 +28,8 @@
   连续消费及 Resume 仍过滤真正的旧事务和重复事务。
 
 Linux 定向检查及 265 个身份的普通 debug 门禁见
-[验证记录](docs/VALIDATION.zh-CN.md#011-patch-candidate)。
-最终候选 CI 与已发布精确版本的消费者验证仍是独立发布门槛。
+[验证记录](docs/VALIDATION.zh-CN.md#011-patch-candidate)，同处记录已发布源码的 CI
+与精确版本消费者结果。
 
 ### 2026 年 10 月贡献
 

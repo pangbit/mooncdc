@@ -7,12 +7,12 @@ English is the authoritative version.
 
 
 This records source-bound validation observations. It is not a registry
-publication receipt. The 0.1.1 candidate results precede the historical 0.1.0
+publication receipt by itself. The 0.1.1 release record precedes the historical 0.1.0
 assembly and CI records below.
 
 <a id="011-patch-candidate"></a>
 
-## 0.1.1 patch candidate (2026-10-29)
+## 0.1.1 release (2026-10-29)
 
 The product source is `568fe7c387f04f1cc3f750749a2652cff8b31e0a`.
 Public interfaces and dependency versions are unchanged. Directed Linux checks
@@ -35,14 +35,26 @@ live/reference tests whose bodies were not enabled; these are not fresh live
 PostgreSQL or ClickHouse results. Owned remote fixtures were removed and cleanup
 was verified.
 
-The successful [six-job CI run at `7233238`](https://github.com/pangbit/mooncdc/actions/runs/39536560268)
-is the pre-patch baseline. Release metadata and the package-consumer driver's
-version handling are prepared after the product checks above. The final candidate
-commit still needs its own normal CI, including native release execution,
-PG17/18 integration and the archive consumer. Reuse the directed and ordinary
-debug evidence; no additional manual full database matrix is required before
-that CI run. After publication, verify one clean exact-version 0.1.1 registry
-consumer as described in [releasing](RELEASING.md).
+Release source `0a38ed675a3e044f81bfd0c14a3f2e89a0d24cab` adds metadata,
+documentation and the package driver's manifest-based version handling to that
+product source. Its [CI run](https://github.com/pangbit/mooncdc/actions/runs/40812266552)
+completed successfully in all six jobs: commit subjects, codec/reference checks,
+Linux native, macOS native, PG17 and PG18. Native jobs include debug/release
+execution and archive consumers. The existing enabled database jobs passed;
+this is not a claim about every fault combination or deployment environment.
+The [CI at `7233238`](https://github.com/pangbit/mooncdc/actions/runs/39536560268)
+remains the pre-patch baseline. No additional manual database matrix was run.
+
+`moon publish` exited 0 with HTTP 200. The exact 0.1.1 registry lookup succeeded,
+with an unyanked package created at `2026-10-29T03:49:24.759462+00:00` and archive
+SHA-256 `d592a730ecf3027783c6d764670b789df11f092992afb52a85fee664434d6b33`, identical
+to the reviewed package. A fresh registry consumer outside the repository
+resolved 0.1.1 and passed strict native checking and release build/run on macOS
+ARM64. It used no workspace, local path or dependency override, and no database.
+The three repaired source files and public interface matched the published
+source. [Tag and Release `v0.1.1`](https://github.com/pangbit/mooncdc/releases/tag/v0.1.1)
+point to `0a38ed6`. Later publication-record documentation does not change or
+retest that source.
 
 ## Inputs and reuse
 

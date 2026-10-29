@@ -13,10 +13,10 @@ The low-level subscription uses native `pgoutput` protocol v1, delivers complete
 committed transactions, and provides explicit acknowledgement, durable checkpoints
 and bounded reconnection.
 
-**0.1.1 patch candidate: a native PostgreSQL → ClickHouse library and CLI.**
+**0.1.1: a native PostgreSQL → ClickHouse library and CLI.**
 It fixes ClickHouse exception responses, snapshot cancellation ordering and
 adjacent-transaction replay boundaries; see the [changelog](CHANGELOG.md).
-Version 0.1.0 was published on 2026-10-21. See
+Version 0.1.1 was published on 2026-10-29. See
 [testing](docs/TESTING.md) for validation methods and source-bound evidence.
 Delivery is at least once; applications must handle replay.
 
@@ -31,13 +31,10 @@ final release commit passed remote CI. See the version binding in testing.
 
 ## Installation and usage
 
-Query the candidate version with `moon view pangbit/mooncdc@0.1.1`.
-After publication, install with `moon add pangbit/mooncdc@0.1.1` and verify the
-resolved version. Until then, the published version is available with
-`moon add pangbit/mooncdc@0.1.0`; it does not contain the three patch fixes.
-To try the candidate before publication, run the repository examples or
-follow [releasing](docs/RELEASING.md) to validate an extracted source-package
-consumer. A local consumer pass does not establish registry publication.
+Query the published version with `moon view pangbit/mooncdc@0.1.1`, then install
+with `moon add pangbit/mooncdc@0.1.1` and verify the resolved version.
+See [examples](examples/README.md) for runnable repository programs and
+[releasing](docs/RELEASING.md) for source-package and registry consumer checks.
 
 Set `preferred_target = "native"` in `moon.mod` and import the package in the
 consumer's `moon.pkg`. The examples use the default alias `@mooncdc`:

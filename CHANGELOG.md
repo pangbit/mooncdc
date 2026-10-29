@@ -8,8 +8,10 @@ English is the authoritative version.
 
 ## 0.1.1
 
-Patch candidate; publication is verified separately with
-`moon view pangbit/mooncdc@0.1.1`. Public interfaces, dependencies and the
+Published on 2026-10-29; verify with `moon view pangbit/mooncdc@0.1.1`.
+The [exact registry manifest](https://mooncakes.io/api/v0/manifest/pangbit/mooncdc@0.1.1)
+records archive SHA-256 `d592a730ecf3027783c6d764670b789df11f092992afb52a85fee664434d6b33`,
+matching the reviewed package from `0a38ed6`. Public interfaces, dependencies and the
 PostgreSQL → ClickHouse library/CLI scope are unchanged.
 
 ### Fixes
@@ -26,8 +28,8 @@ PostgreSQL → ClickHouse library/CLI scope are unchanged.
   duplicate transactions during continuous consumption and Resume.
 
 Directed Linux checks and the 265-identity ordinary debug gate are recorded in
-[validation](docs/VALIDATION.md#011-patch-candidate). Final candidate CI and the
-published-version consumer are separate release gates.
+[validation](docs/VALIDATION.md#011-patch-candidate), together with the
+published-source CI and exact-version consumer results.
 
 ### October 2026 contribution
 

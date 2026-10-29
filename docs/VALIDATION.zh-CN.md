@@ -8,12 +8,12 @@
 英文版本为权威版本。
 
 
-本页记录绑定源码的验证观察，不是注册库发布回执。
-先列出 0.1.1 候选结果，下文保留 0.1.0 的历史组装与 CI 记录。
+本页记录绑定源码的验证观察，发布事实须与注册库回执相互核验。
+先列出 0.1.1 发布记录，下文保留 0.1.0 的历史组装与 CI 记录。
 
 <a id="011-patch-candidate"></a>
 
-## 0.1.1 补丁候选（2026-10-29）
+## 0.1.1 发布（2026-10-29）
 
 产品源码为 `568fe7c387f04f1cc3f750749a2652cff8b31e0a`，公共接口与依赖版本不变。
 Linux 定向检查使用隔离回环模拟端、固定 MoonBit 工具链、64 MiB 编译栈及 8 MiB 运行栈：
@@ -31,11 +31,23 @@ SQL 夹具而无法读取文件。补齐完全相同的夹具后，仅补测该�
 框架总数包含未启用的环境门控 live/reference 测试体，不是新一轮真实 PostgreSQL
 或 ClickHouse 验收结果。远端本轮夹具已移除并核验清理。
 
-[`7233238` 的六项全绿 CI](https://github.com/pangbit/mooncdc/actions/runs/39536560268)
-是补丁前基线。发布元数据及包消费者脚本的版本处理在上述产品检查之后准备。
-最终候选提交仍需一次自身的普通 CI，覆盖 native release 执行、PG17/18 集成及归档消费者。
-复用定向与普通 debug 证据，不在该 CI 之前额外手工跑完整数据库矩阵。
-发布后按[发布流程](RELEASING.zh-CN.md)验证一次精确版本 0.1.1 的干净注册库消费者。
+发布源码 `0a38ed675a3e044f81bfd0c14a3f2e89a0d24cab` 在该产品源码上增加元数据、
+文档及包脚本从 manifest 读取版本的处理。该提交的
+[CI](https://github.com/pangbit/mooncdc/actions/runs/40812266552)六项全部成功：
+提交主题、codec/reference、Linux native、macOS native、PG17 与 PG18。
+Native job 包括 debug/release 执行及归档消费者；现有已启用的数据库 job 通过，
+不能据此声称覆盖全部故障组合或部署环境。
+[`7233238` 的 CI](https://github.com/pangbit/mooncdc/actions/runs/39536560268)保留为补丁前基线，
+没有额外手工运行数据库矩阵。
+
+`moon publish` 退出 0，返回 HTTP 200。精确 0.1.1 注册库查询成功，包未撤回，
+创建时间为 `2026-10-29T03:49:24.759462+00:00`，归档 SHA-256 为
+`d592a730ecf3027783c6d764670b789df11f092992afb52a85fee664434d6b33`，与已审阅包完全相同。
+仓库外的新注册库消费者解析到 0.1.1，在 macOS ARM64 通过严格 native 检查及 release
+构建/运行，未使用 workspace、本地路径或依赖覆盖，也未连接数据库。
+三份修复源码及公共接口与发布源码相同。
+[Tag 与 Release `v0.1.1`](https://github.com/pangbit/mooncdc/releases/tag/v0.1.1)指向 `0a38ed6`。
+后续发布记录文档不改变或重新测试该源码。
 
 <a id="inputs-and-reuse"></a>
 

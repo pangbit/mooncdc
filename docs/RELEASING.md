@@ -9,7 +9,7 @@ English is the authoritative version.
 
 
 Follow [MoonBit's publishing guide](https://docs.moonbitlang.com/en/latest/toolchain/moon/package-manage-tour.html).
-This repository prepares patch version 0.1.1; it is not published by CI.
+The current published version is 0.1.1 (2026-10-29); CI does not publish packages.
 Version 0.1.0 was published on 2026-10-21. For 0.1.1, reuse the
 [directed checks and ordinary debug gate](VALIDATION.md#011-patch-candidate), then
 run the final candidate through the existing CI once for release, PG17/18 and
@@ -60,7 +60,7 @@ commits. Accepted product provenance and the historical Linux result are recorde
 in [validation scope](VALIDATION.md). Production identity can justify reuse;
 changed tests/tools need new checks. Product inputs were introduced by
 `44a41f8c98b761d127623ba4b65a530bf29c2591`; publication configuration and validation documentation
-were reviewed in separate commits. The 0.1.1 product candidate extends public
+were reviewed in separate commits. The 0.1.1 published source, `0a38ed6`, extends public
 `main` at `7233238` with fixes `fd8c7b7`, `ce42912` and `568fe7c`; it retains the
 same public API, dependencies and release scope. Record the final branch commit and archive
 hash in the PR, and verify that exact commit's CI result.

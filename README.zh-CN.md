@@ -13,9 +13,9 @@ MoonBit 编写的 PostgreSQL → ClickHouse CDC 库与独立同步工具。库�
 [当前交付范围](docs/RELEASE_SCOPE.zh-CN.md)。底层订阅使用原生 `pgoutput` 协议 v1，按完整的
 已提交事务交付数据，提供显式确认、持久检查点和有限次数断线重连。
 
-**0.1.1 补丁候选：Native 后端的 PostgreSQL → ClickHouse 库与 CLI。**
+**0.1.1：Native 后端的 PostgreSQL → ClickHouse 库与 CLI。**
 修复 ClickHouse 异常响应、快照取消顺序及相邻事务重放边界，见[变更记录](CHANGELOG.zh-CN.md)。
-0.1.0 已于 2026-10-21 发布。验收方法及绑定源码的证据见[测试说明](docs/TESTING.zh-CN.md)。
+0.1.1 已于 2026-10-29 发布。验收方法及绑定源码的证据见[测试说明](docs/TESTING.zh-CN.md)。
 采用至少一次投递，业务端必须处理重放。
 
 2026-10-20 的固定核心提交已通过 Linux PG17/18 库4格和 CLI8格验收。
@@ -27,11 +27,10 @@ MoonBit 编写的 PostgreSQL → ClickHouse CDC 库与独立同步工具。库�
 
 ## 安装与使用
 
-先用 `moon view pangbit/mooncdc@0.1.1` 查询候选版本。
-发布后通过 `moon add pangbit/mooncdc@0.1.1` 安装，并核对实际解析版本。
-此前可用 `moon add pangbit/mooncdc@0.1.0` 安装已发布版本，但不包含这三项补丁修复。
-发布前试用候选，可在本仓库运行示例，或按照[发布检查](docs/RELEASING.zh-CN.md)
-使用打包源码做独立消费者验证；本地消费者通过不代表注册库版本已发布。
+先用 `moon view pangbit/mooncdc@0.1.1` 查询已发布版本，再通过
+`moon add pangbit/mooncdc@0.1.1` 安装，并核对实际解析版本。
+仓库中的可运行程序见[示例](examples/README.zh-CN.md)，源码包及注册库消费者检查见
+[发布流程](docs/RELEASING.zh-CN.md)。
 
 在 `moon.mod` 中设置 `preferred_target = "native"`，在使用方 `moon.pkg` 导入。
 以下示例统一使用默认别名 `@mooncdc`：
