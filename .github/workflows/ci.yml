@@ -75,27 +75,27 @@ jobs:
           test "$("$HOME/.moon/bin/moonc" -v)" = 'v0.10.14+7d59c7ec9 (2026-09-18)'
       - run: moon version --all
       - run: moon update
-      - run: moon check . cmd/replicator internal/memory internal/yaml --target native --deny-warn
+      - run: moon check . cmd/replicator internal/memory internal/yaml internal/saslprep --target native --deny-warn
       - name: Build native debug tests (Linux 64 MiB stack)
         timeout-minutes: 15
         run: |
           if [[ "$RUNNER_OS" == 'Linux' ]]; then ulimit -S -s 65536; fi
-          moon test . cmd/replicator internal/memory internal/yaml --target native --frozen --build-only
+          moon test . cmd/replicator internal/memory internal/yaml internal/saslprep --target native --frozen --build-only
       - name: Run native debug tests (8 MiB stack)
         timeout-minutes: 5
         run: |
           ulimit -S -s 8192
-          moon test . cmd/replicator internal/memory internal/yaml --target native --frozen
+          moon test . cmd/replicator internal/memory internal/yaml internal/saslprep --target native --frozen
       - name: Build native release tests (Linux 64 MiB stack)
         timeout-minutes: 25
         run: |
           if [[ "$RUNNER_OS" == 'Linux' ]]; then ulimit -S -s 65536; fi
-          moon test . cmd/replicator internal/memory internal/yaml --target native --frozen --release --build-only
+          moon test . cmd/replicator internal/memory internal/yaml internal/saslprep --target native --frozen --release --build-only
       - name: Run native release tests (8 MiB stack)
         timeout-minutes: 5
         run: |
           ulimit -S -s 8192
-          moon test . cmd/replicator internal/memory internal/yaml --target native --frozen --release
+          moon test . cmd/replicator internal/memory internal/yaml internal/saslprep --target native --frozen --release
       # Pure response-parser tests; `moon run` would upload a registry dry-run.
       - run: moon test tools/publish-check.mbtx
       - name: Check maintenance parser and allocation regressions

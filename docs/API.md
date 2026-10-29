@@ -875,7 +875,9 @@ WAL lag includes database WAL unrelated to this publication and is not an event 
 
 Native backend, POSIX local filesystems (macOS/Linux). Windows, Wasm and JS are not claimed.
 SCRAM-SHA-256 and server-side trust authentication are supported. MD5/password-cleartext
-authentication, SCRAM-PLUS/client certificates and non-ASCII SASLprep passwords are not.
+authentication and SCRAM-PLUS/client certificates are not. Unicode passwords use
+PostgreSQL-compatible SASLprep (Unicode 16.0 NFKC and RFC3454 Unicode 3.2 tables),
+falling back to the original password if preparation fails.
 `LocalPlaintext` accepts only 127.0.0.1 or ::1. `VerifyFull` trusts system roots and checks
 hostname; `VerifyCAFile(path)` checks the supplied CA and hostname. There is no TLS downgrade
 or certificate-verification bypass. TLS uses the OpenSSL runtime loaded by the async dependency.

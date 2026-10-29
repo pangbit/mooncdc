@@ -35,5 +35,10 @@ lockfile 构建未修改的 codec。`integration/reference/codec_driver.rs` 和 
 
 ## 实现来源
 
-生产代码依据协议参照独立实现，没有复制或改写 PostgreSQL 客户端或其他 Mooncakes CDC 包。
+`internal/saslprep/` 的 SCRAM 密码准备逻辑改写自 PostgreSQL 18.0 的 SASLprep 和
+NFKC 算法，包含完整 Unicode 规范化表及 RFC3454 范围表，没有新增运行时依赖。
+固定源文件、SHA-256、PostgreSQL 许可证与 Unicode License V3 保存在
+[`internal/saslprep/data/`](internal/saslprep/data/README.md)。
+
+其他生产代码依据协议参照独立实现，没有复制或改写其他 PostgreSQL 客户端或 Mooncakes CDC 包。
 可执行示例的包布局参考了官方 `moonbitlang/async` 示例。

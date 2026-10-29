@@ -39,14 +39,8 @@ fn scram_response(
   if iterations < 4096 || iterations > 1000000 {
     raise Authentication("SCRAM iteration limit")
   }
-  // PostgreSQL uses SASLprep; this first release accepts printable ASCII passwords only.
-  for c in password {
-    if c.to_int() < 32 || c.to_int() > 126 {
-      raise Authentication("password must be printable ASCII")
-    }
-  }
   let salt = @base64.decode(salt_text)
-  let key = @utf8.encode(password)
+  let key = @utf8.encode(@saslprep.password(password))
   let mut u = hmac(key, salt + b"\x00\x00\x00\x01")
   let acc = u.to_fixedarray()
   for _ in 1..<iterations {

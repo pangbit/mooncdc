@@ -1,4 +1,5 @@
 import {
+  "pangbit/mooncdc/internal/saslprep",
   "pangbit/mooncdc/internal/memory",
   "moonbitlang/async",
   "moonbitlang/async/socket",

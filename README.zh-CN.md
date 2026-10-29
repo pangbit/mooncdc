@@ -128,7 +128,7 @@ let config = @mooncdc.ConnectionConfig::new(
   `Accepted` 不触发确认，持久化屏障成功才推进检查点，支持空闲刷新及正常停止。
 - 后台处理心跳；帧、事务、元数据及未确认队列有上限。超限关闭连接并保留检查点。
 - SCRAM-SHA-256；远端连接使用验证证书和主机名的 TLS。明文仅允许数字回环地址。
-  首版密码限定可打印 ASCII，明确拒绝需要 SASLprep 的非 ASCII 密码。
+  Unicode 密码采用兼容 PostgreSQL 的 SASLprep，包含完整 NFKC 规范化；准备失败时回退到原始密码。
 - `run_pipeline` 提供持久逐表状态、并行独立快照、重启后失败表重建和增量追赶；
   完成的表保留快照进度，队列满时背压。运行中新发布表在首次 WAL 事件时发现并复制。
 - `Value.decode_text(oid)` 提供类型化 Cell，支持精确数值、日期时间、JSON、UUID、bytea 和

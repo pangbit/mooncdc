@@ -148,8 +148,8 @@ falls back to the latest WAL position.
 - Background heartbeats continue. Frames, transactions, metadata and outstanding
   queues have limits; exceeding them closes the connection without acknowledging.
 - SCRAM-SHA-256 and verified remote TLS are supported. Plaintext accepts only
-  numeric loopback addresses. Initial passwords are printable ASCII; non-ASCII
-  passwords requiring SASLprep are explicitly rejected.
+  numeric loopback addresses. Unicode passwords use PostgreSQL-compatible SASLprep
+  with complete NFKC normalization and the original-password fallback on preparation failure.
 - `run_pipeline` maintains durable per-table states, concurrent independent
   snapshots, failed-copy restart and catch-up. Completed tables retain progress;
   full queues apply backpressure. Newly published tables are discovered and copied

@@ -33,6 +33,12 @@ The production float converter uses the platform C runtime with a private C loca
 
 ## Implementation provenance
 
-Protocol references inform an independent MoonBit implementation. No PostgreSQL client
-implementation or other Mooncakes CDC package is copied or adapted. Official
+The SCRAM password preparation in `internal/saslprep/` adapts PostgreSQL 18.0's
+SASLprep and NFKC algorithms, with its complete generated Unicode normalization and
+RFC3454 range tables. It adds no runtime dependency. The pinned sources, SHA-256
+hashes, PostgreSQL license and Unicode License V3 are retained in
+[`internal/saslprep/data/`](internal/saslprep/data/README.md).
+
+Other protocol references inform an independent MoonBit implementation. No other
+PostgreSQL client implementation or Mooncakes CDC package is copied or adapted. Official
 `moonbitlang/async` examples inform the executable example package layout.

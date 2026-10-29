@@ -675,7 +675,8 @@ reader 可能在发现队列超限前多组装一个有界事务。每个元数�
 
 native 后端、POSIX 本地文件系统（macOS/Linux）；不宣称 Windows、Wasm 或 JS 支持。
 支持 SCRAM-SHA-256 和服务端 trust，不支持 MD5/明文密码认证、SCRAM-PLUS/客户端证书
-及非 ASCII SASLprep 密码。`LocalPlaintext` 只接受 127.0.0.1 或 ::1。
+认证。Unicode 密码采用兼容 PostgreSQL 的 SASLprep（Unicode 16.0 NFKC 与 RFC3454
+Unicode 3.2 表），准备失败时回退原始密码。`LocalPlaintext` 只接受 127.0.0.1 或 ::1。
 `VerifyFull` 使用系统 roots 并验证 hostname，`VerifyCAFile(path)` 验证指定 CA 和 hostname。
 不存在 TLS 降级或证书验证绕过；TLS 使用 async 依赖加载的 OpenSSL 运行时。
 具体环境的验收报告与本页预期支持契约分别记录。

@@ -20,8 +20,8 @@ the following commands use the existing cache and never publish a package.
 
 ```sh
 moon version --all
-moon check . cmd/replicator internal/memory internal/yaml --target native --frozen --deny-warn
-moon test . cmd/replicator internal/memory internal/yaml --target native --frozen
+moon check . cmd/replicator internal/memory internal/yaml internal/saslprep --target native --frozen --deny-warn
+moon test . cmd/replicator internal/memory internal/yaml internal/saslprep --target native --frozen
 moon build --target native --release --frozen
 moon test tools/package-test.mbtx --target native --frozen
 moon test tools/replicator-config-test.mbtx --target native --frozen
