@@ -8,6 +8,20 @@
 英文版本为权威版本。
 
 
+<a id="012"></a>
+
+## 0.1.2
+
+- 按 PostgreSQL 兼容语义准备 SCRAM-SHA-256 密码，包含 Unicode 映射、完整归一化和
+  原始密码回退，保留 ASCII 行为。
+- 增加四个真实 PostgreSQL／ClickHouse 子例，覆盖库／CLI、两种引擎下在快照 COPY
+  未完成时执行 INSERT、UPDATE、DELETE，核对完整事件历史、源端 LSN 区间和最终当前值。
+- 随包保留密码准备所用的固定 PostgreSQL／Unicode 数据、来源与许可证。
+  库公共接口和依赖版本不变。
+
+密码及 COPY/IUD 的定向结果见[验证记录](docs/VALIDATION.zh-CN.md#unreleased-follow-up)。
+最终源码由现有发布 CI 覆盖，本补丁无需另行重复旧数据库矩阵。
+
 <a id="011"></a>
 
 ## 0.1.1

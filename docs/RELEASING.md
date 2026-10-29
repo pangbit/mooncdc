@@ -9,9 +9,9 @@ English is the authoritative version.
 
 
 Follow [MoonBit's publishing guide](https://docs.moonbitlang.com/en/latest/toolchain/moon/package-manage-tour.html).
-The current published version is 0.1.1 (2026-10-29); CI does not publish packages.
-Version 0.1.0 was published on 2026-10-21. For 0.1.1, reuse the
-[directed checks and ordinary debug gate](VALIDATION.md#011-patch-candidate), then
+Version 0.1.1 was published on 2026-10-29 and 0.1.0 on 2026-10-21; CI does not
+publish packages. For 0.1.2, reuse the [directed password/COPY results](VALIDATION.md#unreleased-follow-up)
+and unchanged [0.1.1 evidence](VALIDATION.md#011-patch-candidate), then
 run the final candidate through the existing CI once for release, PG17/18 and
 archive-consumer coverage. Do not duplicate that matrix on another host.
 
@@ -72,14 +72,14 @@ commit. Verify that exact public commit's CI before claiming remote acceptance.
 Existing source-package consumer evidence uses an extracted module and a local
 workspace. It proves offline public API/native-linking behavior at its recorded
 source and archive hashes. It does not establish namespace permission, resolve
-`pangbit/mooncdc@0.1.1` from Mooncakes, or validate the eventual uploaded archive.
+the selected version from Mooncakes, or validate the eventual uploaded archive.
 An anonymous public lookup can show an indexed version; absence is not ownership
 or a version reservation. Confirm the publishing account's right to `pangbit`
 and recheck the exact version immediately before an authorized upload. Keep the
 current name, version, repository ownership and licenses until explicitly changed.
 
 After publication, create a consumer outside this repository and its workspace,
-with a normal exact dependency `"pangbit/mooncdc@0.1.1"` in `moon.mod` and the
+with a normal exact dependency `"pangbit/mooncdc@0.1.2"` in `moon.mod` and the
 root package import `"pangbit/mooncdc"` in `moon.pkg`. Use the public README/API
 consumer examples, run strict native check/test and debug/release build/run,
 and retain the resolved version, registry archive checksum and actual exit codes.

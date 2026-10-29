@@ -7,12 +7,12 @@ English is the authoritative version.
 
 
 This records source-bound validation observations. It is not a registry
-publication receipt by itself. Unreleased directed results precede the 0.1.1
+publication receipt by itself. The 0.1.2 directed results precede the 0.1.1
 release and historical 0.1.0 assembly/CI records below.
 
 <a id="unreleased-follow-up"></a>
 
-## Unreleased follow-up (2026-10-29)
+## 0.1.2 source checks (2026-10-29)
 
 Product commit `72efbd45f37dc32bac9efd181d8cbb8170827613` adds PostgreSQL-compatible
 SCRAM password preparation, including complete normalization and raw-password

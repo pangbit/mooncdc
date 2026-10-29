@@ -6,6 +6,22 @@
 English is the authoritative version.
 
 
+## 0.1.2
+
+- Prepare SCRAM-SHA-256 passwords using PostgreSQL-compatible Unicode mapping,
+  complete normalization and original-password fallback. Preserve ASCII behavior.
+- Add four real PostgreSQL/ClickHouse tests for INSERT, UPDATE and DELETE while
+  snapshot COPY is incomplete, through the library and CLI with both engines.
+  Verify complete event history, source LSN intervals and final current values.
+- Include pinned PostgreSQL/Unicode data, source references and license notices
+  for password preparation. Public library interfaces and dependency versions
+  remain unchanged.
+
+Directed password and COPY/IUD results are recorded in
+[validation](docs/VALIDATION.md#unreleased-follow-up). The existing release CI
+covers the final source; no separate repetition of the old database matrix is
+needed for this patch.
+
 ## 0.1.1
 
 Published on 2026-10-29; verify with `moon view pangbit/mooncdc@0.1.1`.
