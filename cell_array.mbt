@@ -1,5 +1,5 @@
 ///|
-fn pg_array(input : String, element : UInt) -> ReadOnlyArray[Cell] raise {
+fn pg_array(input : String, element : UInt32) -> ReadOnlyArray[Cell] raise {
   let mut text = input[:]
   if text.has_prefix("[") {
     let mut end = 1

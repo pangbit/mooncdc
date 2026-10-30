@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -11,9 +11,10 @@ import {
   "moonbitlang/core/env",
   "moonbitlang/core/json",
 }
+----
 
 ///|
-fn length(bytes : BytesView) -> Int raise {
+fn length(bytes : BytesView) -> Int32 raise {
   let n = (bytes[0].to_int() << 24) |
     (bytes[1].to_int() << 16) |
     (bytes[2].to_int() << 8) |

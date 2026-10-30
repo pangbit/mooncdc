@@ -1,7 +1,7 @@
 ///|
 priv struct ChVector {
-  selector : Int
-  oid : UInt
+  selector : Int32
+  oid : UInt32
   input : String
   nullable : Bool
   result : Json?
@@ -27,7 +27,7 @@ async test "ClickHouse pinned encoding differential" {
         })
       }
     }
-    @fs.write_file(file, @utf8.encode(vectors.to_json().stringify()))
+    @fs.write_file(file, @utf8.encode(Json::Json(vectors).stringify()))
     println("CLICKHOUSE generated \{vectors.length()} vectors")
   } else if phase == "verify" {
     let vectors : Array[ChVector] = @json.from_json(
@@ -43,7 +43,7 @@ async test "ClickHouse pinned encoding differential" {
         )
         {
           "ok": true,
-          "hex": @crypto.bytes_to_hex_string(out.to_bytes()).to_json(),
+          "hex": Json::Json(@crypto.bytes_to_hex_string(out.to_bytes())),
         }
       } catch {
         _ => { "ok": false }

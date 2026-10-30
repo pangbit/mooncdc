@@ -5,8 +5,8 @@ priv struct MemoryCopyDestination {
   initial_pressure : Bool
   pending : Array[String]
   durable : Array[String]
-  mut writes : Int
-  mut flushes : Int
+  mut writes : Int32
+  mut flushes : Int32
 }
 
 ///|

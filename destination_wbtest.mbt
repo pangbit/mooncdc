@@ -12,8 +12,8 @@ priv struct ProbeDestination {
   pending : Array[String]
   durable : Array[String]
   batches : Array[TableCopyBatchId]
-  mut writes : Int
-  mut flushes : Int
+  mut writes : Int32
+  mut flushes : Int32
 }
 
 ///|

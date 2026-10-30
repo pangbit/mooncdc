@@ -43,7 +43,7 @@ test "table retry classification is bounded and error state roundtrips" {
 priv struct RetryProbe {
   target : PipelineProbe
   mode : String
-  mut failures : Int
+  mut failures : Int32
 }
 
 ///|

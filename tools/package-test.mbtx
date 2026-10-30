@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -7,6 +7,7 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/core/string",
 }
+----
 
 ///|
 enum PackagePhase {
@@ -64,7 +65,7 @@ test "package phase rejects unknown incomplete and extra arguments" {
 }
 
 ///|
-fn require_test_summary(output : String, count : Int) -> Unit raise {
+fn require_test_summary(output : String, count : Int32) -> Unit raise {
   assert_true(count >= 0)
   let expected = "Total tests: \{count}, passed: \{count}, failed: 0."
   let summaries = output
@@ -95,7 +96,7 @@ fn test_identities(outline : String) -> Array[String] raise {
 }
 
 ///|
-fn require_same_tests(source : String, packaged : String) -> Int raise {
+fn require_same_tests(source : String, packaged : String) -> Int32 raise {
   let expected = test_identities(source)
   assert_eq(test_identities(packaged), expected)
   expected.length()
@@ -274,9 +275,9 @@ async fn main {
       kib += @string.parse_int(line.split("\t").next().unwrap())
     }
     let record : Json = {
-      "phase": phase.to_json(),
-      "elapsed_ms": (@async.now() - started).to_json(),
-      "allocated_kib": kib.to_json(),
+      "phase": Json::Json(phase),
+      "elapsed_ms": Json::Json(@async.now() - started),
+      "allocated_kib": Json::Json(kib),
       "limit_kib": 524288,
     }
     @fs.write_file(
@@ -312,17 +313,17 @@ async fn main {
     @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
     @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
     commands.push({
-      "name": name.to_json(),
-      "program": program.to_json(),
-      "args": args.to_json(),
-      "cwd": cwd.to_json(),
-      "extra_env_names": extra.keys().collect().to_json(),
-      "exit_code": result.exit_code().to_json(),
-      "elapsed_ms": (@async.now() - tick).to_json(),
+      "name": Json::Json(name),
+      "program": Json::Json(program),
+      "args": Json::Json(args),
+      "cwd": Json::Json(cwd),
+      "extra_env_names": Json::Json(extra.keys().collect()),
+      "exit_code": Json::Json(result.exit_code()),
+      "elapsed_ms": Json::Json(@async.now() - tick),
     })
     @fs.write_file(
       evidence + "/commands.json",
-      commands.to_json().stringify(indent=2),
+      Json::Json(commands).stringify(indent=2),
     )
     println(
       "PACKAGE AUDIT: " + name + " exit=" + result.exit_code().to_string(),
@@ -354,12 +355,12 @@ async fn main {
       }
     }
     footprints.push({
-      "phase": phase.to_json(),
-      "owned_and_all_retained_evidence_kib": kib.to_json(),
+      "phase": Json::Json(phase),
+      "owned_and_all_retained_evidence_kib": Json::Json(kib),
     })
     @fs.write_file(
       evidence + "/disk.json",
-      ({ "limit_kib": 524288, "measurements": footprints.to_json() } : Json).stringify(
+      ({ "limit_kib": 524288, "measurements": Json::Json(footprints) } : Json).stringify(
         indent=2,
       ),
     )
@@ -438,7 +439,7 @@ async fn main {
     result.check()
     @fs.write_file(
       evidence + "/ordinary-test-identities.json",
-      test_identities(result.stdout()).to_json().stringify(indent=2),
+      Json::Json(test_identities(result.stdout())).stringify(indent=2),
     )
     run("doc", "moon", ["doc", "--frozen"], root).check()
     Some(result.stdout())
@@ -727,8 +728,8 @@ async fn main {
       (
         {
           "phase": "consumers",
-          "source_commit": revision.to_json(),
-          "package_sha256": digest.stdout()[:64].to_owned().to_json(),
+          "source_commit": Json::Json(revision),
+          "package_sha256": Json::Json(digest.stdout()[:64].to_owned()),
           "source_unchanged": true,
           "consumer": "strict check, debug/release public core and ClickHouse assertions; missing native stub rejection",
           "full_package_flow": false,
@@ -737,11 +738,9 @@ async fn main {
           "script_test_mode": "not run",
           "doc_info_fmt": "not run",
           "runtime_services": false,
-          "package_entries": contents
-          .split("\n")
-          .filter(p => !p.is_empty())
-          .count()
-          .to_json(),
+          "package_entries": Json::Json(
+            contents.split("\n").filter(p => !p.is_empty()).count(),
+          ),
           "cleanup": "owned module/consumer/build removed on scope exit; evidence retained",
         } : Json).stringify(indent=2),
     )
@@ -999,27 +998,29 @@ async fn main {
     evidence + "/summary.json",
     (
       {
-        "source_commit": revision.to_json(),
+        "source_commit": Json::Json(revision),
         "dependency_policy": "all resolver/build commands frozen; only existing third-party .mooncakes copied; committed Git archive excludes historical evidence; module and consumer use an owned workspace with no symlinks",
         "source_unchanged": true,
         "consumer": "strict native check plus debug/release core assertions; missing packed native stub rejects fresh build",
         "extracted_cli": "strict release build; ClickHouse JSON/YAML offline checks; other targets rejected by core CLI regression",
-        "packaged_ordinary": "\{ordinary_count}/\{ordinary_count} native ordinary entries; exact source/package identity equality; gated PG/cloud workers not enabled".to_json(),
+        "packaged_ordinary": Json::Json(
+          "\{ordinary_count}/\{ordinary_count} native ordinary entries; exact source/package identity equality; gated PG/cloud workers not enabled",
+        ),
         "script_test_mode": "two packaged drivers strict native frozen tests against discovered counts; main not executed; existing async copied to disposable standalone target-dir/filename/.mooncakes",
         "packaged_config_driver": "main executed separately; 32 offline configuration results",
         "runtime_services": false,
         "ci": "committed workflow YAML parsed by shipped parser; remote jobs not run",
-        "linux": (if @async.platform is Linux {
-          "executed on Linux; default-stack compilation and full acceptance remain separate"
-        } else {
-          "not executed on Linux; see host.stdout"
-        }).to_json(),
+        "linux": Json::Json(
+          if @async.platform is Linux {
+            "executed on Linux; default-stack compilation and full acceptance remain separate"
+          } else {
+            "not executed on Linux; see host.stdout"
+          },
+        ),
         "cleanup": "disposable consumer/module/build directory removed on scope exit",
-        "package_entries": contents
-        .split("\n")
-        .filter(p => !p.is_empty())
-        .count()
-        .to_json(),
+        "package_entries": Json::Json(
+          contents.split("\n").filter(p => !p.is_empty()).count(),
+        ),
       } : Json).stringify(indent=2),
   )
   println(

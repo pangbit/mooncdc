@@ -1,12 +1,12 @@
 ///|
-extern "c" fn platform() -> Int = "mooncdc_memory_platform"
+extern "c" fn platform() -> Int32 = "mooncdc_memory_platform"
 
 ///|
 #borrow(output)
-extern "c" fn host_memory(output : Bytes) -> Int = "mooncdc_host_memory"
+extern "c" fn host_memory(output : Bytes) -> Int32 = "mooncdc_host_memory"
 
 ///|
-fn read_u64_le(bytes : Bytes, offset : Int) -> UInt64 {
+fn read_u64_le(bytes : Bytes, offset : Int32) -> UInt64 {
   let mut value = 0UL
   for i in 0..<8 {
     value = value | (bytes[offset + i].to_uint64() << (8 * i))

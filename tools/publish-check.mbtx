@@ -1,10 +1,11 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
   "moonbitlang/async@0.22.4/shell",
   "moonbitlang/core/json",
 }
+----
 
 ///|
 fn manifest_string(manifest : String, key : String) -> String raise {
@@ -22,7 +23,7 @@ fn manifest_string(manifest : String, key : String) -> String raise {
 
 ///|
 fn accepted_dry_run(
-  code : Int,
+  code : Int32,
   backend : String,
   output : String,
   name : String,

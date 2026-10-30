@@ -17,9 +17,9 @@ pub fn valid_budget(Float, UInt64) -> Bool
 
 pub fn valid_thresholds(Float, Float) -> Bool
 
-pub async fn[T] with_monitor(Int, (Float, Float)?, async (Monitor) -> T) -> T
+pub async fn[T] with_monitor(Int32, (Float, Float)?, async (Monitor) -> T) -> T
 
-pub async fn[T] with_sampler(Int, (Float, Float)?, async (Snapshot?) -> Refresh, async (Monitor) -> T) -> T
+pub async fn[T] with_sampler(Int32, (Float, Float)?, async (Snapshot?) -> Refresh, async (Monitor) -> T) -> T
 
 // Errors
 pub suberror ConfigError {

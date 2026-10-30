@@ -11,7 +11,7 @@ priv enum SessionWorkload {
 ///|
 priv enum SessionWorker {
   ApplyWorker(String)
-  TableWorker(String, UInt)
+  TableWorker(String, UInt32)
 }
 
 ///|
@@ -86,7 +86,7 @@ fn SessionWorkload::settings(
   let suffix = worker.map(worker => worker.suffix()).unwrap_or("")
   // Both the fixed workload bases and generated worker suffixes are ASCII.
   // Preserve the complete identity within PostgreSQL's 63-byte name limit.
-  let length = Int::min(name.length(), 63 - suffix.length())
+  let length = Int32::min(name.length(), 63 - suffix.length())
   (
     name[:length].to_owned() + suffix,
     "-c DateStyle=ISO,YMD -c TimeZone=UTC -c bytea_output=hex -c extra_float_digits=3 -c IntervalStyle=postgres -c statement_timeout=\{statement} -c lock_timeout=\{lock} -c idle_in_transaction_session_timeout=\{idle}",

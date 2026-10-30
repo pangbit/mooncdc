@@ -3,7 +3,7 @@
 // string before using the core parser. Tagging *all* strings prevents collisions
 // with user data. This keeps core's grammar/Unicode checks without its lossy
 // Double conversion. Object keys must still be original string tokens.
-fn pg_json(text : String, canonical_numbers? : Bool = true) -> Json raise {
+fn pg_json(text : String, canonical_numbers~ : Bool = true) -> Json raise {
   let encoded = StringBuilder()
   let mut i = 0
   let mut depth = 0
@@ -29,11 +29,11 @@ fn pg_json(text : String, canonical_numbers? : Bool = true) -> Json raise {
         i += 1
         encoded.write_view(text[content:i])
       }
-      '-' | '0'..='9' => {
+      '-' | '0'..<='9' => {
         i += 1
         while i < text.length() {
           match text[i] {
-            '0'..='9' | '.' | 'e' | 'E' | '+' | '-' => i += 1
+            '0'..<='9' | '.' | 'e' | 'E' | '+' | '-' => i += 1
             _ => break
           }
         }
@@ -74,7 +74,7 @@ fn pg_json(text : String, canonical_numbers? : Bool = true) -> Json raise {
 ///|
 fn restore_pg_json(
   value : Json,
-  canonical_numbers? : Bool = true,
+  canonical_numbers~ : Bool = true,
 ) -> Json raise {
   match value {
     String(text) => {

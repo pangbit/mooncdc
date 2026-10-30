@@ -1,6 +1,6 @@
 ///|
 async fn ch_http_test_response(
-  status : Int,
+  status : Int32,
   exception_code : String?,
   insert~ : Bool,
   body~ : String,
@@ -281,7 +281,7 @@ async test "ClickHouse live RowBinary names types and both engines" {
   defer (ignore(http.query("DROP DATABASE " + ch_quote(db, '"'))) catch {
     _ => ()
   })
-  let source : Array[(String, UInt, Bool)] = [
+  let source : Array[(String, UInt32, Bool)] = [
     ("id", 23U, false),
     ("uuid", 2950U, false),
     ("date", 1082U, false),

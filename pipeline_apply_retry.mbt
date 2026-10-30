@@ -16,7 +16,7 @@ priv suberror ApplySourceFailed {
 }
 
 ///|
-async fn[T] source_operation(run : async () -> T, retry? : Bool = true) -> T {
+async fn[T] source_operation(run : async () -> T, retry~ : Bool = true) -> T {
   run() catch {
     error => if retry { raise ApplySourceFailed(error) } else { raise error }
   }
@@ -25,16 +25,16 @@ async fn[T] source_operation(run : async () -> T, retry? : Bool = true) -> T {
 ///|
 priv struct ApplyRetry {
   control : ApplyControl
-  delay_ms : Int
-  maximum : Int
-  mut retries : Int
+  delay_ms : Int32
+  maximum : Int32
+  mut retries : Int32
 }
 
 ///|
 fn ApplyRetry::new(
   control : ApplyControl,
-  delay_ms : Int,
-  maximum : Int,
+  delay_ms : Int32,
+  maximum : Int32,
 ) -> ApplyRetry {
   { control, delay_ms, maximum, retries: 0, }
 }

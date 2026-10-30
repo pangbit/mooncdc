@@ -2,7 +2,7 @@
 priv struct HandoverProbe {
   target : PipelineProbe
   state_path : String
-  mut copied_b : Int
+  mut copied_b : Int32
   mut main_end : Lsn?
   mut caught_up : Bool
   mut flushed_copy : Bool

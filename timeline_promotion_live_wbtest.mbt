@@ -248,7 +248,7 @@ async test "pipeline resumes a synchronized failover slot after fenced primary p
           )
           @fs.write_file(
             dir + "/history.json",
-            history.to_json().stringify(indent=2),
+            Json::Json(history).stringify(indent=2),
           )
           let beyond : Lsn = { value: fork.value + 1UL, }
           let wrong_slot = { ..before.source, slot: before.source.slot + "x", }
@@ -371,8 +371,12 @@ async test "pipeline resumes a synchronized failover slot after fenced primary p
             ),
           )
           assert_eq(
-            before.tables.to_json(),
-            parse_pipeline_state(@fs.read_file(dir + "/before.state").binary()).tables.to_json(),
+            Json::Json(before.tables),
+            Json::Json(
+              parse_pipeline_state(
+                @fs.read_file(dir + "/before.state").binary(),
+              ).tables,
+            ),
           )
           assert_true(actual == before.source || before.promotion is Some(_))
         } else {
@@ -391,13 +395,13 @@ async test "pipeline resumes a synchronized failover slot after fenced primary p
           ),
           schema="promotion_fixture",
         )
-        let resets = target.data.resets.to_json()
+        let resets = Json::Json(target.data.resets)
         run(target, true)
         let after = read_state()
         assert_true(after.source == actual)
         assert_true(after.promotion is None)
         assert_true(parse_checkpoint(read_cp(), actual) > position)
-        assert_eq(target.data.resets.to_json(), resets)
+        assert_eq(Json::Json(target.data.resets), resets)
         assert_eq(
           after.tables.map(table => table.oid),
           before.tables.map(table => table.oid),

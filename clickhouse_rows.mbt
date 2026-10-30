@@ -150,7 +150,7 @@ fn ch_update_rows(
 }
 
 ///|
-fn ch_event_ordinal(tx : Transaction, index : Int) -> UInt64 raise {
+fn ch_event_ordinal(tx : Transaction, index : Int32) -> UInt64 raise {
   guard tx.event_id(index) is Some(id) else {
     raise Protocol("missing data event identity")
   }

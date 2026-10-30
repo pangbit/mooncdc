@@ -195,7 +195,7 @@ priv suberror PipelineProbeFailure {
 ///|
 priv struct PipelineProbeData {
   rows : Map[String, Map[String, String?]]
-  resets : Map[String, Int]
+  resets : Map[String, Int32]
   applied : Array[String]
 } derive(ToJson, @json.FromJson)
 
@@ -224,7 +224,7 @@ async fn PipelineProbe::new(
   fail_copy : Bool,
   inject_copy : Bool,
   startup_sql : String?,
-  schema? : String = "pipeline_fixture",
+  schema~ : String = "pipeline_fixture",
   parallel_state? : String,
   crash_signal? : String,
 ) -> PipelineProbe {
@@ -405,14 +405,14 @@ async fn run_probe_pipeline(
   publication~ : String,
   destination_id~ : String,
   state_path~ : String,
-  copy_concurrency? : Int = 2,
-  copy_connections_per_table? : Int = 1,
-  batch_rows? : Int = 256,
-  stop_on_error? : Bool = false,
-  retry_oid? : UInt,
+  copy_concurrency~ : Int32 = 2,
+  copy_connections_per_table~ : Int32 = 1,
+  batch_rows~ : Int32 = 256,
+  stop_on_error~ : Bool = false,
+  retry_oid? : UInt32,
   schema_store? : &SchemaStore,
-  table_sync_copy? : TableSyncCopy = IncludeAllTables,
-  slot_failover? : Bool = false,
+  table_sync_copy~ : TableSyncCopy = IncludeAllTables,
+  slot_failover~ : Bool = false,
   batch? : BatchConfig,
 ) -> Unit {
   @async.with_task_group(group => {

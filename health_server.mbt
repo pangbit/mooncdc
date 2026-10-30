@@ -1,8 +1,8 @@
 ///|
-extern "c" fn errno_eafnosupport() -> Int = "mooncdc_errno_eafnosupport"
+extern "c" fn errno_eafnosupport() -> Int32 = "mooncdc_errno_eafnosupport"
 
 ///|
-extern "c" fn errno_eprotonosupport() -> Int = "mooncdc_errno_eprotonosupport"
+extern "c" fn errno_eprotonosupport() -> Int32 = "mooncdc_errno_eprotonosupport"
 
 ///|
 fn health_ipv4_fallback(error : Error) -> Bool {
@@ -14,7 +14,7 @@ fn health_ipv4_fallback(error : Error) -> Bool {
 }
 
 ///|
-async fn bind_health_listener(port : Int) -> @socket.TcpServer {
+async fn bind_health_listener(port : Int32) -> @socket.TcpServer {
   @socket.TcpServer(
     @socket.Addr::parse("[::]:\{port}"),
     dual_stack=true,
@@ -37,8 +37,8 @@ fn health_response(
   control : ApplyControl,
   path : String,
   verb : @http.RequestMethod,
-  stall_timeout_ms : Int,
-) -> (Int, String) raise {
+  stall_timeout_ms : Int32,
+) -> (Int32, String) raise {
   let path = path.split("?").next().unwrap_or("")
   if path != "/livez" && path != "/readyz" {
     return (404, "")
@@ -64,7 +64,7 @@ fn health_response(
 async fn[T] with_health_listener(
   control : ApplyControl,
   listener : @socket.TcpServer,
-  stall_timeout_ms : Int,
+  stall_timeout_ms : Int32,
   run : async () -> T,
 ) -> T {
   defer listener.close()
@@ -122,8 +122,8 @@ async fn[T] with_health_listener(
 pub async fn[T] with_health_server(
   control : ApplyControl,
   run : async () -> T,
-  port? : Int = 9001,
-  stall_timeout_ms? : Int = 300000,
+  port~ : Int32 = 9001,
+  stall_timeout_ms~ : Int32 = 300000,
 ) -> T {
   if port <= 0 || port > 65535 {
     raise InvalidConfig("health port must be between 1 and 65535")

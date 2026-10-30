@@ -1,7 +1,7 @@
 ///|
 // Portable literal subset of the pinned ETL default parser. SQL expressions
 // are never copied into ClickHouse; decoded literals are quoted in its dialect.
-fn ch_literal_end(value : String, start : Int) -> Int? {
+fn ch_literal_end(value : String, start : Int32) -> Int32? {
   if start >= value.length() || value[start] != '\'' {
     return None
   }
@@ -38,7 +38,7 @@ fn ch_normalize_default(input : String) -> String {
         depth += 1
       }
       if ch == ')' {
-        depth = Int::max(depth - 1, 0)
+        depth = Int32::max(depth - 1, 0)
       }
       if depth == 0 &&
         (
@@ -109,7 +109,7 @@ fn ch_numeric_literal(value : String) -> Bool {
 }
 
 ///|
-fn ch_default_expression(input : String, oid : UInt) -> String? {
+fn ch_default_expression(input : String, oid : UInt32) -> String? {
   let value = ch_normalize_default(input)
   let lower = value.to_lower()
   if value.is_empty() ||

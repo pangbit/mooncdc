@@ -27,7 +27,7 @@ fn identifier(value : String) -> Unit raise {
 }
 
 ///|
-fn cell(rows : Array[Array[String?]], row : Int, col : Int) -> String raise {
+fn cell(rows : Array[Array[String?]], row : Int32, col : Int32) -> String raise {
   guard rows.get(row) is Some(r) && r.get(col) is Some(Some(value)) else {
     raise UnsafeResume("missing source/slot metadata")
   }
@@ -61,9 +61,9 @@ async fn start_replication(
   source : Source,
   durable : Lsn,
   start : Lsn,
-  binary? : Bool = false,
-  messages? : Bool = false,
-  protocol? : PgOutputProtocol = V1,
+  binary~ : Bool = false,
+  messages~ : Bool = false,
+  protocol~ : PgOutputProtocol = V1,
 ) -> Unit {
   validate_replication_position(conn, source, durable, start)
   begin_replication(conn, source, start, binary~, messages~, protocol~)
@@ -118,7 +118,7 @@ async fn begin_replication(
   start : Lsn,
   binary~ : Bool,
   messages~ : Bool,
-  protocol? : PgOutputProtocol = V1,
+  protocol~ : PgOutputProtocol = V1,
 ) -> Unit {
   let out = @buffer.Buffer()
   let transfer = if binary { ", binary 'true'" } else { "" }
@@ -145,7 +145,7 @@ async fn begin_replication(
 async fn Connection::feedback(
   self : Connection,
   durable : Lsn,
-  request_reply? : Bool = false,
+  request_reply~ : Bool = false,
 ) -> Unit {
   let out = @buffer.Buffer()
   out.write_byte(b'r')

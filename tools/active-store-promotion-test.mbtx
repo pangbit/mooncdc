@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -8,12 +8,13 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/core/string",
 }
+----
 
 ///|
 fn ordinary_test_count(
   outline : String,
   required_packages : Array[String],
-) -> Int raise {
+) -> Int32 raise {
   assert_true(!required_packages.is_empty())
   let seen : Map[String, Bool] = Map([])
   let packages : Map[String, Bool] = Map([])
@@ -48,7 +49,7 @@ fn ordinary_test_count(
 }
 
 ///|
-fn require_ordinary_summary(output : String, count : Int) -> Unit raise {
+fn require_ordinary_summary(output : String, count : Int32) -> Unit raise {
   assert_true(count > 0)
   let summaries = output
     .split("\n")
@@ -152,16 +153,16 @@ async fn main {
     @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
     @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
     records.push({
-      "name": name.to_json(),
-      "program": program.to_json(),
-      "args": args.to_json(),
-      "cwd": cwd.to_json(),
-      "env": extra.to_json(),
-      "exit_code": result.exit_code().to_json(),
+      "name": Json::Json(name),
+      "program": Json::Json(program),
+      "args": Json::Json(args),
+      "cwd": Json::Json(cwd),
+      "env": Json::Json(extra),
+      "exit_code": Json::Json(result.exit_code()),
     })
     @fs.write_file(
       evidence + "/commands.json",
-      records.to_json().stringify(indent=2),
+      Json::Json(records).stringify(indent=2),
     )
     println(
       "PROMOTION AUDIT: " + name + " exit=" + result.exit_code().to_string(),
@@ -448,14 +449,14 @@ async fn main {
             child.wait()
           })
           workers.push({
-            "scenario": name.to_json(),
-            "phase": phase.to_json(),
-            "pid": pid.to_json(),
-            "exit_code": code.to_json(),
+            "scenario": Json::Json(name),
+            "phase": Json::Json(phase),
+            "pid": Json::Json(pid),
+            "exit_code": Json::Json(code),
           })
           @fs.write_file(
             evidence + "/workers.json",
-            workers.to_json().stringify(indent=2),
+            Json::Json(workers).stringify(indent=2),
           )
           assert_eq(code, 0)
           let log = @fs.read_file(dir + "/" + phase + ".log").text()
@@ -535,9 +536,9 @@ async fn main {
     evidence + "/summary.json",
     (
       {
-        "ordinary_tests": ordinary_count.to_json(),
-        "ordinary_packages": required_packages.to_json(),
-        "workers": workers.length().to_json(),
+        "ordinary_tests": Json::Json(ordinary_count),
+        "ordinary_packages": Json::Json(required_packages),
+        "workers": Json::Json(workers.length()),
         "source_unchanged": true,
         "cleanup": true,
         "scope": "PG17/18 legacy/file Ready-state same-process active promotion and fresh-process resume; no partial COPY, consecutive promotion, pressure or cloud",

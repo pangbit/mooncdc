@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -7,6 +7,7 @@ import {
   "moonbitlang/core/env",
   "moonbitlang/core/json",
 }
+----
 
 ///|
 enum CliBuildMode {
@@ -175,10 +176,10 @@ async fn main {
   executable_digest.check()
   let executable_hash = executable_digest.stdout()[:64].to_owned()
   let identity : Json = {
-    "mode": mode.label().to_json(),
-    "build_args": build_args.to_json(),
-    "executable": executable.to_json(),
-    "sha256": executable_hash.to_json(),
+    "mode": Json::Json(mode.label()),
+    "build_args": Json::Json(build_args),
+    "executable": Json::Json(executable),
+    "sha256": Json::Json(executable_hash),
   }
   println("REPLICATOR BUILD: " + identity.stringify())
   let secret = "DO_NOT_PRINT_TEST_PASSWORD"
@@ -190,14 +191,14 @@ async fn main {
       "host": "127.0.0.1",
       "port": 1,
       "user": "test",
-      "password": secret.to_json(),
+      "password": Json::Json(secret),
       "security": "local_plaintext",
     },
     "destination": {
       "type": "clickhouse",
       "url": "http://127.0.0.1:1",
       "user": "test",
-      "password": secret.to_json(),
+      "password": Json::Json(secret),
       "database": "test",
     },
   }
@@ -206,7 +207,7 @@ async fn main {
   let run = async fn(
     args : Array[String],
     vars : Map[String, String],
-    expected : Int,
+    expected : Int32,
     diagnostic : String,
   ) -> Unit {
     let (code, stdout, stderr) = @process.collect_output(

@@ -1,7 +1,4 @@
-///|
-// Uses explicitly supplied, isolated PG18 / ClickHouse fixtures on loopback.
-// It never starts containers or maps host ports. Prebuilt test and CLI ELFs can
-// be injected when running in a shared container network namespace.
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -10,6 +7,11 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/core/string",
 }
+----
+
+// Uses explicitly supplied, isolated PG18 / ClickHouse fixtures on loopback.
+// It never starts containers or maps host ports. Prebuilt test and CLI ELFs can
+// be injected when running in a shared container network namespace.
 
 ///|
 fn required(name : String) -> String raise {
@@ -29,7 +31,7 @@ fn port(name : String) -> String raise {
 }
 
 ///|
-fn require_result(output : String, name : String, index : Int) -> Unit raise {
+fn require_result(output : String, name : String, index : Int32) -> Unit raise {
   let marker = "LIVE: COPY_IUD " +
     name +
     " PASS snapshot=3 commits_while_copying=5 history=8 unique_wal_ids=5 gate=1 retries=0"
@@ -49,7 +51,7 @@ fn require_result(output : String, name : String, index : Int) -> Unit raise {
           fail("test event omitted its identity")
         }
         assert_eq(file, "clickhouse_copy_iud_wbtest.mbt")
-        assert_eq(actual_index, index.to_json())
+        assert_eq(actual_index, Json::Json(index))
         if kind == "start" {
           starts += 1
         } else {
@@ -108,15 +110,15 @@ async fn main {
     @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
     @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
     records.push({
-      "name": name.to_json(),
-      "command": command.to_json(),
-      "args": args.to_json(),
-      "env": extra.to_json(),
-      "exit_code": result.exit_code().to_json(),
+      "name": Json::Json(name),
+      "command": Json::Json(command),
+      "args": Json::Json(args),
+      "env": Json::Json(extra),
+      "exit_code": Json::Json(result.exit_code()),
     })
     @fs.write_file(
       evidence + "/commands.json",
-      records.to_json().stringify(indent=2),
+      Json::Json(records).stringify(indent=2),
     )
     result.check()
     result
@@ -170,13 +172,13 @@ async fn main {
     let result = run(name, test_executable, [identity], extra)
     require_result(result.stdout(), name, index)
     identities.push({
-      "identity": identity.to_json(),
-      "case": name.to_json(),
+      "identity": Json::Json(identity),
+      "case": Json::Json(name),
       "passed": true,
     })
     @fs.write_file(
       evidence + "/identities.json",
-      identities.to_json().stringify(indent=2),
+      Json::Json(identities).stringify(indent=2),
     )
     println("PASS: " + identity + " " + name)
   }

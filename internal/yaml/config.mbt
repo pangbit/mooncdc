@@ -2,8 +2,8 @@
 priv struct Value {
   json : Json
   key : (String, String)?
-  size : Int
-  height : Int
+  size : Int32
+  height : Int32
 }
 
 ///|
@@ -142,8 +142,8 @@ fn read_node(
   parser : Parser,
   event : Event,
   mark : Marker,
-  anchors : Map[Int, Value],
-  depth : Int,
+  anchors : Map[Int32, Value],
+  depth : Int32,
 ) -> Value raise {
   if depth > 64 {
     raise invalid(mark, "configuration nesting exceeds 64")
@@ -168,7 +168,7 @@ fn read_node(
         }
         let node = read_node(parser, event, mark, anchors, depth + 1)
         size += node.size
-        height = Int::max(height, node.height + 1)
+        height = Int32::max(height, node.height + 1)
         if size > 1048576 {
           raise invalid(mark, "expanded configuration exceeds budget")
         }
@@ -197,7 +197,7 @@ fn read_node(
         let (event, mark) = parser.next_token()
         let node = read_node(parser, event, mark, anchors, depth + 1)
         size += key.size + node.size
-        height = Int::max(height, node.height + 1)
+        height = Int32::max(height, node.height + 1)
         if size > 1048576 {
           raise invalid(mark, "expanded configuration exceeds budget")
         }

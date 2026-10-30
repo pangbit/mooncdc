@@ -9,15 +9,15 @@ pub(all) enum Cell {
   Bool(Bool)
   String(String)
   I16(Int16)
-  I32(Int)
+  I32(Int32)
   I64(Int64)
-  U32(UInt)
+  U32(UInt32)
   F32(Float)
   F64(Double)
   Numeric(String)
   Date(PgDate)
   Time(PgTime)
-  TimeTz(PgTime, offset_seconds~ : Int)
+  TimeTz(PgTime, offset_seconds~ : Int32)
   Timestamp(PgTimestamp)
   TimestampTz(PgTimestamp)
   Uuid(Bytes)
@@ -52,7 +52,7 @@ pub impl Eq for Cell with fn equal(left, right) {
 
 ///|
 pub(all) enum PgDate {
-  Finite(year~ : Int, month~ : Int, day~ : Int)
+  Finite(year~ : Int32, month~ : Int32, day~ : Int32)
   PosInfinity
   NegInfinity
 } derive(Eq, Debug)
@@ -61,8 +61,8 @@ pub(all) enum PgDate {
 /// seconds=86400 and nanoseconds=0 denotes the distinct 24:00:00 value.
 /// A leap second uses second 59 with nanoseconds in 1000000000..<2000000000.
 pub struct PgTime {
-  seconds : Int
-  nanoseconds : Int
+  seconds : Int32
+  nanoseconds : Int32
 } derive(Eq, Debug)
 
 ///|
@@ -75,7 +75,7 @@ pub(all) enum PgTimestamp {
 } derive(Eq, Debug)
 
 ///|
-fn array_element(oid : UInt) -> UInt? {
+fn array_element(oid : UInt32) -> UInt32? {
   match oid {
     1000U => Some(16U)
     1001U => Some(17U)
@@ -162,11 +162,11 @@ fn array_element(oid : UInt) -> UInt? {
 }
 
 ///|
-fn hex_nibble(byte : Byte) -> Int raise {
+fn hex_nibble(byte : Byte) -> Int32 raise {
   match byte {
-    b'0'..=b'9' => byte.to_int() - 48
-    b'a'..=b'f' => byte.to_int() - 87
-    b'A'..=b'F' => byte.to_int() - 55
+    b'0'..<=b'9' => byte.to_int() - 48
+    b'a'..<=b'f' => byte.to_int() - 87
+    b'A'..<=b'F' => byte.to_int() - 55
     _ => raise Conversion("invalid hexadecimal value")
   }
 }
@@ -292,7 +292,7 @@ fn numeric_text(text : String) -> String raise {
 }
 
 ///|
-fn scalar_cell(oid : UInt, text : String) -> Cell raise {
+fn scalar_cell(oid : UInt32, text : String) -> Cell raise {
   if oid == 21U || oid == 23U || oid == 20U || oid == 26U {
     lexmatch text {
       re"^(\+|-)?[0-9]+$" => ()
@@ -354,8 +354,8 @@ fn scalar_cell(oid : UInt, text : String) -> Cell raise {
 /// custom arrays. One-dimensional array lower bounds are discarded as in ETL.
 pub fn Value::decode_text(
   self : Value,
-  type_oid : UInt,
-  array_element_oid? : UInt,
+  type_oid : UInt32,
+  array_element_oid? : UInt32,
 ) -> Cell raise {
   try {
     match self {

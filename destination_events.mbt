@@ -13,7 +13,7 @@ pub struct DestinationEvents {
 ///|
 pub fn DestinationEvents::event_id(
   self : DestinationEvents,
-  index : Int,
+  index : Int32,
 ) -> String? {
   self.ids.get(index).bind(x => x)
 }
@@ -21,7 +21,7 @@ pub fn DestinationEvents::event_id(
 ///|
 pub fn DestinationEvents::replicated_schemas(
   self : DestinationEvents,
-  index : Int,
+  index : Int32,
 ) -> ReadOnlyArray[ReplicatedSchema] {
   self.schemas.get(index).unwrap_or([])
 }

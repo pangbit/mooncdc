@@ -18,7 +18,7 @@ test "health fallback accepts only unsupported socket families and protocols" {
 async fn assert_health_http(
   url : String,
   verb : @http.RequestMethod,
-  code : Int,
+  code : Int32,
   body : String,
 ) -> Unit {
   // Use literal TCP addresses: the dependency's URL client sends IPv6 brackets

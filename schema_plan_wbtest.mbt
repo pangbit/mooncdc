@@ -65,9 +65,9 @@ fn plan_result(vector : PlanVector) -> Json {
     })
     {
       "ok": true,
-      "operations": plan.operations.map(normalize_operation).to_json(),
-      "primary_key_changed": plan.primary_key_changed.to_json(),
-      "cycles": plan.has_rename_cycles.to_json(),
+      "operations": Json::Json(plan.operations.map(normalize_operation)),
+      "primary_key_changed": Json::Json(plan.primary_key_changed),
+      "cycles": Json::Json(plan.has_rename_cycles),
     }
   } catch {
     _ => { "ok": false }
@@ -197,7 +197,7 @@ test "schema plans execute without name collisions and alter one field at a time
       }
     }
     let plan = before.plan_change(after, map_name=mapping)
-    let active : Map[Int, SchemaColumn] = Map([])
+    let active : Map[Int32, SchemaColumn] = Map([])
     for column in mapped_columns(before, mapping) {
       active[column.ordinal] = column
     }
@@ -280,7 +280,7 @@ async test "schema reference process worker" {
     let path = @env.get_env_var("MOONCDC_SCHEMA_FILE").unwrap()
     let vectors = plan_vectors()
     if phase == "generate" {
-      @fs.write_file(path, vectors.to_json().stringify())
+      @fs.write_file(path, Json::Json(vectors).stringify())
       println("SCHEMA generated vectors")
     } else {
       guard @json.parse(@fs.read_file(path).text()) is Array(expected) else {

@@ -1,8 +1,9 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
 }
+----
 
 ///|
 async fn main {

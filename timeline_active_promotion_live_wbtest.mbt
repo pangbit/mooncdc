@@ -68,7 +68,7 @@ async test "active pipeline promotes with legacy and file state owners then rest
       None,
       schema="active_store",
     )
-    let resets_before = probe.data.resets.to_json()
+    let resets_before = Json::Json(probe.data.resets)
     with_file_schema_store(dir + "/schemas", identity="active-store", schemas => {
       @async.with_task_group(group => {
         group.spawn_bg(() => {
@@ -155,7 +155,7 @@ async test "active pipeline promotes with legacy and file state owners then rest
           }
           let before = read_state()
           let cp = read_cp()
-          let resets = probe.data.resets.to_json()
+          let resets = Json::Json(probe.data.resets)
           assert_probe_table(probe, "a")
           assert_probe_table(probe, "b")
           @fs.write_file(dir + "/before.state", state_bytes(before))
@@ -187,7 +187,7 @@ async test "active pipeline promotes with legacy and file state owners then rest
                 timeline_number(after.source.timeline) >
                 timeline_number(before.source.timeline),
               )
-              assert_eq(probe.data.resets.to_json(), resets)
+              assert_eq(Json::Json(probe.data.resets), resets)
               assert_true(after.promotion is None)
               @fs.write_file(dir + "/promoted.state", state_bytes(after))
               @fs.write_file(dir + "/promoted.checkpoint", read_cp())
@@ -231,7 +231,7 @@ async test "active pipeline promotes with legacy and file state owners then rest
           }
         }
         if phase == "restart" {
-          assert_eq(probe.data.resets.to_json(), resets_before)
+          assert_eq(Json::Json(probe.data.resets), resets_before)
         }
         @fs.write_file(dir + "/" + phase + ".state", state_bytes(read_state()))
         @fs.write_file(dir + "/" + phase + ".checkpoint", read_cp())

@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -12,6 +12,7 @@ import {
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/x@0.5.5/crypto",
 }
+----
 
 ///|
 fn audit_rows(text : String) -> Array[Json] raise {
@@ -44,7 +45,7 @@ fn audit_metric(text : String, name : String) -> UInt64 raise {
 }
 
 ///|
-fn audit_packet_length(bytes : Bytes) -> Int raise {
+fn audit_packet_length(bytes : Bytes) -> Int32 raise {
   assert_eq(bytes.length(), 4)
   let length = bytes[0].to_int() * 16777216 +
     bytes[1].to_int() * 65536 +
@@ -75,7 +76,7 @@ async fn audit_wait_copy_cutover(released : () -> Bool) -> Unit {
 ///|
 fn audit_preflight_completed(
   identified : Bool,
-  queries : Int,
+  queries : Int32,
   client_closed : Bool,
 ) -> Bool {
   identified && queries == 1 && client_closed
@@ -85,7 +86,7 @@ fn audit_preflight_completed(
 enum CopyMode {
   Full
   Runtime(String, String, String, verify_only~ : Bool)
-  OfflineConfig(String, String, Int)
+  OfflineConfig(String, String, Int32)
   OfflineGenerateConfigs(String)
 }
 
@@ -229,7 +230,7 @@ fn runtime_target_json() -> Json {
 }
 
 ///|
-fn runtime_path_compare(left : String, right : String) -> Int {
+fn runtime_path_compare(left : String, right : String) -> Int32 {
   for i in 0..<left.length().min(right.length()) {
     let a = left.code_unit_at(i).to_int()
     let b = right.code_unit_at(i).to_int()
@@ -263,7 +264,7 @@ fn runtime_input_seal(inputs : Map[String, Json]) -> String raise {
 fn runtime_cli_identity(
   path : String,
   run_id : String,
-) -> (String, String, Int) raise {
+) -> (String, String, Int32) raise {
   let input = "/tmp/mooncdc-copy-runtime-input." + run_id
   assert_eq(
     path,
@@ -294,7 +295,7 @@ struct CopyRuntime {
   product_root : String
   cli : String
   cli_hash : String
-  cli_size : Int
+  cli_size : Int32
   inputs : Map[String, Json]
   parent : String
   loader : String
@@ -304,8 +305,8 @@ struct CopyRuntime {
   mut disk_storage : String
   mut disk_layer_bytes : Int64
   mut disk_containers : Array[Json]
-  mut disk_peak_kib : Int
-  mut disk_samples : Int
+  mut disk_peak_kib : Int32
+  mut disk_samples : Int32
   mut baseline : String
   mut project : String
 }
@@ -317,7 +318,7 @@ fn decode_runtime(value : Json, now : Int64) -> CopyRuntime raise {
     "cli_sha256", "cli_size_bytes", "product_files", "fixture_files", "harness_sha256",
     "cgroup_parent", "loader_path", "budget", "source_commit", "scenario", "postgres_image_id",
   ])
-  assert_eq(fields["schema"], "mooncdc-copy-runtime-v8".to_json())
+  assert_eq(fields["schema"], Json::Json("mooncdc-copy-runtime-v8"))
   let scenario = runtime_scenario(runtime_text(fields, "scenario"))
   if scenario.service == "pg17" {
     assert_eq(
@@ -333,9 +334,9 @@ fn decode_runtime(value : Json, now : Int64) -> CopyRuntime raise {
   }
   assert_eq(
     fields["source_commit"],
-    "1111111111111111111111111111111111111111".to_json(),
+    Json::Json("1111111111111111111111111111111111111111"),
   )
-  assert_eq(fields["proxy_version"], "copy-cutover-client-eof-v1".to_json())
+  assert_eq(fields["proxy_version"], Json::Json("copy-cutover-client-eof-v1"))
   assert_eq(fields["target"], runtime_target_json())
   assert_eq(fields["budget"], runtime_budget_json())
   let id = runtime_text(fields, "run_id")
@@ -347,7 +348,7 @@ fn decode_runtime(value : Json, now : Int64) -> CopyRuntime raise {
   let (product_root, hash, size) = runtime_cli_identity(cli, id)
   assert_eq(runtime_text(fields, "product_source_root"), product_root)
   assert_eq(runtime_text(fields, "cli_sha256"), hash)
-  assert_eq(fields["cli_size_bytes"], size.to_json())
+  assert_eq(fields["cli_size_bytes"], Json::Json(size))
   guard fields["product_files"] is Object(inputs) else {
     fail("product files required")
   }
@@ -394,7 +395,7 @@ fn decode_runtime(value : Json, now : Int64) -> CopyRuntime raise {
 async fn runtime_file_hash(
   path : String,
   expected : String,
-  maximum : Int,
+  maximum : Int32,
 ) -> Unit {
   assert_eq(@fs.kind(path, follow_symlink=false), @fs.FileKind::Regular)
   assert_eq(@fs.realpath(path), path)
@@ -481,7 +482,7 @@ fn runtime_command_allowed(program : String) -> Bool {
 }
 
 ///|
-fn runtime_timeout(runtime : CopyRuntime, now : Int64) -> Int raise {
+fn runtime_timeout(runtime : CopyRuntime, now : Int64) -> Int32 raise {
   let limit = if runtime.cleaning { 900000L } else { 720000L }
   let remaining = runtime.started_ms + limit - now
   assert_true(remaining > 0L)
@@ -571,12 +572,12 @@ async fn runtime_preflight(runtime : CopyRuntime, evidence : String) -> Unit {
     (
       {
         "budget": runtime_budget_json(),
-        "baseline_identity_digest": runtime_digest(
-          @utf8.encode(runtime.baseline),
-        ).to_json(),
-        "actual_inherited_limits": @fs.read_file("/proc/self/limits")
-        .text()
-        .to_json(),
+        "baseline_identity_digest": Json::Json(
+          runtime_digest(@utf8.encode(runtime.baseline)),
+        ),
+        "actual_inherited_limits": Json::Json(
+          @fs.read_file("/proc/self/limits").text(),
+        ),
         "compilation_gates_executed": false,
       } : Json).stringify(indent=2),
   )
@@ -629,9 +630,9 @@ fn runtime_storage(value : Json) -> String raise {
   let fields = runtime_fields(value, [
     "cgroup_driver", "cgroup_version", "driver", "root", "driver_status",
   ])
-  assert_eq(fields["cgroup_driver"], "systemd".to_json())
-  assert_eq(fields["cgroup_version"], "2".to_json())
-  assert_eq(fields["root"], "/var/lib/docker".to_json())
+  assert_eq(fields["cgroup_driver"], Json::Json("systemd"))
+  assert_eq(fields["cgroup_version"], Json::Json("2"))
+  assert_eq(fields["root"], Json::Json("/var/lib/docker"))
   guard fields["driver_status"] is Array(status) else {
     fail("driver status required")
   }
@@ -692,9 +693,9 @@ fn runtime_container_disk(
   let fields = runtime_fields(value, [
     "id", "project", "service", "parent", "log", "size_rw", "upper", "mounts",
   ])
-  assert_eq(fields["id"], id.to_json())
-  assert_eq(fields["project"], project.to_json())
-  assert_eq(fields["parent"], parent.to_json())
+  assert_eq(fields["id"], Json::Json(id))
+  assert_eq(fields["project"], Json::Json(project))
+  assert_eq(fields["parent"], Json::Json(parent))
   assert_true(
     ["primary", "standby", "state", "clickhouse"].contains(
       runtime_text(fields, "service"),
@@ -795,11 +796,11 @@ fn runtime_volume_disk(
 ) -> Unit raise {
   assert_true([project + "_primary", project + "_standby"].contains(name))
   let fields = runtime_fields(value, ["name", "project", "driver", "mountpoint"])
-  assert_eq(fields["name"], name.to_json())
-  assert_eq(fields["project"], project.to_json())
-  assert_eq(fields["driver"], "local".to_json())
+  assert_eq(fields["name"], Json::Json(name))
+  assert_eq(fields["project"], Json::Json(project))
+  assert_eq(fields["driver"], Json::Json("local"))
   let path = "/var/lib/docker/volumes/" + name + "/_data"
-  assert_eq(fields["mountpoint"], path.to_json())
+  assert_eq(fields["mountpoint"], Json::Json(path))
   runtime_disk_root(plan, path)
 }
 
@@ -903,7 +904,10 @@ async fn runtime_inventory(runtime : CopyRuntime, root : String) -> Unit {
 }
 
 ///|
-fn runtime_disk_total(text : String, roots? : Array[String] = []) -> Int raise {
+fn runtime_disk_total(
+  text : String,
+  roots~ : Array[String] = [],
+) -> Int32 raise {
   let lines = runtime_lines(text)
   if !roots.is_empty() {
     assert_eq(lines.length(), roots.length())
@@ -940,18 +944,18 @@ async fn runtime_disk(runtime : CopyRuntime, evidence : String) -> Unit {
   let sample = (
     {
       "limit_bytes": 536870912,
-      "sampled_at_ms": @async.now().to_double().to_json(),
-      "host_du_readback": output.to_json(),
-      "current_bytes": bytes.to_double().to_json(),
-      "observed_peak_kib": runtime.disk_peak_kib.to_json(),
-      "host_allocated_kib": host_kib.to_json(),
-      "docker_size_rw_bytes": runtime.disk_layer_bytes.to_double().to_json(),
-      "storage": runtime.disk_storage.to_json(),
-      "accounted_roots": runtime.disk_roots.to_json(),
-      "owned_container_readbacks": runtime.disk_containers.to_json(),
+      "sampled_at_ms": Json::Json(@async.now().to_double()),
+      "host_du_readback": Json::Json(output),
+      "current_bytes": Json::Json(bytes.to_double()),
+      "observed_peak_kib": Json::Json(runtime.disk_peak_kib),
+      "host_allocated_kib": Json::Json(host_kib),
+      "docker_size_rw_bytes": Json::Json(runtime.disk_layer_bytes.to_double()),
+      "storage": Json::Json(runtime.disk_storage),
+      "accounted_roots": Json::Json(runtime.disk_roots),
+      "owned_container_readbacks": Json::Json(runtime.disk_containers),
       "scope": "new owned input/scratch, container metadata/logs, unique volumes and writable layers; shared images/history excluded",
       "enforcement": "sampled assertion; not hard quota or continuous peak proof",
-      "within_budget": (bytes <= 536870912L).to_json(),
+      "within_budget": Json::Json(bytes <= 536870912L),
     } : Json).stringify(indent=2)
   @fs.write_file(
     evidence + "/runtime-disk-" + runtime.disk_samples.to_string() + ".json",
@@ -1044,7 +1048,7 @@ async fn runtime_cleanup(
           "owned_project_removed": containers.is_empty() && volumes.is_empty(),
           "baseline_unchanged": unchanged,
           "cleanup_budget_ms": 120000,
-          "cleanup_command_failures": failures.to_json(),
+          "cleanup_command_failures": Json::Json(failures),
         } : Json).stringify(indent=2),
     )
     runtime.disk_roots = [root, runtime.input_root]
@@ -1074,8 +1078,10 @@ async fn main {
       println(
         (
           {
-            "scenario": id.to_json(),
-            "config_sha256": runtime_digest(@fs.read_file(path).binary()).to_json(),
+            "scenario": Json::Json(id),
+            "config_sha256": Json::Json(
+              runtime_digest(@fs.read_file(path).binary()),
+            ),
             "semantic_validation": true,
             "containers": 0,
             "network": 0,
@@ -1084,7 +1090,10 @@ async fn main {
       )
     }
     Runtime(path, seal, scenario, verify_only~) => {
-      assert_true(verify_only, msg="historical runtime-only execution is retired; use the portable full audit")
+      assert_true(
+        verify_only,
+        msg="historical runtime-only execution is retired; use the portable full audit",
+      )
       let runtime = load_runtime(path, seal, scenario)
       if verify_only {
         println("COPY RUNTIME verified: no compiler or scenario executed")
@@ -1111,7 +1120,7 @@ async fn acquire_runtime_lease(
   @fs.mkdir(path)
   @fs.write_file(
     path + "/owner.json",
-    ({ "run_id": run_id.to_json(), "scenario": scenario.to_json() } : Json).stringify(),
+    ({ "run_id": Json::Json(run_id), "scenario": Json::Json(scenario) } : Json).stringify(),
   )
 }
 
@@ -1233,16 +1242,16 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
     @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
     @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
     commands.push({
-      "name": name.to_json(),
-      "program": program.to_json(),
-      "args": args.to_json(),
-      "cwd": cwd.to_json(),
-      "env": extra.to_json(),
-      "exit_code": result.exit_code().to_json(),
+      "name": Json::Json(name),
+      "program": Json::Json(program),
+      "args": Json::Json(args),
+      "cwd": Json::Json(cwd),
+      "env": Json::Json(extra),
+      "exit_code": Json::Json(result.exit_code()),
     })
     @fs.write_file(
       evidence + "/commands.json",
-      commands.to_json().stringify(indent=2),
+      Json::Json(commands).stringify(indent=2),
     )
     result
   }
@@ -1296,8 +1305,8 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
           "linux_e1_closed": false,
           "package_budget_closed": false,
           "runtime_scenarios_executed": 0,
-          "scenario": r.scenario.id.to_json(),
-          "cli_sha256": r.cli_hash.to_json(),
+          "scenario": Json::Json(r.scenario.id),
+          "cli_sha256": Json::Json(r.cli_hash),
           "proxy_version": "copy-cutover-client-eof-v1",
         } : Json).stringify(indent=2),
     )
@@ -1420,7 +1429,7 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
         let ch_fixture : Json = {
           "services": {
             "state": {
-              "image": image.to_json(),
+              "image": Json::Json(image),
               "environment": {
                 "POSTGRES_USER": "cdc",
                 "POSTGRES_PASSWORD": "mooncdc-test-only",
@@ -1475,8 +1484,8 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
               None => Map([])
               _ => fail("fixture service object")
             }
-            values["cgroup_parent"] = r.parent.to_json()
-            values["container_name"] = (r.project + "-" + service).to_json()
+            values["cgroup_parent"] = Json::Json(r.parent)
+            values["container_name"] = Json::Json(r.project + "-" + service)
             if service == "state" {
               values["tmpfs"] = if r.scenario.service == "pg18" {
                 ["/var/lib/postgresql"]
@@ -1854,8 +1863,10 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
                           dir + "/copy-preflight-incomplete.json",
                           (
                             {
-                              "queries": preflight_queries.to_json(),
-                              "client_eof_observed": preflight_client_closed.to_json(),
+                              "queries": Json::Json(preflight_queries),
+                              "client_eof_observed": Json::Json(
+                                preflight_client_closed,
+                              ),
                               "main_gate_released": false,
                             } : Json).stringify(indent=2),
                         )
@@ -1868,9 +1879,9 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
                           {
                             "endpoint": "promoted standby",
                             "query": "IDENTIFY_SYSTEM",
-                            "queries": preflight_queries.to_json(),
+                            "queries": Json::Json(preflight_queries),
                             "client_closed_before_slot_query": true,
-                            "main_identify_held": main_identify_held.to_json(),
+                            "main_identify_held": Json::Json(main_identify_held),
                           } : Json).stringify(indent=2),
                       )
                     }
@@ -1923,8 +1934,8 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
                             (
                               {
                                 "table": "b",
-                                "fetch": fetches.to_json(),
-                                "query": query.to_json(),
+                                "fetch": Json::Json(fetches),
+                                "query": Json::Json(query),
                                 "before_forward": true,
                               } : Json).stringify(indent=2),
                           )
@@ -1991,19 +2002,19 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
                 pids.push(pid)
                 @fs.write_file(
                   dir + "/" + phase + ".worker.json",
-                  {
-                    "pid": pid.to_json(),
-                    "executable": executable.to_json(),
-                    "args": ["--config", config_path].to_json(),
-                    "expected_exit": (if phase == "active" && lose_owner {
-                      1
-                    } else {
-                      0
-                    }).to_json(),
-                    "upstream_port": upstream.to_json(),
-                  }
-                  .to_json()
-                  .stringify(indent=2),
+                  Json::Json({
+                    "pid": Json::Json(pid),
+                    "executable": Json::Json(executable),
+                    "args": Json::Json(["--config", config_path]),
+                    "expected_exit": Json::Json(
+                      if phase == "active" && lose_owner {
+                        1
+                      } else {
+                        0
+                      },
+                    ),
+                    "upstream_port": Json::Json(upstream),
+                  }).stringify(indent=2),
                 )
                 let mut initial_commit = false
                 let mut synchronized_slot = false
@@ -2191,14 +2202,14 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
                   if lose_owner {
                     let code = child.wait()
                     workers.push({
-                      "scenario": name.to_json(),
-                      "phase": phase.to_json(),
-                      "pid": pid.to_json(),
-                      "exit_code": code.to_json(),
+                      "scenario": Json::Json(name),
+                      "phase": Json::Json(phase),
+                      "pid": Json::Json(pid),
+                      "exit_code": Json::Json(code),
                     })
                     @fs.write_file(
                       evidence + "/workers.json",
-                      workers.to_json().stringify(indent=2),
+                      Json::Json(workers).stringify(indent=2),
                     )
                     assert_eq(
                       code,
@@ -2255,7 +2266,7 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
                         dir + "/recovery-cutoff-commit.json",
                         (
                           {
-                            "timeline": timeline.to_json(),
+                            "timeline": Json::Json(timeline),
                             "observed_tables": record_json(after),
                             "action": "published no-op UPDATE after both tables Ready/Catchup",
                             "feedback": "Commit only; no synthetic acknowledgement",
@@ -2322,8 +2333,8 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
                     dir + "/active-still-running.json",
                     (
                       {
-                        "pid": pid.to_json(),
-                        "old_timeline": old_timeline.to_json(),
+                        "pid": Json::Json(pid),
+                        "old_timeline": Json::Json(old_timeline),
                         "exit_code": Json::null(),
                         "state_owner": "independent PostgreSQL connection; same scope throughout cutover",
                       } : Json).stringify(indent=2),
@@ -2399,14 +2410,14 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
                 ).check()
                 let code = child.wait()
                 workers.push({
-                  "scenario": name.to_json(),
-                  "phase": phase.to_json(),
-                  "pid": pid.to_json(),
-                  "exit_code": code.to_json(),
+                  "scenario": Json::Json(name),
+                  "phase": Json::Json(phase),
+                  "pid": Json::Json(pid),
+                  "exit_code": Json::Json(code),
                 })
                 @fs.write_file(
                   evidence + "/workers.json",
-                  workers.to_json().stringify(indent=2),
+                  Json::Json(workers).stringify(indent=2),
                 )
                 assert_eq(
                   code,
@@ -2495,8 +2506,8 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
         {
           "mode": "prebuilt-runtime-only",
           "runtime_scenarios_executed": 1,
-          "scenario": r.scenario.id.to_json(),
-          "worker_results": workers.to_json(),
+          "scenario": Json::Json(r.scenario.id),
+          "worker_results": Json::Json(workers),
           "source_unchanged": true,
           "compilation_gates_executed": false,
           "check_build_debug_release_ordinary_not_run": true,
@@ -2504,7 +2515,7 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
           "full_linux_acceptance_closed": false,
           "linux_e1_closed": false,
           "package_budget_closed": false,
-          "disk_peak_observed_kib": r.disk_peak_kib.to_json(),
+          "disk_peak_observed_kib": Json::Json(r.disk_peak_kib),
         } : Json).stringify(indent=2),
     )
   } else {
@@ -2517,28 +2528,36 @@ async fn run_audit(runtime : CopyRuntime?) -> Unit {
     run("final-tracked-sha256", "shasum", ["-a", "256"] + paths, repo, Map([])).check()
   }
   let summary : Json = {
-    "workers": workers.length().to_json(),
-    "positive_workers": (if lose_owner {
-      workers.length() / 2
-    } else {
-      workers.length()
-    }).to_json(),
-    "expected_failures": (if lose_owner { workers.length() / 2 } else { 0 }).to_json(),
-    "state_owner_lost": lose_owner.to_json(),
-    "active_copy": active_copy.to_json(),
-    "scenarios": (workers.length() / 2).to_json(),
+    "workers": Json::Json(workers.length()),
+    "positive_workers": Json::Json(
+      if lose_owner {
+        workers.length() / 2
+      } else {
+        workers.length()
+      },
+    ),
+    "expected_failures": Json::Json(
+      if lose_owner {
+        workers.length() / 2
+      } else {
+        0
+      },
+    ),
+    "state_owner_lost": Json::Json(lose_owner),
+    "active_copy": Json::Json(active_copy),
+    "scenarios": Json::Json(workers.length() / 2),
     "source_unchanged": true,
     "cleanup": true,
   }
   if runtime is Some(_) {
     guard summary is Object(fields) else { fail("summary") }
-    fields["mode"] = "prebuilt-runtime-only".to_json()
-    fields["compilation_gates_executed"] = false.to_json()
-    fields["check_build_debug_release_ordinary_not_run"] = true.to_json()
-    fields["default_stack_compilation_closed"] = false.to_json()
-    fields["linux_e1_closed"] = false.to_json()
-    fields["full_linux_acceptance_closed"] = false.to_json()
-    fields["package_budget_closed"] = false.to_json()
+    fields["mode"] = Json::Json("prebuilt-runtime-only")
+    fields["compilation_gates_executed"] = Json::Json(false)
+    fields["check_build_debug_release_ordinary_not_run"] = Json::Json(true)
+    fields["default_stack_compilation_closed"] = Json::Json(false)
+    fields["linux_e1_closed"] = Json::Json(false)
+    fields["full_linux_acceptance_closed"] = Json::Json(false)
+    fields["package_budget_closed"] = Json::Json(false)
   }
   @fs.write_file(evidence + "/summary.json", summary.stringify(indent=2))
 
@@ -2627,7 +2646,7 @@ async test "backend completion cancels and joins preflight without proving EOF" 
 
 ///|
 async fn runtime_test_manifest(
-  file? : String = "tools/fixtures/copy-runtime-parser.json",
+  file~ : String = "tools/fixtures/copy-runtime-parser.json",
 ) -> Json {
   let cwd = @env.current_dir().unwrap()
   let root = if cwd.has_suffix("/tools") {
@@ -2691,14 +2710,14 @@ async test "runtime manifest binds the recorded 137 input set and CLI identity" 
   assert_eq(runtime.parent, "mooncdccopy0123456789abcdef.slice")
   for
     (key, bad) in [
-      ("schema", "unknown".to_json()),
-      ("source_commit", "0".repeat(40).to_json()),
-      ("proxy_version", "old-proxy".to_json()),
-      ("cli_path", "/tmp/unknown.exe".to_json()),
-      ("cli_sha256", "0".repeat(64).to_json()),
-      ("cli_size_bytes", (1).to_json()),
-      ("product_source_root", "/tmp/other".to_json()),
-      ("cgroup_parent", "system.slice".to_json()),
+      ("schema", Json::Json("unknown")),
+      ("source_commit", Json::Json("0".repeat(40))),
+      ("proxy_version", Json::Json("old-proxy")),
+      ("cli_path", Json::Json("/tmp/unknown.exe")),
+      ("cli_sha256", Json::Json("0".repeat(64))),
+      ("cli_size_bytes", Json::Json(1)),
+      ("product_source_root", Json::Json("/tmp/other")),
+      ("cgroup_parent", Json::Json("system.slice")),
       (
         "target",
         {
@@ -2709,14 +2728,14 @@ async test "runtime manifest binds the recorded 137 input set and CLI identity" 
           "endian": "little",
         },
       ),
-      ("loader_path", "/root/private".to_json()),
+      ("loader_path", Json::Json("/root/private")),
     ] {
     guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
     fields[key] = bad
     runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
   }
   guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
-  fields["unexpected"] = true.to_json()
+  fields["unexpected"] = Json::Json(true)
   runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
 }
 
@@ -2726,16 +2745,16 @@ async test "runtime rejects altered inputs fixtures and resource reservations" {
     guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
     guard fields[key] is Object(values) else { fail("fixture object") }
     if key == "product_files" {
-      values["moon.mod"] = "0".repeat(64).to_json()
+      values["moon.mod"] = Json::Json("0".repeat(64))
     } else if key == "fixture_files" {
-      values["integration/standby.compose.yaml"] = "0".repeat(64).to_json()
+      values["integration/standby.compose.yaml"] = Json::Json("0".repeat(64))
     } else {
-      values["cleanup_ms"] = (1).to_json()
+      values["cleanup_ms"] = Json::Json(1)
     }
     runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
   }
   let files : Map[String, Json] = Map([])
-  files["../private"] = "0".repeat(64).to_json()
+  files["../private"] = Json::Json("0".repeat(64))
   runtime_reject(() => ignore(runtime_input_seal(files)))
 }
 
@@ -2826,9 +2845,9 @@ async test "storage fixtures recognize only legacy overlay2 and actual container
   assert_eq(runtime_storage(f["overlayfs_info"]), "overlayfs")
   for
     (key, bad) in [
-      ("driver", "btrfs".to_json()),
+      ("driver", Json::Json("btrfs")),
       ("driver_status", Json::null()),
-      ("cgroup_driver", "cgroupfs".to_json()),
+      ("cgroup_driver", Json::Json("cgroupfs")),
     ] {
     guard f["overlayfs_info"] is Object(info) else { fail("fixture") }
     let changed = info.copy()
@@ -2895,14 +2914,18 @@ async test "owned disk fixtures exclude image totals and deduplicate volume moun
     })
     guard row is Object(fields) else { fail("fixture") }
     let second = fields.copy()
-    second["id"] = "2".repeat(64).to_json()
-    second["log"] = ("/var/lib/docker/containers/" +
-    "2".repeat(64) +
-    "/" +
-    "2".repeat(64) +
-    "-json.log").to_json()
+    second["id"] = Json::Json("2".repeat(64))
+    second["log"] = Json::Json(
+      "/var/lib/docker/containers/" +
+      "2".repeat(64) +
+      "/" +
+      "2".repeat(64) +
+      "-json.log",
+    )
     if storage == "overlay2" {
-      second["upper"] = "/var/lib/docker/overlay2/second-owned-layer/diff".to_json()
+      second["upper"] = Json::Json(
+        "/var/lib/docker/overlay2/second-owned-layer/diff",
+      )
     }
     runtime_container_disk(
       plan,
@@ -2938,12 +2961,12 @@ async test "storage fixtures reject missing sizes and foreign ownership before m
   for
     (key, value) in [
       ("size_rw", Json::null()),
-      ("size_rw", (-1).to_json()),
-      ("project", "foreign".to_json()),
-      ("parent", "system.slice".to_json()),
+      ("size_rw", Json::Json(-1)),
+      ("project", Json::Json("foreign")),
+      ("parent", Json::Json("system.slice")),
       ("mounts", Json::null()),
-      ("log", "/var/log/foreign.log".to_json()),
-      ("upper", "/var/lib/docker/overlay2/shared/diff".to_json()),
+      ("log", Json::Json("/var/log/foreign.log")),
+      ("upper", Json::Json("/var/lib/docker/overlay2/shared/diff")),
     ] {
     let changed = fields.copy()
     changed[key] = value
@@ -2974,7 +2997,7 @@ async test "storage fixtures reject missing sizes and foreign ownership before m
   })
   guard f["volume"] is Object(volume) else { fail("fixture") }
   let foreign = volume.copy()
-  foreign["project"] = "other".to_json()
+  foreign["project"] = Json::Json("other")
   runtime_reject(() => {
     runtime_volume_disk(
       runtime_empty_disk(),
@@ -3022,7 +3045,7 @@ async test "mount fixtures reject foreign volumes and writable binds" {
         },
       ] : Array[Json]) {
     let changed = fields.copy()
-    changed["mounts"] = [mount].to_json()
+    changed["mounts"] = Json::Json([mount])
     runtime_reject(() => {
       runtime_container_disk(
         runtime_empty_disk(),
@@ -3083,7 +3106,7 @@ async test "tmpfs source omission is valid and never adds a disk volume" {
   let f = runtime_storage_fixture()
   guard f["overlayfs_container"] is Object(fields) else { fail("fixture") }
   let row = fields.copy()
-  row["service"] = "clickhouse".to_json()
+  row["service"] = Json::Json("clickhouse")
   row["mounts"] = [
     { "Type": "tmpfs", "Destination": "/var/lib/clickhouse", "RW": true },
   ]
@@ -3102,24 +3125,24 @@ async test "tmpfs source omission is valid and never adds a disk volume" {
 }
 
 ///|
-fn runtime_metrics_config(config : Json, port : Int) -> Unit raise {
+fn runtime_metrics_config(config : Json, port : Int32) -> Unit raise {
   guard config is { "metrics": metrics, .. } else {
     fail("metrics config required")
   }
   let fields = runtime_fields(metrics, ["port", "listen_address"])
   assert_true(port > 0 && port <= 65535)
-  assert_eq(fields["port"], port.to_json())
-  assert_eq(fields["listen_address"], "127.0.0.1".to_json())
+  assert_eq(fields["port"], Json::Json(port))
+  assert_eq(fields["listen_address"], Json::Json("127.0.0.1"))
 }
 
 ///|
 
 ///|
 fn audit_configuration(
-  source_port : Int,
-  state_port : Int,
-  ch_port : Int,
-  metrics_port : Int,
+  source_port : Int32,
+  state_port : Int32,
+  ch_port : Int32,
+  metrics_port : Int32,
   engine : String,
   active_copy : Bool,
 ) -> Json {
@@ -3127,18 +3150,18 @@ fn audit_configuration(
     "id": "cli-promotion",
     "source": {
       "host": "127.0.0.1",
-      "port": source_port.to_json(),
+      "port": Json::Json(source_port),
       "user": "cdc",
       "password": "mooncdc-test-only",
       "security": "local_plaintext",
-      "timeout_ms": (if active_copy { 120000 } else { 5000 }).to_json(),
+      "timeout_ms": Json::Json(if active_copy { 120000 } else { 5000 }),
     },
     "publication": "cli_promotion",
     "state": {
       "schema": "cli_promotion_state",
       "connection": {
         "host": "127.0.0.1",
-        "port": state_port.to_json(),
+        "port": Json::Json(state_port),
         "user": "cdc",
         "password": "mooncdc-test-only",
         "security": "local_plaintext",
@@ -3148,22 +3171,25 @@ fn audit_configuration(
     "replication_slot": { "failover": true },
     "destination": {
       "type": "clickhouse",
-      "url": ("http://127.0.0.1:" + ch_port.to_string()).to_json(),
+      "url": Json::Json("http://127.0.0.1:" + ch_port.to_string()),
       "database": "cli_promotion",
       "user": "cdc",
       "password": "mooncdc-test-only",
-      "engine": engine.to_json(),
+      "engine": Json::Json(engine),
     },
-    "metrics": { "port": metrics_port.to_json(), "listen_address": "127.0.0.1" },
-    "copy_concurrency": (if active_copy { 1 } else { 4 }).to_json(),
-    "copy_connections_per_table": (if active_copy { 1 } else { 4 }).to_json(),
-    "batch_rows": (if active_copy { 8 } else { 256 }).to_json(),
-    "table_retry_delay_ms": (if active_copy { 1000 } else { 10000 }).to_json(),
+    "metrics": {
+      "port": Json::Json(metrics_port),
+      "listen_address": "127.0.0.1",
+    },
+    "copy_concurrency": Json::Json(if active_copy { 1 } else { 4 }),
+    "copy_connections_per_table": Json::Json(if active_copy { 1 } else { 4 }),
+    "batch_rows": Json::Json(if active_copy { 8 } else { 256 }),
+    "table_retry_delay_ms": Json::Json(if active_copy { 1000 } else { 10000 }),
   }
 }
 
 ///|
-fn config_int(value : Json) -> Int raise {
+fn config_int(value : Json) -> Int32 raise {
   guard value is Number(n, ..) else { fail("configuration integer required") }
   assert_false(n.is_nan() || n.is_inf())
   assert_true(n >= -2147483648.0 && n <= 2147483647.0)
@@ -3305,7 +3331,7 @@ fn audit_parse_yaml(text : String) -> Json raise {
         value.iter().all(c => c.is_ascii_digit() || c == '-') {
         @json.parse(value)
       } else {
-        value.to_json()
+        Json::Json(value)
       }
     }
   }
@@ -3313,7 +3339,7 @@ fn audit_parse_yaml(text : String) -> Json raise {
 }
 
 ///|
-fn config_port(fields : Map[String, Json], key : String) -> Int raise {
+fn config_port(fields : Map[String, Json], key : String) -> Int32 raise {
   let port = config_int(fields[key])
   assert_true(port > 0 && port <= 65535)
   port
@@ -3326,7 +3352,7 @@ fn config_expected_text(
   expected : String,
 ) -> Unit raise {
   assert_true(
-    fields[key] == expected.to_json(),
+    fields[key] == Json::Json(expected),
     msg="unexpected configuration field: " + key,
   )
 }
@@ -3335,7 +3361,7 @@ fn config_expected_text(
 fn runtime_config_semantics(
   config : Json,
   scenario : CopyScenario,
-  metrics_port : Int,
+  metrics_port : Int32,
 ) -> Unit raise {
   let fields = runtime_fields(config, [
     "id", "source", "publication", "state", "run_source_migrations", "replication_slot",
@@ -3344,9 +3370,9 @@ fn runtime_config_semantics(
   ])
   config_expected_text(fields, "id", "cli-promotion")
   config_expected_text(fields, "publication", "cli_promotion")
-  assert_eq(fields["run_source_migrations"], false.to_json())
+  assert_eq(fields["run_source_migrations"], Json::Json(false))
   let slot = runtime_fields(fields["replication_slot"], ["failover"])
-  assert_eq(slot["failover"], true.to_json())
+  assert_eq(slot["failover"], Json::Json(true))
   let source = runtime_fields(fields["source"], [
     "host", "port", "user", "password", "security", "timeout_ms",
   ])
@@ -3427,7 +3453,7 @@ async fn runtime_generate_configs(out : String) -> Unit {
 async fn runtime_verify_config_file(
   path : String,
   scenario : CopyScenario,
-  port : Int,
+  port : Int32,
 ) -> Unit {
   assert_true(scenario.format == "json" || scenario.format == "yaml")
   assert_true(
@@ -3479,32 +3505,35 @@ async test "runtime v8 rejects old schemas and unapproved artifact identities" {
   guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
   for
     (key, value) in [
-      ("schema", "mooncdc-copy-runtime-v2".to_json()),
-      ("schema", "mooncdc-copy-runtime-v3".to_json()),
-      ("schema", "mooncdc-copy-runtime-v4".to_json()),
-      ("schema", "mooncdc-copy-runtime-v5".to_json()),
-      ("schema", "mooncdc-copy-runtime-v6".to_json()),
-      ("schema", "mooncdc-copy-runtime-v7".to_json()),
-      ("source_commit", "85782ffc9e22636a8a213fdabaffdf8ab29b25f3".to_json()),
+      ("schema", Json::Json("mooncdc-copy-runtime-v2")),
+      ("schema", Json::Json("mooncdc-copy-runtime-v3")),
+      ("schema", Json::Json("mooncdc-copy-runtime-v4")),
+      ("schema", Json::Json("mooncdc-copy-runtime-v5")),
+      ("schema", Json::Json("mooncdc-copy-runtime-v6")),
+      ("schema", Json::Json("mooncdc-copy-runtime-v7")),
+      ("source_commit", Json::Json("85782ffc9e22636a8a213fdabaffdf8ab29b25f3")),
+      ("cli_path", Json::Json("/tmp/mooncdc-parser-fixture/wrong.exe")),
+      (
+        "cli_sha256",
+        Json::Json(
+          "c4c9709f59d6c68e0f2f596736c97785a7545ad79bb361146bc7ade0722a2595",
+        ),
+      ),
       (
         "cli_path",
-        "/tmp/mooncdc-parser-fixture/wrong.exe".to_json(),
+        Json::Json(
+          "/tmp/mooncdc-copy-runtime-input.0123456789abcdef/bin/replicator.exe",
+        ),
       ),
       (
         "cli_sha256",
-        "c4c9709f59d6c68e0f2f596736c97785a7545ad79bb361146bc7ade0722a2595".to_json(),
-      ),
-      (
-        "cli_path",
-        "/tmp/mooncdc-copy-runtime-input.0123456789abcdef/bin/replicator.exe".to_json(),
-      ),
-      (
-        "cli_sha256",
-        "bba8fe89a724dcbd9fa6f22669a6e2088e0e41ad5b5948ceb7505574f426bae5".to_json(),
+        Json::Json(
+          "bba8fe89a724dcbd9fa6f22669a6e2088e0e41ad5b5948ceb7505574f426bae5",
+        ),
       ),
       (
         "product_source_root",
-        "/tmp/mooncdc-parser-fixture/foreign-source".to_json(),
+        Json::Json("/tmp/mooncdc-parser-fixture/foreign-source"),
       ),
     ] {
     let bad = fields.copy()
@@ -3518,7 +3547,7 @@ async test "runtime prepared task budget rejects previous and enlarged reservati
   for tasks in [256, 385] {
     guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
     guard fields["budget"] is Object(budget) else { fail("budget") }
-    budget["tasks"] = tasks.to_json()
+    budget["tasks"] = Json::Json(tasks)
     runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
   }
 }
@@ -3538,14 +3567,14 @@ async test "single runtime scenario is sealed and rejects omitted multiple or un
     ] {
     runtime_reject(() => ignore(runtime_scenario(bad)))
     guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
-    fields["scenario"] = bad.to_json()
+    fields["scenario"] = Json::Json(bad)
     runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
   }
   for
     bad in [
       @json.parse("null"),
-      ["pg17-json-merge_tree"].to_json(),
-      ["pg17-json-merge_tree", "pg17-json-replacing_merge_tree"].to_json(),
+      Json::Json(["pg17-json-merge_tree"]),
+      Json::Json(["pg17-json-merge_tree", "pg17-json-replacing_merge_tree"]),
       { "id": "pg17-json-merge_tree" },
     ] {
     guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
@@ -3578,9 +3607,9 @@ async test "six scalar cases decode but unverified PG18 cannot execute" {
       "pg18-json-merge_tree", "pg18-yaml-replacing_merge_tree", "pg18-yaml-merge_tree",
     ] {
     guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
-    fields["scenario"] = id.to_json()
+    fields["scenario"] = Json::Json(id)
     if id.has_prefix("pg18-") {
-      fields["postgres_image_id"] = "unverified".to_json()
+      fields["postgres_image_id"] = Json::Json("unverified")
     }
     let r = decode_runtime(Json::object(fields), 0L)
     assert_eq(r.scenario.id, id)
@@ -3599,8 +3628,8 @@ async test "six scalar cases decode but unverified PG18 cannot execute" {
 ///|
 async test "PG18 requires a bound immutable image identity and keeps PG17 pinned" {
   guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
-  fields["scenario"] = "pg18-yaml-merge_tree".to_json()
-  fields["postgres_image_id"] = ("sha256:" + "a".repeat(64)).to_json()
+  fields["scenario"] = Json::Json("pg18-yaml-merge_tree")
+  fields["postgres_image_id"] = Json::Json("sha256:" + "a".repeat(64))
   let runtime = decode_runtime(Json::object(fields), 0L)
   assert_eq(runtime_image_gate(runtime.manifest), "sha256:" + "a".repeat(64))
   for
@@ -3610,26 +3639,30 @@ async test "PG18 requires a bound immutable image identity and keeps PG17 pinned
       "sha256:" + "a".repeat(63),
       "sha256:" + "A".repeat(64),
     ] {
-    fields["postgres_image_id"] = bad.to_json()
+    fields["postgres_image_id"] = Json::Json(bad)
     runtime_reject(() => ignore(runtime_image_gate(Json::object(fields))))
   }
-  fields["scenario"] = "pg17-yaml-merge_tree".to_json()
-  fields["postgres_image_id"] = ("sha256:" + "a".repeat(64)).to_json()
+  fields["scenario"] = Json::Json("pg17-yaml-merge_tree")
+  fields["postgres_image_id"] = Json::Json("sha256:" + "a".repeat(64))
   runtime_reject(() => ignore(decode_runtime(Json::object(fields), 0L)))
 }
 
 ///|
 async test "runtime preflight inspects the immutable image used by fixtures" {
   guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
-  fields["scenario"] = "pg18-json-replacing_merge_tree".to_json()
-  fields["postgres_image_id"] = "sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722".to_json()
+  fields["scenario"] = Json::Json("pg18-json-replacing_merge_tree")
+  fields["postgres_image_id"] = Json::Json(
+    "sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722",
+  )
   let runtime = decode_runtime(Json::object(fields), 0L)
   assert_eq(
     runtime_image_inspect_args(runtime)[2],
     runtime_image_gate(runtime.manifest),
   )
-  fields["scenario"] = "pg17-yaml-merge_tree".to_json()
-  fields["postgres_image_id"] = "sha256:d18fea728d846038da867214da83fb71ecfc8ca0a5e93a9cb8404b6f6f5070f0".to_json()
+  fields["scenario"] = Json::Json("pg17-yaml-merge_tree")
+  fields["postgres_image_id"] = Json::Json(
+    "sha256:d18fea728d846038da867214da83fb71ecfc8ca0a5e93a9cb8404b6f6f5070f0",
+  )
   let runtime = decode_runtime(Json::object(fields), 0L)
   assert_eq(
     runtime_image_inspect_args(runtime)[2],
@@ -3686,15 +3719,19 @@ async test "fixed PG18 fixture covers its declared parent volume" {
 ///|
 async test "PG18 basebackup creates data as the database user" {
   guard runtime_test_manifest() is Object(fields) else { fail("fixture") }
-  fields["scenario"] = "pg18-json-replacing_merge_tree".to_json()
-  fields["postgres_image_id"] = "sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722".to_json()
+  fields["scenario"] = Json::Json("pg18-json-replacing_merge_tree")
+  fields["postgres_image_id"] = Json::Json(
+    "sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722",
+  )
   let runtime = decode_runtime(Json::object(fields), 0L)
   assert_eq(audit_basebackup_options(Some(runtime), "owned"), [
     "run", "--name", "owned-basebackup", "--user", "postgres",
   ])
   assert_eq(audit_basebackup_options(None, "owned"), ["run", "--rm"])
-  fields["scenario"] = "pg17-yaml-merge_tree".to_json()
-  fields["postgres_image_id"] = "sha256:d18fea728d846038da867214da83fb71ecfc8ca0a5e93a9cb8404b6f6f5070f0".to_json()
+  fields["scenario"] = Json::Json("pg17-yaml-merge_tree")
+  fields["postgres_image_id"] = Json::Json(
+    "sha256:d18fea728d846038da867214da83fb71ecfc8ca0a5e93a9cb8404b6f6f5070f0",
+  )
   let runtime = decode_runtime(Json::object(fields), 0L)
   assert_eq(audit_basebackup_options(Some(runtime), "owned"), [
     "run", "--name", "owned-basebackup",
@@ -3785,9 +3822,9 @@ async test "actual config file guard rejects format field type and semantic erro
   guard config is Object(fields) else { fail("config") }
   for
     (key, value) in [
-      ("unknown", true.to_json()),
-      ("batch_rows", (9).to_json()),
-      ("run_source_migrations", true.to_json()),
+      ("unknown", Json::Json(true)),
+      ("batch_rows", Json::Json(9)),
+      ("run_source_migrations", Json::Json(true)),
     ] {
     let bad = fields.copy()
     bad[key] = value

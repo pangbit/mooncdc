@@ -4,7 +4,7 @@ priv struct SchemaProbe {
   control : ApplyControl
   seen : Array[SchemaSnapshot]
   mut injected : Bool
-  mut rows : Int
+  mut rows : Int32
   mut snapshot_schema : SchemaSnapshot?
 }
 

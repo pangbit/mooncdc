@@ -41,7 +41,7 @@ fn RuntimeMetrics::new() -> RuntimeMetrics {
 fn RuntimeMetrics::increment(
   self : RuntimeMetrics,
   key : String,
-  amount? : UInt64 = 1UL,
+  amount~ : UInt64 = 1UL,
 ) -> Unit {
   self.counters[key] = batch_add(self.counters.get(key).unwrap_or(0UL), amount)
 }
@@ -129,7 +129,7 @@ pub fn ApplyControl::prometheus(
   pipeline_id? : String,
   destination? : String,
   project? : String,
-  stall_timeout_ms? : Int = 300000,
+  stall_timeout_ms~ : Int32 = 300000,
 ) -> String raise {
   let labels : Array[String] = []
   for

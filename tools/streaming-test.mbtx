@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -7,6 +7,7 @@ import {
   "moonbitlang/core/env",
   "moonbitlang/core/json",
 }
+----
 
 ///|
 async fn main {
@@ -45,16 +46,16 @@ async fn main {
     @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
     @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
     records.push({
-      "name": name.to_json(),
-      "program": program.to_json(),
-      "args": args.to_json(),
-      "cwd": cwd.to_json(),
-      "env": extra.to_json(),
-      "exit_code": result.exit_code().to_json(),
+      "name": Json::Json(name),
+      "program": Json::Json(program),
+      "args": Json::Json(args),
+      "cwd": Json::Json(cwd),
+      "env": Json::Json(extra),
+      "exit_code": Json::Json(result.exit_code()),
     })
     @fs.write_file(
       evidence + "/commands.json",
-      records.to_json().stringify(indent=2),
+      Json::Json(records).stringify(indent=2),
     )
     println(
       "STREAMING AUDIT: " + name + " exit=" + result.exit_code().to_string(),
@@ -78,7 +79,10 @@ async fn main {
   ).check()
   let tracked = @shell.Cmd(
     "git",
-    ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".", ":(exclude)docs/reports/evidence"],
+    [
+      "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".",
+      ":(exclude)docs/reports/evidence",
+    ],
     cwd=repo,
   ).output()
   tracked.check()
@@ -237,18 +241,18 @@ async fn main {
       let code = @async.with_timeout(120000, () => child.wait())
       @fs.write_file(
         evidence + "/" + service + "-worker.json",
-        {
-          "pid": pid.to_json(),
-          "executable": executable.to_json(),
+        Json::Json({
+          "pid": Json::Json(pid),
+          "executable": Json::Json(executable),
           "args": [file + ":0-1"],
           "env": {
-            "MOONCDC_STREAMING_PORT": port.to_json(),
-            "MOONCDC_STREAMING_EVIDENCE": child_env["MOONCDC_STREAMING_EVIDENCE"].to_json(),
+            "MOONCDC_STREAMING_PORT": Json::Json(port),
+            "MOONCDC_STREAMING_EVIDENCE": Json::Json(
+              child_env["MOONCDC_STREAMING_EVIDENCE"],
+            ),
           },
-          "exit_code": code.to_json(),
-        }
-        .to_json()
-        .stringify(indent=2),
+          "exit_code": Json::Json(code),
+        }).stringify(indent=2),
       )
       assert_eq(code, 0)
       let log = @fs.read_file(evidence + "/" + service + "-worker.log").text()
@@ -281,7 +285,7 @@ async fn main {
       @fs.read_file(snapshot + "/" + path).binary(),
     )
   }
-  @fs.write_file(evidence + "/workers.json", pids.to_json().stringify())
+  @fs.write_file(evidence + "/workers.json", Json::Json(pids).stringify())
   println(
     "STREAMING complete: two PostgreSQL workers; source bytes unchanged; owned containers, volumes and workers gone",
   )

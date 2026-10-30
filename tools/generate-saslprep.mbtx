@@ -1,10 +1,11 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
   "moonbitlang/core/string",
   "moonbitlang/x@0.5.5/crypto",
 }
+----
 
 ///|
 fn digest(bytes : Bytes) -> String {
@@ -44,7 +45,7 @@ fn body(source : String, name : String) -> String {
 }
 
 ///|
-fn number(value : StringView) -> Int raise {
+fn number(value : StringView) -> Int32 raise {
   @string.parse_int(value.trim(), base=0)
 }
 
@@ -69,7 +70,7 @@ async fn main {
       "unassigned_codepoint_ranges", "RandALCat_codepoint_ranges", "LCat_codepoint_ranges",
     ] {
     let target = name.to_lower()
-    out.write_string("\n///|\nlet \{target} : ReadOnlyArray[Int] = [\n")
+    out.write_string("\n///|\nlet \{target} : ReadOnlyArray[Int32] = [\n")
     for token in body(prep.text(), name + "[]").split(",") {
       if token.trim() != "" {
         out.write_string("  \{number(token)},\n")
@@ -78,7 +79,7 @@ async fn main {
     out.write_string("]\n")
   }
   // A flat record has codepoint, combining class, flags/length, and index.
-  out.write_string("\n///|\nlet decompositions : ReadOnlyArray[Int] = [\n")
+  out.write_string("\n///|\nlet decompositions : ReadOnlyArray[Int32] = [\n")
   let section = norm
     .text()
     .split("UnicodeDecompMain[6843] =")
@@ -110,7 +111,7 @@ async fn main {
   }
   guard count == 6843 else { abort("incomplete normalization table") }
   out.write_string(
-    "]\n\n///|\nlet decomposition_codepoints : ReadOnlyArray[Int] = [\n",
+    "]\n\n///|\nlet decomposition_codepoints : ReadOnlyArray[Int32] = [\n",
   )
   let mut codepoint_count = 0
   for token in body(norm.text(), "UnicodeDecomp_codepoints[5138] =").split(",") {

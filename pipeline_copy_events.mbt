@@ -2,7 +2,7 @@
 priv struct PrivateWalDestination {
   pipeline : PipelineDestination
   point : SnapshotPosition
-  oid : UInt
+  oid : UInt32
 }
 
 ///|
@@ -71,7 +71,7 @@ async fn PipelineDestination::catch_up_events(
   self : PipelineDestination,
   exporter : Connection,
   point : SnapshotPosition,
-  oid : UInt,
+  oid : UInt32,
   activity : ActivityHandle,
   batch : BatchRuntime,
 ) -> Unit {

@@ -1,5 +1,5 @@
 ///|
-fn stream_start(xid : UInt, first? : Bool = true) -> Bytes {
+fn stream_start(xid : UInt32, first~ : Bool = true) -> Bytes {
   let out = @buffer.Buffer()
   out.write_byte(b'S')
   out.write_uint_be(xid)
@@ -8,7 +8,7 @@ fn stream_start(xid : UInt, first? : Bool = true) -> Bytes {
 }
 
 ///|
-fn stream_change(xid : UInt, payload : Bytes) -> Bytes {
+fn stream_change(xid : UInt32, payload : Bytes) -> Bytes {
   let out = @buffer.Buffer()
   out.write_byte(payload[0])
   out.write_uint_be(xid)
@@ -17,7 +17,7 @@ fn stream_change(xid : UInt, payload : Bytes) -> Bytes {
 }
 
 ///|
-fn stream_commit(xid : UInt, lsn? : UInt64 = 100) -> Bytes {
+fn stream_commit(xid : UInt32, lsn~ : UInt64 = 100) -> Bytes {
   let out = @buffer.Buffer()
   out.write_byte(b'c')
   out.write_uint_be(xid)
@@ -29,7 +29,7 @@ fn stream_commit(xid : UInt, lsn? : UInt64 = 100) -> Bytes {
 }
 
 ///|
-fn stream_abort(xid : UInt, subxid : UInt) -> Bytes {
+fn stream_abort(xid : UInt32, subxid : UInt32) -> Bytes {
   let out = @buffer.Buffer()
   out.write_byte(b'A')
   out.write_uint_be(xid)

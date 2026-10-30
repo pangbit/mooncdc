@@ -2,7 +2,7 @@
 // mapped-input checks. See data/README.md and data/POSTGRESQL-LICENSE.
 
 ///|
-fn in_ranges(code : Int, ranges : ReadOnlyArray[Int]) -> Bool {
+fn in_ranges(code : Int32, ranges : ReadOnlyArray[Int32]) -> Bool {
   for low = 0, high = ranges.length() / 2; low < high; {
     let mid = low + (high - low) / 2
     if code < ranges[mid * 2] {
@@ -26,7 +26,7 @@ pub fn password(input : String) -> String {
   if input.iter().all(c => c.to_int() < 128) {
     return input
   }
-  let mapped : Array[Int] = []
+  let mapped : Array[Int32] = []
   for c in input {
     let code = c.to_int()
     // The order is intentional: U+200B belongs to both tables and becomes space.

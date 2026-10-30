@@ -63,8 +63,8 @@ async test "pinned ETL memory budget and backpressure differential" {
   )
   if phase == "generate" {
     let input : Json = {
-      "batch": batches.to_json(),
-      "pressure": pressures.to_json(),
+      "batch": Json::Json(batches),
+      "pressure": Json::Json(pressures),
     }
     @fs.write_file(path, input.stringify())
     println(
@@ -74,33 +74,37 @@ async test "pinned ETL memory budget and backpressure differential" {
     assert_eq(phase, "verify")
     let result = @json.parse(@fs.read_file(path).text())
     let actual : Json = {
-      "batch": batches
-      .map(v => {
-        let capacity = @string.parse_uint64(v.capacity)
-        let slots = @string.parse_uint64(v.slots)
-        let maximum = @string.parse_uint64(v.maximum)
-        Json::object({
-          "valid": valid_budget(v.ratio, maximum).to_json(),
-          "target": batch_target(capacity, v.ratio, slots, maximum)
-          .to_string()
-          .to_json(),
-        })
-      })
-      .to_json(),
-      "pressure": pressures
-      .map(v => {
-        Json::object({
-          "valid": valid_thresholds(v.activate, v.resume_threshold).to_json(),
-          "active": next_backpressure(
-            v.active,
-            @string.parse_uint64(v.used),
-            @string.parse_uint64(v.total),
-            v.activate,
-            v.resume_threshold,
-          ).to_json(),
-        })
-      })
-      .to_json(),
+      "batch": Json::Json(
+        batches.map(v => {
+          let capacity = @string.parse_uint64(v.capacity)
+          let slots = @string.parse_uint64(v.slots)
+          let maximum = @string.parse_uint64(v.maximum)
+          Json::object({
+            "valid": Json::Json(valid_budget(v.ratio, maximum)),
+            "target": Json::Json(
+              batch_target(capacity, v.ratio, slots, maximum).to_string(),
+            ),
+          })
+        }),
+      ),
+      "pressure": Json::Json(
+        pressures.map(v => {
+          Json::object({
+            "valid": Json::Json(
+              valid_thresholds(v.activate, v.resume_threshold),
+            ),
+            "active": Json::Json(
+              next_backpressure(
+                v.active,
+                @string.parse_uint64(v.used),
+                @string.parse_uint64(v.total),
+                v.activate,
+                v.resume_threshold,
+              ),
+            ),
+          })
+        }),
+      ),
     }
     assert_eq(actual, result)
     println(

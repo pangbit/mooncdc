@@ -1,6 +1,6 @@
 ///|
 priv struct ChStoredTable {
-  version : Int
+  version : Int32
   endpoint : String
   database : String
   publication : String
@@ -24,7 +24,7 @@ fn ch_engine_name(engine : ClickHouseEngine) -> String {
 ///|
 async fn ClickHouseDestination::stored_record(
   self : ClickHouseDestination,
-  oid : UInt,
+  oid : UInt32,
 ) -> ChStoredTable? {
   guard self.state().get_metadata(oid) is Some(json) else { return None }
   let record : ChStoredTable = @json.from_json(json) catch {
@@ -187,7 +187,7 @@ async fn ClickHouseDestination::create_table(
   self : ClickHouseDestination,
   schema : ReplicatedSchema,
   name : String,
-  if_missing? : Bool = false,
+  if_missing~ : Bool = false,
 ) -> Unit {
   ch_validate_schema(schema, self.engine)
   let columns = schema.columns()
@@ -262,7 +262,7 @@ async fn ClickHouseDestination::resolve_table(
   self : ClickHouseDestination,
   relation : Relation,
   commit : Lsn,
-  current : Map[UInt, SchemaSnapshot],
+  current : Map[UInt32, SchemaSnapshot],
   resolved? : ReplicatedSchema,
 ) -> ChTable {
   if resolved is Some(schema) {

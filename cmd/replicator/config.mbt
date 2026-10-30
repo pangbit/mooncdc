@@ -5,8 +5,8 @@ priv suberror ConfigError {
 
 ///|
 priv struct HealthConfig {
-  port : Int
-  stall_ms : Int
+  port : Int32
+  stall_ms : Int32
 }
 
 ///|
@@ -23,21 +23,21 @@ priv struct ReplicatorConfig {
   database : String
   engine : @cdc.ClickHouseEngine
   health : HealthConfig?
-  metrics_port : Int?
+  metrics_port : Int32?
   metrics_listen_address : String?
-  copy_concurrency : Int
-  copy_connections_per_table : Int
-  batch_rows : Int
-  retry_delay_ms : Int
-  retries : Int
+  copy_concurrency : Int32
+  copy_connections_per_table : Int32
+  batch_rows : Int32
+  retry_delay_ms : Int32
+  retries : Int32
   copy_policy : @cdc.TableSyncCopy
   source_migrations : Bool
   slot_failover : Bool
   invalidated_slot_behavior : @cdc.InvalidatedSlotBehavior
   memory_backpressure : @cdc.MemoryBackpressureConfig?
   batch : @cdc.BatchConfig?
-  memory_refresh_interval_ms : Int
-  copy_monitor_interval_ms : Int
+  memory_refresh_interval_ms : Int32
+  copy_monitor_interval_ms : Int32
   reports : ErrorReports
   configcat : ConfigCatOptions?
 }
@@ -78,7 +78,7 @@ fn text_field(
 }
 
 ///|
-fn integer(value : Json, path : String) -> Int raise {
+fn integer(value : Json, path : String) -> Int32 raise {
   match value {
     Number(number, ..) if number >= -2147483648.0 &&
       number <= 2147483647.0 &&
@@ -96,8 +96,8 @@ fn int_field(
   fields : Map[String, Json],
   key : String,
   path : String,
-  default : Int,
-) -> Int raise {
+  default : Int32,
+) -> Int32 raise {
   match fields.get(key) {
     None => default
     Some(value) => integer(value, path + "." + key)
@@ -249,7 +249,7 @@ fn copy_policy(value : Json) -> @cdc.TableSyncCopy raise {
     !fields.contains("table_ids") {
     raise ConfigError("table_sync_copy.table_ids: required for table selection")
   }
-  let ids : Array[UInt] = match fields.get("table_ids") {
+  let ids : Array[UInt32] = match fields.get("table_ids") {
     None => []
     Some(Array(ids)) =>
       ids.map(value => {
@@ -491,7 +491,7 @@ fn merge_config(base : Json, override_ : Json) -> Json {
 fn env_override(
   value : Json,
   path : Array[StringView],
-  index : Int,
+  index : Int32,
   replacement : String,
 ) -> Json raise {
   if index == path.length() {

@@ -10,15 +10,15 @@ pub(all) enum Value {
 ///|
 pub struct Column {
   name : String
-  type_oid : UInt
-  type_modifier : Int
+  type_oid : UInt32
+  type_modifier : Int32
   key : Bool
 } derive(Eq, Debug, ToJson)
 
 ///|
 /// Immutable metadata snapshot attached to each row change.
 pub struct Relation {
-  oid : UInt
+  oid : UInt32
   namespace_ : String
   name : String
   replica_identity : Byte
@@ -27,7 +27,7 @@ pub struct Relation {
 
 ///|
 pub struct TypeInfo {
-  oid : UInt
+  oid : UInt32
   namespace_ : String
   name : String
 } derive(Eq, Debug, ToJson)
@@ -63,15 +63,15 @@ pub(all) enum Change {
 /// Complete committed transaction. Use `event_id` for stable row-event identity.
 pub struct Transaction {
   id : String
-  xid : UInt
+  xid : UInt32
   commit_lsn : Lsn
   end_lsn : Lsn
   commit_time_us : Int64
   changes : ReadOnlyArray[Change]
   priv session : String
-  priv sequence : Int
+  priv sequence : Int32
   priv projected_ids : ReadOnlyArray[String?]?
-  priv decoded_schemas : Map[Int, ReadOnlyArray[ReplicatedSchema]]?
+  priv decoded_schemas : Map[Int32, ReadOnlyArray[ReplicatedSchema]]?
 } derive(Debug)
 
 ///|
@@ -79,7 +79,7 @@ pub struct Transaction {
 /// returns one schema per relation; raw subscriptions and metadata return empty.
 pub fn Transaction::replicated_schemas(
   self : Transaction,
-  index : Int,
+  index : Int32,
 ) -> ReadOnlyArray[ReplicatedSchema] {
   match self.decoded_schemas {
     Some(schemas) => schemas.get(index).unwrap_or([])
@@ -91,19 +91,19 @@ pub fn Transaction::replicated_schemas(
 /// Serialize the complete business transaction without ephemeral acknowledgement tokens.
 pub impl ToJson for Transaction with fn to_json(self) {
   {
-    "id": self.id.to_json(),
-    "xid": self.xid.to_json(),
-    "commit_lsn": self.commit_lsn.to_string().to_json(),
-    "end_lsn": self.end_lsn.to_string().to_json(),
-    "commit_time_us": self.commit_time_us.to_json(),
-    "changes": self.changes.to_json(),
+    "id": Json::Json(self.id),
+    "xid": Json::Json(self.xid),
+    "commit_lsn": Json::Json(self.commit_lsn.to_string()),
+    "end_lsn": Json::Json(self.end_lsn.to_string()),
+    "commit_time_us": Json::Json(self.commit_time_us),
+    "changes": Json::Json(self.changes),
   }
 }
 
 ///|
 /// Stable identity for a data change; metadata has no replay-stable ordinal.
 /// Relation/type announcements can be repeated differently after reconnect.
-pub fn Transaction::event_id(self : Transaction, index : Int) -> String? {
+pub fn Transaction::event_id(self : Transaction, index : Int32) -> String? {
   if index < 0 || index >= self.changes.length() {
     return None
   }
@@ -132,11 +132,11 @@ pub fn Transaction::event_id(self : Transaction, index : Int) -> String? {
 ///|
 /// Position and count diagnostics; WAL lag is an estimate, not unconsumed row count.
 pub struct Diagnostics {
-  reconnects : Int
+  reconnects : Int32
   received : Lsn
   durable : Lsn
   server_end : Lsn
-  outstanding_transactions : Int
-  queued_transactions : Int
+  outstanding_transactions : Int32
+  queued_transactions : Int32
   wal_lag_bytes : UInt64
 } derive(Debug, ToJson)

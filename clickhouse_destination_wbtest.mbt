@@ -115,7 +115,7 @@ test "ClickHouse old keys TOAST and identity safety" {
 
 ///|
 priv struct ChDefaultVector {
-  oid : UInt
+  oid : UInt32
   default_input : String
   result : Json?
 } derive(ToJson, @json.FromJson)
@@ -528,7 +528,7 @@ async test "ClickHouse default expressions pinned differential" {
     for vector in vectors {
       let actual : Json = {
         "value": match ch_default_expression(vector.default_input, vector.oid) {
-          Some(value) => value.to_json()
+          Some(value) => Json::Json(value)
           None => Json::null()
         },
       }

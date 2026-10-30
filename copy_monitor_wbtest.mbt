@@ -11,7 +11,7 @@ test "copy slot monitor distinguishes loss compatibility and standby LSN absence
     None,
     Some("0/30"),
   ]
-  let changed = fn(index : Int, value : String?) -> Array[String?] {
+  let changed = fn(index : Int32, value : String?) -> Array[String?] {
     let updated = row.copy()
     updated[index] = value
     updated

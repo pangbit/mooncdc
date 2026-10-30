@@ -3,7 +3,7 @@
 // PostgreSQL license: data/POSTGRESQL-LICENSE.
 
 ///|
-fn decomposition_index(code : Int) -> Int? {
+fn decomposition_index(code : Int32) -> Int32? {
   for low = 0, high = decompositions.length() / 4; low < high; {
     let mid = low + (high - low) / 2
     let found = decompositions[mid * 4]
@@ -20,7 +20,7 @@ fn decomposition_index(code : Int) -> Int? {
 }
 
 ///|
-fn combining_class(code : Int) -> Int {
+fn combining_class(code : Int32) -> Int32 {
   match decomposition_index(code) {
     Some(i) => decompositions[i + 1]
     None => 0
@@ -28,7 +28,7 @@ fn combining_class(code : Int) -> Int {
 }
 
 ///|
-fn decompose(code : Int, output : Array[Int]) -> Unit {
+fn decompose(code : Int32, output : Array[Int32]) -> Unit {
   // Hangul syllables use the algorithmic decomposition from UAX #15.
   if code >= 0xAC00 && code < 0xAC00 + 11172 {
     let index = code - 0xAC00
@@ -60,8 +60,8 @@ fn decompose(code : Int, output : Array[Int]) -> Unit {
 ///|
 // Build the inverse of canonical, non-excluded two-codepoint decompositions.
 // UInt64 packs two Unicode scalars without collisions or 32-bit overflow.
-let compositions : Map[UInt64, Int] = {
-  let result : Map[UInt64, Int] = Map([])
+let compositions : Map[UInt64, Int32] = {
+  let result : Map[UInt64, Int32] = Map([])
   for i in 0..<(decompositions.length() / 4) {
     let offset = i * 4
     let flags = decompositions[offset + 2]
@@ -76,7 +76,7 @@ let compositions : Map[UInt64, Int] = {
 }
 
 ///|
-fn compose(first : Int, second : Int) -> Int? {
+fn compose(first : Int32, second : Int32) -> Int32? {
   if first >= 0x1100 &&
     first < 0x1100 + 19 &&
     second >= 0x1161 &&
@@ -94,8 +94,8 @@ fn compose(first : Int, second : Int) -> Int? {
 }
 
 ///|
-fn nfkc(input : Array[Int]) -> String {
-  let decomposed : Array[Int] = []
+fn nfkc(input : Array[Int32]) -> String {
+  let decomposed : Array[Int32] = []
   for code in input {
     decompose(code, decomposed)
   }

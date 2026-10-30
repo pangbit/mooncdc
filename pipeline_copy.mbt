@@ -51,7 +51,7 @@ async fn PipelineDestination::copy_worker(self : PipelineDestination) -> Unit {
 // main worker excludes every transaction already covered by the saved cutoff.
 async fn PipelineDestination::handover(
   self : PipelineDestination,
-  oid : UInt,
+  oid : UInt32,
   position : Lsn,
 ) -> Bool {
   if position < self.main_lsn {
@@ -93,7 +93,7 @@ async fn PipelineDestination::catch_up_table(
   self : PipelineDestination,
   exporter : Connection,
   point : SnapshotPosition,
-  oid : UInt,
+  oid : UInt32,
 ) -> Unit {
   let source = self.store.state.source
   if { ..point.source, slot: source.slot, } != source {

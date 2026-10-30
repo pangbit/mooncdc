@@ -4,19 +4,19 @@ priv enum StoredPhase {
   Copying
   Catchup(String)
   Ready(String)
-  Errored(String, TableRetryPolicy, Int)
+  Errored(String, TableRetryPolicy, Int32)
 } derive(ToJson, @json.FromJson)
 
 ///|
 priv struct StoredTable {
-  oid : UInt
+  oid : UInt32
   phase : StoredPhase
   decoding : StoredDecoding?
 } derive(ToJson, @json.FromJson)
 
 ///|
 priv struct PipelineState {
-  version : Int
+  version : Int32
   source : Source
   destination_id : String
   initial_lsn : String?
@@ -86,7 +86,7 @@ fn parse_pipeline_state(bytes : Bytes) -> PipelineState raise {
     }
     identifier(state.source.slot)
     identifier(state.source.publication)
-    let seen : Map[UInt, Bool] = Map([])
+    let seen : Map[UInt32, Bool] = Map([])
     for table in state.tables {
       if seen.contains(table.oid) || table.oid == 0U {
         raise CheckpointError("duplicate or invalid table OID")
@@ -176,7 +176,7 @@ async fn PipelineStore::update(
 ///|
 async fn PipelineStore::set_phase(
   self : PipelineStore,
-  oid : UInt,
+  oid : UInt32,
   phase : StoredPhase,
 ) -> Unit {
   self.update(state => {
@@ -204,12 +204,12 @@ pub(all) enum TableSyncPhase {
   Copying
   Catchup(Lsn)
   Ready(Lsn)
-  Errored(reason~ : String, retry~ : TableRetryPolicy, attempts~ : Int)
+  Errored(reason~ : String, retry~ : TableRetryPolicy, attempts~ : Int32)
 } derive(Eq, Debug)
 
 ///|
 pub struct TableSyncStatus {
-  oid : UInt
+  oid : UInt32
   phase : TableSyncPhase
 } derive(Debug)
 

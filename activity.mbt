@@ -161,7 +161,7 @@ fn activity_health(
 /// Initial copy can be ready; ready never means caught up or fully durable.
 pub fn ApplyControl::health(
   self : ApplyControl,
-  stall_timeout_ms? : Int = 300000,
+  stall_timeout_ms~ : Int32 = 300000,
 ) -> PipelineHealth raise {
   if stall_timeout_ms <= 0 {
     raise InvalidConfig("health stall timeout must be positive")
@@ -176,7 +176,7 @@ pub fn ApplyControl::health(
 ///|
 async fn Connection::wal_activity_timeout(
   self : Connection,
-  timeout : Int,
+  timeout : Int32,
 ) -> UInt64 {
   // Failure/disabled setting uses the reference's one-minute allowance. This
   // observation does not replace replication startup's own connection checks.

@@ -35,7 +35,7 @@ fn ch_quote(value : String, delimiter : Char) -> String {
 }
 
 ///|
-fn ch_scalar_type(oid : UInt) -> String {
+fn ch_scalar_type(oid : UInt32) -> String {
   match oid {
     16U => "Bool"
     21U => "Int16"
@@ -53,7 +53,7 @@ fn ch_scalar_type(oid : UInt) -> String {
 }
 
 ///|
-fn ch_type(oid : UInt, nullable : Bool, force_nullable : Bool) -> String {
+fn ch_type(oid : UInt32, nullable : Bool, force_nullable : Bool) -> String {
   match array_element(oid) {
     Some(element) => "Array(Nullable(" + ch_scalar_type(element) + "))"
     None => {

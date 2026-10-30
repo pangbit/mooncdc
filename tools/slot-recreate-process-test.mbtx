@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -7,6 +7,7 @@ import {
   "moonbitlang/core/env",
   "moonbitlang/core/json",
 }
+----
 
 ///|
 async fn main {
@@ -41,15 +42,15 @@ async fn main {
     @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
     @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
     commands.push({
-      "name": name.to_json(),
-      "program": program.to_json(),
-      "args": args.to_json(),
-      "cwd": cwd.to_json(),
-      "exit_code": result.exit_code().to_json(),
+      "name": Json::Json(name),
+      "program": Json::Json(program),
+      "args": Json::Json(args),
+      "cwd": Json::Json(cwd),
+      "exit_code": Json::Json(result.exit_code()),
     })
     @fs.write_file(
       evidence + "/commands.json",
-      commands.to_json().stringify(indent=2),
+      Json::Json(commands).stringify(indent=2),
     )
     println(
       "RECREATE AUDIT: " + name + " exit=" + result.exit_code().to_string(),
@@ -72,7 +73,10 @@ async fn main {
   ).check()
   let tracked = @shell.Cmd(
     "git",
-    ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".", ":(exclude)docs/reports/evidence"],
+    [
+      "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".",
+      ":(exclude)docs/reports/evidence",
+    ],
     cwd=repo,
   ).output()
   tracked.check()
@@ -131,7 +135,7 @@ async fn main {
       ("pg18", "postgres:18.6", "/var/lib/postgresql"),
     ] {
     services[name] = {
-      "image": image.to_json(),
+      "image": Json::Json(image),
       "environment": {
         "POSTGRES_USER": "cdc",
         "POSTGRES_PASSWORD": "mooncdc-test-only",
@@ -139,7 +143,7 @@ async fn main {
         "POSTGRES_INITDB_ARGS": "--auth-host=scram-sha-256",
       },
       "ports": [{ "host_ip": "127.0.0.1", "target": 5432, "published": "0" }],
-      "tmpfs": [mount.to_json()],
+      "tmpfs": [Json::Json(mount)],
       "command": [
         "postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=16",
         "-c", "max_wal_senders=16", "-c", "wal_sender_timeout=5s",
@@ -156,7 +160,7 @@ async fn main {
   let compose_path = evidence + "/compose.json"
   @fs.write_file(
     compose_path,
-    { "services": services.to_json() }.to_json().stringify(indent=2),
+    Json::Json({ "services": Json::Json(services) }).stringify(indent=2),
   )
   let prefix = ["compose", "-p", project, "-f", compose_path]
   let compose = async fn(name : String, args : Array[String]) -> String {
@@ -298,17 +302,17 @@ async fn main {
               child.wait()
             })
             workers.push({
-              "scenario": name.to_json(),
-              "phase": phase.to_json(),
-              "pid": pid.to_json(),
-              "exit_code": code.to_json(),
-              "boundary": boundary.to_json(),
-              "args": [file + ":0-1"].to_json(),
-              "env": recorded_env.to_json(),
+              "scenario": Json::Json(name),
+              "phase": Json::Json(phase),
+              "pid": Json::Json(pid),
+              "exit_code": Json::Json(code),
+              "boundary": Json::Json(boundary),
+              "args": Json::Json([file + ":0-1"]),
+              "env": Json::Json(recorded_env),
             })
             @fs.write_file(
               evidence + "/workers.json",
-              workers.to_json().stringify(indent=2),
+              Json::Json(workers).stringify(indent=2),
             )
             if phase == "kill" {
               assert_eq(code, -9)
@@ -364,16 +368,13 @@ async fn main {
   run("final-tracked-sha256", "shasum", ["-a", "256"] + paths, repo).check()
   @fs.write_file(
     evidence + "/summary.json",
-    {
-      "workers": workers.length().to_json(),
-      "sigkills": workers
-      .filter(worker => worker is { "phase": "kill", .. })
-      .length()
-      .to_json(),
+    Json::Json({
+      "workers": Json::Json(workers.length()),
+      "sigkills": Json::Json(
+        workers.filter(worker => worker is { "phase": "kill", .. }).length(),
+      ),
       "source_unchanged": true,
-    }
-    .to_json()
-    .stringify(indent=2),
+    }).stringify(indent=2),
   )
   println(
     "RECREATE audit passed: " +

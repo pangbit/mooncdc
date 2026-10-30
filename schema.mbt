@@ -20,11 +20,11 @@ pub fn SchemaId::before_lsn(position : Lsn) -> SchemaId raise {
 ///|
 pub struct SchemaColumn {
   name : String
-  type_oid : UInt
-  type_modifier : Int
-  ordinal : Int
+  type_oid : UInt32
+  type_modifier : Int32
+  ordinal : Int32
   nullable : Bool
-  primary_key_ordinal : Int?
+  primary_key_ordinal : Int32?
   default_expression : String?
 } derive(Eq, Debug, ToJson)
 
@@ -32,12 +32,12 @@ pub struct SchemaColumn {
 /// Full table schema; publication membership is separate from identity membership.
 pub struct SchemaSnapshot {
   id : SchemaId
-  oid : UInt
+  oid : UInt32
   namespace_ : String
   name : String
   replica_identity : Byte
   columns : ReadOnlyArray[SchemaColumn]
-  priv identity_attnums : ReadOnlyArray[Int]
+  priv identity_attnums : ReadOnlyArray[Int32]
   priv payload : Json
 } derive(Debug)
 
@@ -55,18 +55,18 @@ pub impl Eq for SchemaSnapshot with fn equal(self, other) {
 ///|
 priv struct DdlColumn {
   attname : String
-  atttypid : UInt
-  atttypmod : Int
-  attnum : Int
+  atttypid : UInt32
+  atttypmod : Int32
+  attnum : Int32
   attnotnull : Bool
   default_expression : Json?
 } derive(@json.FromJson)
 
 ///|
 priv struct DdlIdentity {
-  primary_key_attnums : Array[Int]
+  primary_key_attnums : Array[Int32]
   relreplident : String
-  replica_identity_index_attnums : Array[Int]
+  replica_identity_index_attnums : Array[Int32]
 } derive(@json.FromJson)
 
 ///|
@@ -75,7 +75,7 @@ priv struct DdlPayload {
   publication_name : Json?
   nspname : String
   relname : String
-  oid : UInt
+  oid : UInt32
   identity : DdlIdentity
   columns : Array[DdlColumn]
 } derive(@json.FromJson)
@@ -108,14 +108,14 @@ fn parse_schema(payload : Json, id : SchemaId) -> SchemaSnapshot raise {
     "n" => b'n'
     _ => raise Protocol("invalid DDL replica identity")
   }
-  let primary : Map[Int, Int] = Map([])
+  let primary : Map[Int32, Int32] = Map([])
   for index, attnum in ddl.identity.primary_key_attnums {
     if attnum <= 0 || primary.contains(attnum) {
       raise Protocol("invalid DDL primary key")
     }
     primary[attnum] = index + 1
   }
-  let numbers : Map[Int, Bool] = Map([])
+  let numbers : Map[Int32, Bool] = Map([])
   let names : Map[String, Bool] = Map([])
   ddl.columns.sort_by((a, b) => a.attnum.compare(b.attnum))
   let columns = ddl.columns.map(column => {
@@ -139,7 +139,7 @@ fn parse_schema(payload : Json, id : SchemaId) -> SchemaSnapshot raise {
       default_expression: ddl_optional_string(column.default_expression),
     }
   })
-  let indexes : Map[Int, Bool] = Map([])
+  let indexes : Map[Int32, Bool] = Map([])
   for attnum in ddl.identity.replica_identity_index_attnums {
     if !numbers.contains(attnum) || indexes.contains(attnum) {
       raise Protocol("invalid DDL replica identity index")
@@ -159,33 +159,35 @@ fn parse_schema(payload : Json, id : SchemaId) -> SchemaSnapshot raise {
   }
   // Retain only consumed metadata, not upstream debug fields such as current_query.
   let payload : Json = {
-    "command_tag": ddl.command_tag.to_json(),
+    "command_tag": Json::Json(ddl.command_tag),
     "publication_name": match ddl_optional_string(ddl.publication_name) {
-      Some(name) => name.to_json()
+      Some(name) => Json::Json(name)
       None => Json::null()
     },
-    "nspname": ddl.nspname.to_json(),
-    "relname": ddl.relname.to_json(),
-    "oid": ddl.oid.to_json(),
+    "nspname": Json::Json(ddl.nspname),
+    "relname": Json::Json(ddl.relname),
+    "oid": Json::Json(ddl.oid),
     "identity": {
-      "primary_key_attnums": ddl.identity.primary_key_attnums.to_json(),
-      "relreplident": ddl.identity.relreplident.to_json(),
-      "replica_identity_index_attnums": ddl.identity.replica_identity_index_attnums.to_json(),
+      "primary_key_attnums": Json::Json(ddl.identity.primary_key_attnums),
+      "relreplident": Json::Json(ddl.identity.relreplident),
+      "replica_identity_index_attnums": Json::Json(
+        ddl.identity.replica_identity_index_attnums,
+      ),
     },
-    "columns": ddl.columns
-    .map(column => {
-      "attname": column.attname.to_json(),
-      "atttypid": column.atttypid.to_json(),
-      "atttypmod": column.atttypmod.to_json(),
-      "attnum": column.attnum.to_json(),
-      "attnotnull": column.attnotnull.to_json(),
-      "default_expression": match
-        ddl_optional_string(column.default_expression) {
-        Some(value) => value.to_json()
-        None => Json::null()
-      },
-    })
-    .to_json(),
+    "columns": Json::Json(
+      ddl.columns.map(column => {
+        "attname": Json::Json(column.attname),
+        "atttypid": Json::Json(column.atttypid),
+        "atttypmod": Json::Json(column.atttypmod),
+        "attnum": Json::Json(column.attnum),
+        "attnotnull": Json::Json(column.attnotnull),
+        "default_expression": match
+          ddl_optional_string(column.default_expression) {
+          Some(value) => Json::Json(value)
+          None => Json::null()
+        },
+      }),
+    ),
   }
   {
     id,
@@ -268,10 +270,10 @@ pub fn SchemaSnapshot::relation(
 // Called on the imported-snapshot reader after its ACCESS SHARE lock is held.
 async fn Connection::snapshot_schema(
   self : Connection,
-  oid : UInt,
+  oid : UInt32,
   position : Lsn,
-  timeout : Int,
-  max_bytes : Int,
+  timeout : Int32,
+  max_bytes : Int32,
 ) -> SchemaSnapshot {
   let query =
     #|WITH key_columns AS (

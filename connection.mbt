@@ -11,21 +11,21 @@ pub(all) enum Security {
 pub(all) struct ConnectionConfig {
   host : String
   hostaddr : String?
-  port : Int
+  port : Int32
   user : String
   password : String
   database : String
   security : Security
-  timeout_ms : Int
+  timeout_ms : Int32
   keepalive : TcpKeepaliveConfig
 }
 
 ///|
 /// TCP probe settings in seconds, matching the pinned ETL replication defaults.
 pub(all) struct TcpKeepaliveConfig {
-  idle_secs : Int
-  interval_secs : Int
-  retries : Int
+  idle_secs : Int32
+  interval_secs : Int32
+  retries : Int32
 } derive(Eq, Debug)
 
 ///|
@@ -36,9 +36,9 @@ pub extend TcpKeepaliveConfig with Debug::{to_repr}
 
 ///|
 pub fn TcpKeepaliveConfig::new(
-  idle_secs? : Int = 30,
-  interval_secs? : Int = 10,
-  retries? : Int = 3,
+  idle_secs~ : Int32 = 30,
+  interval_secs~ : Int32 = 10,
+  retries~ : Int32 = 3,
 ) -> TcpKeepaliveConfig {
   { idle_secs, interval_secs, retries, }
 }
@@ -49,13 +49,13 @@ pub fn TcpKeepaliveConfig::new(
 pub fn ConnectionConfig::new(
   host~ : String,
   user~ : String,
-  password? : String = "",
-  database? : String = "postgres",
-  port? : Int = 5432,
-  security? : Security = VerifyFull,
-  timeout_ms? : Int = 5000,
+  password~ : String = "",
+  database~ : String = "postgres",
+  port~ : Int32 = 5432,
+  security~ : Security = VerifyFull,
+  timeout_ms~ : Int32 = 5000,
   hostaddr? : String,
-  keepalive? : TcpKeepaliveConfig = TcpKeepaliveConfig::new(),
+  keepalive~ : TcpKeepaliveConfig = TcpKeepaliveConfig::new(),
 ) -> ConnectionConfig raise {
   let config = {
     host,
@@ -123,7 +123,7 @@ priv struct Connection {
   tls : @tls.Tls?
   reader : &@io.Reader
   writer : &@io.Writer
-  limit : Int
+  limit : Int32
   frame_role : FrameConnectionRole
   queries : QueryObservation?
 }
@@ -184,7 +184,7 @@ fn validate_connection(config : ConnectionConfig) -> Unit raise {
 ///|
 async fn connect(
   config : ConnectionConfig,
-  limit : Int,
+  limit : Int32,
   replication : Bool,
   workload? : SessionWorkload,
   worker? : SessionWorker,
@@ -350,7 +350,7 @@ async fn connect(
 async fn Connection::query(
   self : Connection,
   sql : String,
-  max_result_bytes? : Int = 67108864,
+  max_result_bytes~ : Int32 = 67108864,
 ) -> Array[Array[String?]] {
   let started = @bench.monotonic_clock_start()
   defer (if self.queries is Some(observer) { observer.record(started) })

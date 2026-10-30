@@ -23,9 +23,9 @@ priv suberror PipelineCritical {
 ///|
 fn table_retry_policy(
   error : Error,
-  attempts : Int,
-  maximum : Int,
-  delay : Int,
+  attempts : Int32,
+  maximum : Int32,
+  delay : Int32,
 ) -> TableRetryPolicy {
   let timed = match error {
     Retryable(_)
@@ -56,7 +56,10 @@ fn table_retry_policy(
 /// Retry a failed table on an active run_pipeline, using a fresh snapshot/reset.
 /// Returns false for unknown, healthy or NoRetry tables. A manual request resets
 /// the automatic retry budget. The control is usable only while the pipeline runs.
-pub async fn ApplyControl::retry_table(self : ApplyControl, oid : UInt) -> Bool {
+pub async fn ApplyControl::retry_table(
+  self : ApplyControl,
+  oid : UInt32,
+) -> Bool {
   if self.stopped {
     return false
   }
@@ -69,7 +72,7 @@ pub async fn ApplyControl::retry_table(self : ApplyControl, oid : UInt) -> Bool 
 ///|
 async fn PipelineDestination::retry_table(
   self : PipelineDestination,
-  oid : UInt,
+  oid : UInt32,
 ) -> Bool {
   self.mutex.acquire()
   defer self.mutex.release()

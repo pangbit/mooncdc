@@ -84,8 +84,8 @@ async test "checkpoint process worker" {
                 }
               }
               entries.push({
-                "id": tx.id.to_json(),
-                "business_ids": ids.to_json(),
+                "id": Json::Json(tx.id),
+                "business_ids": Json::Json(ids),
                 "transaction": tx.to_json(),
               })
               let file = @fs.open(
@@ -93,7 +93,7 @@ async test "checkpoint process worker" {
                 mode=WriteOnly,
                 create_mode=CreateOrTruncate,
               )
-              file.write(entries.to_json().stringify())
+              file.write(Json::Json(entries).stringify())
               file.sync()
               file.close()
               let parent = @fs.open(dir, mode=ReadOnly)

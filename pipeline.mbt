@@ -21,8 +21,8 @@ fn copy_slot_prefix(main_slot : String) -> String {
 async fn publication_tables(
   conn : Connection,
   publication : String,
-  timeout : Int,
-) -> Array[UInt] {
+  timeout : Int32,
+) -> Array[UInt32] {
   let rows = conn.snapshot_query(
     "SELECT DISTINCT c.oid::text FROM pg_catalog.pg_publication_tables p JOIN pg_catalog.pg_namespace n ON n.nspname=p.schemaname JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid AND c.relname=p.tablename WHERE p.pubname='\{publication}' ORDER BY 1",
     timeout,
@@ -43,22 +43,22 @@ priv struct PipelineDestination {
   control : ApplyControl
   memory : @memory.Monitor?
   batch : BatchRuntime?
-  batch_rows : Int
-  copy_connections_per_table : Int
-  copy_monitor_interval_ms : Int
+  batch_rows : Int32
+  copy_connections_per_table : Int32
+  copy_monitor_interval_ms : Int32
   table_sync_copy : TableSyncCopy
   slot_failover : Bool
   schema_store : &SchemaStore?
   mut frontier : Lsn?
   mut main_lsn : Lsn
-  copy_jobs : Array[UInt]
+  copy_jobs : Array[UInt32]
   copy_ready : @async.CondVar
-  retry_delay_ms : Int
-  max_table_retries : Int
-  retry_attempts : Map[UInt, Int]
-  cleanup_candidates : Map[UInt, Bool]
+  retry_delay_ms : Int32
+  max_table_retries : Int32
+  retry_attempts : Map[UInt32, Int32]
+  cleanup_candidates : Map[UInt32, Bool]
   mut decoding : PipelineDecoding?
-  copy_decoding : Map[UInt, PipelineDecoding]
+  copy_decoding : Map[UInt32, PipelineDecoding]
 }
 
 ///|
@@ -156,7 +156,7 @@ async fn PipelineStore::advance_tables(
 ///|
 async fn PipelineDestination::copy_table(
   self : PipelineDestination,
-  oid : UInt,
+  oid : UInt32,
 ) -> Unit {
   if self.batch is Some(batch) {
     batch.governor.with_slots(1UL, () => self.copy_table_with_slot(oid))
@@ -168,7 +168,7 @@ async fn PipelineDestination::copy_table(
 ///|
 async fn PipelineDestination::copy_table_with_slot(
   self : PipelineDestination,
-  oid : UInt,
+  oid : UInt32,
 ) -> Unit {
   if self.control.stopped {
     raise PipelineStopped
@@ -242,7 +242,7 @@ fn PipelineStore::project(
   self : PipelineStore,
   tx : Transaction,
 ) -> Transaction raise {
-  let cutoffs : Map[UInt, Lsn] = Map([])
+  let cutoffs : Map[UInt32, Lsn] = Map([])
   for table in self.state.tables {
     match table.phase {
       Catchup(lsn) | Ready(lsn) => cutoffs[table.oid] = Lsn::parse(lsn)
@@ -255,11 +255,11 @@ fn PipelineStore::project(
 ///|
 fn project_tables(
   tx : Transaction,
-  cutoffs : Map[UInt, Lsn],
+  cutoffs : Map[UInt32, Lsn],
   publication : String,
-  table_only? : Bool = false,
+  table_only~ : Bool = false,
 ) -> Transaction raise {
-  let keep = fn(oid : UInt) -> Bool {
+  let keep = fn(oid : UInt32) -> Bool {
     cutoffs.get(oid) is Some(cutoff) && tx.commit_lsn >= cutoff
   }
   let changes : Array[Change] = []
@@ -350,8 +350,8 @@ async fn PipelineDestination::write_events(
 ) -> WriteStatus {
   // A table added while running joins the same bounded copy-worker queue.
   // Its private snapshot/slot covers changes skipped by the main worker.
-  let missing : Map[UInt, Bool] = Map([])
-  let known : Map[UInt, Bool] = Map([])
+  let missing : Map[UInt32, Bool] = Map([])
+  let known : Map[UInt32, Bool] = Map([])
   for table in self.store.state.tables {
     known[table.oid] = true
   }
@@ -499,18 +499,18 @@ async fn run_pipeline_impl(
   destination_id~ : String,
   state_path~ : String,
   control~ : ApplyControl,
-  slot_prefix? : String = "mooncdc",
-  copy_concurrency? : Int = 2,
-  copy_connections_per_table? : Int = 1,
-  table_sync_monitor_refresh_interval_ms? : Int = 10000,
-  batch_rows? : Int = 256,
+  slot_prefix~ : String = "mooncdc",
+  copy_concurrency~ : Int32 = 2,
+  copy_connections_per_table~ : Int32 = 1,
+  table_sync_monitor_refresh_interval_ms~ : Int32 = 10000,
+  batch_rows~ : Int32 = 256,
   schema_store? : &SchemaStore,
-  table_retry_delay_ms? : Int = 10000,
-  max_table_retries? : Int = 5,
-  table_sync_copy? : TableSyncCopy = IncludeAllTables,
-  slot_failover? : Bool = false,
-  invalidated_slot_behavior? : InvalidatedSlotBehavior = RejectInvalidatedSlot,
-  reuse_destination? : Bool = false,
+  table_retry_delay_ms~ : Int32 = 10000,
+  max_table_retries~ : Int32 = 5,
+  table_sync_copy~ : TableSyncCopy = IncludeAllTables,
+  slot_failover~ : Bool = false,
+  invalidated_slot_behavior~ : InvalidatedSlotBehavior = RejectInvalidatedSlot,
+  reuse_destination~ : Bool = false,
   session? : StateSession,
   memory? : @memory.Monitor,
   batch? : BatchRuntime,
@@ -705,7 +705,7 @@ async fn run_pipeline_impl(
         raise CheckpointError("pipeline checkpoint is missing")
       }
       store.update(state => {
-        let previous : Map[UInt, StoredTable] = Map([])
+        let previous : Map[UInt32, StoredTable] = Map([])
         for table in state.tables {
           previous[table.oid] = table
         }

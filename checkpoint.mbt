@@ -43,7 +43,7 @@ priv struct Source {
 
 ///|
 priv struct Checkpoint {
-  version : Int
+  version : Int32
   source : Source
   lsn : String
 } derive(ToJson, @json.FromJson)
@@ -90,7 +90,7 @@ async fn save_checkpoint(
   path : String,
   source : Source,
   lsn : Lsn,
-  boundary? : async (String) -> Unit = _ => (),
+  boundary~ : async (String) -> Unit = _ => (),
 ) -> Unit {
   save_atomic_file(path, checkpoint_bytes(source, lsn), boundary~)
 }
@@ -99,7 +99,7 @@ async fn save_checkpoint(
 async fn save_atomic_file(
   path : String,
   bytes : Bytes,
-  boundary? : async (String) -> Unit = _ => (),
+  boundary~ : async (String) -> Unit = _ => (),
 ) -> Unit {
   let temp = path + ".tmp"
   boundary("before_write")

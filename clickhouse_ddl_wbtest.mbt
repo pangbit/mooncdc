@@ -1,7 +1,7 @@
 ///|
 priv struct ChFaultStore {
   inner : &StateStore
-  mut remaining : Int?
+  mut remaining : Int32?
 }
 
 ///|
@@ -36,7 +36,7 @@ fn ch_test_schema(
   columns : Array[SchemaColumn],
   version : UInt64,
   mask? : Array[Bool],
-  name? : String = "ddl",
+  name~ : String = "ddl",
 ) -> ReplicatedSchema raise {
   let keys = columns.filter(c => c.primary_key_ordinal is Some(_))
   keys.sort_by((a, b) => {
@@ -46,26 +46,26 @@ fn ch_test_schema(
     {
       "command_tag": "ALTER TABLE",
       "nspname": "public",
-      "relname": name.to_json(),
+      "relname": Json::Json(name),
       "oid": 42,
       "identity": {
-        "primary_key_attnums": keys.map(c => c.ordinal).to_json(),
+        "primary_key_attnums": Json::Json(keys.map(c => c.ordinal)),
         "relreplident": "d",
         "replica_identity_index_attnums": [],
       },
-      "columns": columns
-      .map(c => {
-        "attname": c.name.to_json(),
-        "atttypid": c.type_oid.to_json(),
-        "atttypmod": c.type_modifier.to_json(),
-        "attnum": c.ordinal.to_json(),
-        "attnotnull": (!c.nullable).to_json(),
-        "default_expression": match c.default_expression {
-          Some(s) => s.to_json()
-          None => Json::null()
-        },
-      })
-      .to_json(),
+      "columns": Json::Json(
+        columns.map(c => {
+          "attname": Json::Json(c.name),
+          "atttypid": Json::Json(c.type_oid),
+          "atttypmod": Json::Json(c.type_modifier),
+          "attnum": Json::Json(c.ordinal),
+          "attnotnull": Json::Json(!c.nullable),
+          "default_expression": match c.default_expression {
+            Some(s) => Json::Json(s)
+            None => Json::null()
+          },
+        }),
+      ),
     },
     { commit_lsn: { value: version, }, message_lsn: { value: version - 1, }, },
   )

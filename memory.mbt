@@ -4,14 +4,14 @@
 pub struct MemoryBackpressureConfig {
   activate_threshold : Float
   resume_threshold : Float
-  refresh_interval_ms : Int
+  refresh_interval_ms : Int32
 }
 
 ///|
 pub fn MemoryBackpressureConfig::new(
-  activate_threshold? : Float = 0.85F,
-  resume_threshold? : Float = 0.75F,
-  refresh_interval_ms? : Int = 100,
+  activate_threshold~ : Float = 0.85F,
+  resume_threshold~ : Float = 0.75F,
+  refresh_interval_ms~ : Int32 = 100,
 ) -> MemoryBackpressureConfig {
   { activate_threshold, resume_threshold, refresh_interval_ms, }
 }

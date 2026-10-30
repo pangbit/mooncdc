@@ -1,5 +1,5 @@
 ///|
-async fn live_wait_stream(sub : Subscription, minimum_events : Int) -> Unit {
+async fn live_wait_stream(sub : Subscription, minimum_events : Int32) -> Unit {
   @async.with_timeout(15000, () => {
     while sub.stream_decoder
           .map(decoder => decoder.events < minimum_events)
@@ -34,7 +34,7 @@ async test "live v2 streaming commit nested rollback abort replay reconnect and 
       let record = async fn(value : Json) -> Unit {
         observations.push(value)
         if @env.get_env_var("MOONCDC_STREAMING_EVIDENCE") is Some(path) {
-          @fs.write_file(path, observations.to_json().stringify(indent=2))
+          @fs.write_file(path, Json::Json(observations).stringify(indent=2))
         }
       }
       ignore(
@@ -67,11 +67,13 @@ async test "live v2 streaming commit nested rollback abort replay reconnect and 
             live_wait_stream(sub, 50)
             record({
               "phase": "uncommitted-root",
-              "binary": binary.to_json(),
-              "buffered_events": sub.stream_decoder.unwrap().events.to_json(),
-              "streams": sub.stream_decoder.unwrap().streams.length().to_json(),
-              "checkpoint": start.to_string().to_json(),
-              "queued": sub.queue.length().to_json(),
+              "binary": Json::Json(binary),
+              "buffered_events": Json::Json(sub.stream_decoder.unwrap().events),
+              "streams": Json::Json(
+                sub.stream_decoder.unwrap().streams.length(),
+              ),
+              "checkpoint": Json::Json(start.to_string()),
+              "queued": Json::Json(sub.queue.length()),
             })
             assert_eq(load_checkpoint(path, sub.source), start)
             ignore(sql.query("ROLLBACK"))
@@ -86,10 +88,12 @@ async test "live v2 streaming commit nested rollback abort replay reconnect and 
             assert_eq(load_checkpoint(path, sub.source), start)
             record({
               "phase": "root-abort",
-              "binary": binary.to_json(),
-              "streams": sub.stream_decoder.unwrap().streams.length().to_json(),
-              "checkpoint": start.to_string().to_json(),
-              "queued": sub.queue.length().to_json(),
+              "binary": Json::Json(binary),
+              "streams": Json::Json(
+                sub.stream_decoder.unwrap().streams.length(),
+              ),
+              "checkpoint": Json::Json(start.to_string()),
+              "queued": Json::Json(sub.queue.length()),
             })
             ignore(
               sql.query(
@@ -105,10 +109,10 @@ async test "live v2 streaming commit nested rollback abort replay reconnect and 
             live_wait_stream(sub, 250)
             record({
               "phase": "nested-before-rollback",
-              "binary": binary.to_json(),
-              "buffered_events": sub.stream_decoder.unwrap().events.to_json(),
-              "checkpoint": start.to_string().to_json(),
-              "queued": sub.queue.length().to_json(),
+              "binary": Json::Json(binary),
+              "buffered_events": Json::Json(sub.stream_decoder.unwrap().events),
+              "checkpoint": Json::Json(start.to_string()),
+              "queued": Json::Json(sub.queue.length()),
             })
             ignore(
               sql.query(
@@ -169,12 +173,12 @@ async test "live v2 streaming commit nested rollback abort replay reconnect and 
             assert_eq(sub.diagnostics().durable, start)
             record({
               "phase": "committed-unacknowledged",
-              "binary": binary.to_json(),
-              "id": tx.id.to_json(),
-              "end_lsn": tx.end_lsn.to_string().to_json(),
-              "rows": rows.length().to_json(),
-              "stable_ids": seen.to_json(),
-              "checkpoint": start.to_string().to_json(),
+              "binary": Json::Json(binary),
+              "id": Json::Json(tx.id),
+              "end_lsn": Json::Json(tx.end_lsn.to_string()),
+              "rows": Json::Json(rows.length()),
+              "stable_ids": Json::Json(seen),
+              "checkpoint": Json::Json(start.to_string()),
             })
             tx.end_lsn
           },
@@ -207,9 +211,9 @@ async test "live v2 streaming commit nested rollback abort replay reconnect and 
             sub.ack(replay)
             record({
               "phase": "fresh-replay-ack",
-              "binary": binary.to_json(),
-              "id": replay.id.to_json(),
-              "checkpoint": replay.end_lsn.to_string().to_json(),
+              "binary": Json::Json(binary),
+              "id": Json::Json(replay.id),
+              "checkpoint": Json::Json(replay.end_lsn.to_string()),
             })
             assert_eq(sub.diagnostics().durable, first_end)
             ignore(
@@ -246,10 +250,10 @@ async test "live v2 streaming commit nested rollback abort replay reconnect and 
             sub.ack(next)
             record({
               "phase": "live-reconnect-ack",
-              "binary": binary.to_json(),
-              "id": next.id.to_json(),
-              "checkpoint": next.end_lsn.to_string().to_json(),
-              "reconnects": sub.diagnostics().reconnects.to_json(),
+              "binary": Json::Json(binary),
+              "id": Json::Json(next.id),
+              "checkpoint": Json::Json(next.end_lsn.to_string()),
+              "reconnects": Json::Json(sub.diagnostics().reconnects),
             })
             assert_eq(sub.diagnostics().durable, next.end_lsn)
           },
@@ -291,7 +295,7 @@ async test "live v2 streaming commit nested rollback abort replay reconnect and 
       assert_eq(load_checkpoint(path, source), start)
       record({
         "phase": "limit-rejected",
-        "checkpoint": start.to_string().to_json(),
+        "checkpoint": Json::Json(start.to_string()),
       })
       subscribe(
         config,
@@ -306,9 +310,11 @@ async test "live v2 streaming commit nested rollback abort replay reconnect and 
           sub.ack(tx)
           record({
             "phase": "limit-replay-ack",
-            "id": tx.id.to_json(),
-            "checkpoint": tx.end_lsn.to_string().to_json(),
-            "rows": tx.changes.filter(c => c is Insert(_, _)).length().to_json(),
+            "id": Json::Json(tx.id),
+            "checkpoint": Json::Json(tx.end_lsn.to_string()),
+            "rows": Json::Json(
+              tx.changes.filter(c => c is Insert(_, _)).length(),
+            ),
           })
         },
       )

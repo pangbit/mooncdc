@@ -1,6 +1,6 @@
 ///|
 test "typed cells preserve scalar widths exact numeric and null semantics" {
-  let cases : Array[(UInt, String, Cell)] = [
+  let cases : Array[(UInt32, String, Cell)] = [
     (16U, "t", Bool(true)),
     (16U, "f", Bool(false)),
     (21U, "-32768", I16(Int16::from_int(-32768))),

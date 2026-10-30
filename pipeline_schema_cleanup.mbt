@@ -41,8 +41,8 @@ async fn PipelineDestination::cleanup_schemas(
         }),
       })
     }
-    let bounds : Array[(UInt, SchemaId)] = []
-    let evaluated : Array[UInt] = []
+    let bounds : Array[(UInt32, SchemaId)] = []
+    let evaluated : Array[UInt32] = []
     for table in self.store.state.tables {
       if !self.cleanup_candidates.contains(table.oid) {
         continue

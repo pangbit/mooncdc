@@ -1,7 +1,7 @@
 ///|
 fn metrics_listener_address(
   listen_address : String?,
-  port : Int,
+  port : Int32,
 ) -> @socket.Addr? raise {
   if port <= 0 || port > 65535 {
     raise InvalidConfig("metrics port must be between 1 and 65535")
@@ -92,12 +92,12 @@ async fn[T] with_metrics_listener(
 pub async fn[T] with_metrics_server(
   control : ApplyControl,
   run : async () -> T,
-  port? : Int = 9000,
+  port~ : Int32 = 9000,
   listen_address? : String,
   pipeline_id? : String,
   destination? : String,
   project? : String,
-  stall_timeout_ms? : Int = 300000,
+  stall_timeout_ms~ : Int32 = 300000,
 ) -> T {
   let address = metrics_listener_address(listen_address, port)
   let render = () => {

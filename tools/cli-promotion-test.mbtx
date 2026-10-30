@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -10,6 +10,7 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/core/string",
 }
+----
 
 ///|
 fn audit_rows(text : String) -> Array[Json] raise {
@@ -68,16 +69,16 @@ async fn main {
     @fs.write_file(evidence + "/" + name + ".stdout", result.stdout_bytes())
     @fs.write_file(evidence + "/" + name + ".stderr", result.stderr())
     commands.push({
-      "name": name.to_json(),
-      "program": program.to_json(),
-      "args": args.to_json(),
-      "cwd": cwd.to_json(),
-      "env": extra.to_json(),
-      "exit_code": result.exit_code().to_json(),
+      "name": Json::Json(name),
+      "program": Json::Json(program),
+      "args": Json::Json(args),
+      "cwd": Json::Json(cwd),
+      "env": Json::Json(extra),
+      "exit_code": Json::Json(result.exit_code()),
     })
     @fs.write_file(
       evidence + "/commands.json",
-      commands.to_json().stringify(indent=2),
+      Json::Json(commands).stringify(indent=2),
     )
     result
   }
@@ -112,7 +113,10 @@ async fn main {
   ).check()
   let tracked = @shell.Cmd(
     "git",
-    ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".", ":(exclude)docs/reports/evidence"],
+    [
+      "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".",
+      ":(exclude)docs/reports/evidence",
+    ],
     cwd=repo,
   ).output()
   tracked.check()
@@ -345,7 +349,7 @@ async fn main {
         let mut active_connections = 0
         let source : Json = {
           "host": "127.0.0.1",
-          "port": proxy.addr.port().to_json(),
+          "port": Json::Json(proxy.addr.port()),
           "user": "cdc",
           "password": "mooncdc-test-only",
           "security": "local_plaintext",
@@ -359,13 +363,13 @@ async fn main {
           "replication_slot": { "failover": true },
           "destination": {
             "type": "clickhouse",
-            "url": ("http://127.0.0.1:" + ch_port.to_string()).to_json(),
+            "url": Json::Json("http://127.0.0.1:" + ch_port.to_string()),
             "database": "cli_promotion",
             "user": "cdc",
             "password": "mooncdc-test-only",
-            "engine": engine.to_json(),
+            "engine": Json::Json(engine),
           },
-          "metrics": { "port": metrics_port.to_json() },
+          "metrics": { "port": Json::Json(metrics_port) },
         }
         let config_path = dir + "/config." + format
         if format == "json" {
@@ -522,15 +526,13 @@ async fn main {
                 pids.push(pid)
                 @fs.write_file(
                   dir + "/" + phase + ".worker.json",
-                  {
-                    "pid": pid.to_json(),
-                    "executable": executable.to_json(),
-                    "args": ["--config", config_path].to_json(),
+                  Json::Json({
+                    "pid": Json::Json(pid),
+                    "executable": Json::Json(executable),
+                    "args": Json::Json(["--config", config_path]),
                     "expected_exit": 0,
-                    "upstream_port": upstream.to_json(),
-                  }
-                  .to_json()
-                  .stringify(indent=2),
+                    "upstream_port": Json::Json(upstream),
+                  }).stringify(indent=2),
                 )
                 let mut initial_commit = false
                 let mut synchronized_slot = false
@@ -653,14 +655,14 @@ async fn main {
                 ).check()
                 let code = child.wait()
                 workers.push({
-                  "scenario": name.to_json(),
-                  "phase": phase.to_json(),
-                  "pid": pid.to_json(),
-                  "exit_code": code.to_json(),
+                  "scenario": Json::Json(name),
+                  "phase": Json::Json(phase),
+                  "pid": Json::Json(pid),
+                  "exit_code": Json::Json(code),
                 })
                 @fs.write_file(
                   evidence + "/workers.json",
-                  workers.to_json().stringify(indent=2),
+                  Json::Json(workers).stringify(indent=2),
                 )
                 assert_eq(
                   code,
@@ -817,14 +819,12 @@ async fn main {
   run("final-tracked-sha256", "shasum", ["-a", "256"] + paths, repo, Map([])).check()
   @fs.write_file(
     evidence + "/summary.json",
-    {
-      "positive_workers": workers.length().to_json(),
-      "scenarios": (workers.length() / 3).to_json(),
+    Json::Json({
+      "positive_workers": Json::Json(workers.length()),
+      "scenarios": Json::Json(workers.length() / 3),
       "source_unchanged": true,
       "cleanup": true,
-    }
-    .to_json()
-    .stringify(indent=2),
+    }).stringify(indent=2),
   )
   println(
     "CLI PROMOTION audit passed: " +

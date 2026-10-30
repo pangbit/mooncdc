@@ -4,8 +4,8 @@ priv struct ConfigCatOptions {
   default_user : String
   base_url : String
   custom_url : Bool
-  poll_ms : Int
-  timeout_ms : Int
+  poll_ms : Int32
+  timeout_ms : Int32
 }
 
 ///|
@@ -107,7 +107,7 @@ fn ConfigCatCache::new(options : ConfigCatOptions) -> ConfigCatCache raise {
 }
 
 ///|
-fn configcat_preferences(document : Json) -> (String?, Int) raise {
+fn configcat_preferences(document : Json) -> (String?, Int32) raise {
   guard document is Object(fields) && fields.get("f") is Some(Object(_)) else {
     fail("invalid ConfigCat document")
   }

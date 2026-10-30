@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -10,6 +10,7 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/core/string",
 }
+----
 
 ///|
 fn clickhouse_test_endpoint(port : String?) -> String raise {
@@ -98,7 +99,7 @@ async fn main {
   defer ignore(ch("DROP DATABASE mooncdc_cli_test"))
   let source : Json = {
     "host": "127.0.0.1",
-    "port": port.to_json(),
+    "port": Json::Json(port),
     "user": "cdc",
     "password": "mooncdc-test-only",
     "security": "local_plaintext",
@@ -108,13 +109,13 @@ async fn main {
   let config : Json = {
     "id": "cli-test",
     "run_source_migrations": true,
-    "replication_slot": { "failover": slot_failover.to_json() },
+    "replication_slot": { "failover": Json::Json(slot_failover) },
     "publication": "mooncdc_cli_test",
     "source": source,
     "state": { "schema": "etl" },
     "destination": {
       "type": "clickhouse",
-      "url": "http://127.0.0.1:\{proxy.addr.port()}".to_json(),
+      "url": Json::Json("http://127.0.0.1:\{proxy.addr.port()}"),
       "user": "cdc",
       "password": "mooncdc-test-only",
       "database": "mooncdc_cli_test",

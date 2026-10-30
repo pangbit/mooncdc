@@ -123,7 +123,7 @@ async fn ClickHouseDestination::apply_plan(
     .map(c => c.name)
     .iter()
     .collect()
-  let positions : Map[String, Int] = Map([])
+  let positions : Map[String, Int32] = Map([])
   for i, column in after.columns() {
     positions[column.name] = i
   }

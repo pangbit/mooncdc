@@ -66,7 +66,7 @@ async test "activity handles retire independently and cannot revive a worker" {
 priv struct ActivityStallDestination {
   control : ApplyControl
   flush_only : Bool
-  timeout_ms : Int
+  timeout_ms : Int32
 }
 
 ///|

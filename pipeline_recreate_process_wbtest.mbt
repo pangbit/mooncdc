@@ -40,17 +40,19 @@ async test "real process kill at each recreate boundary preserves resynchronizat
     )
     @fs.write_file(
       dir + "/" + name + ".slots.json",
-      rows.to_json().stringify(indent=2),
+      Json::Json(rows).stringify(indent=2),
     )
     let source_rows : Map[String, Json] = Map([])
     for name in ["a", "b"] {
-      source_rows[name] = sql
-        .query("SELECT id::text,value FROM slot_recreate.\{name} ORDER BY id")
-        .to_json()
+      source_rows[name] = Json::Json(
+        sql.query(
+          "SELECT id::text,value FROM slot_recreate.\{name} ORDER BY id",
+        ),
+      )
     }
     @fs.write_file(
       dir + "/" + name + ".source.json",
-      source_rows.to_json().stringify(indent=2),
+      Json::Json(source_rows).stringify(indent=2),
     )
   }
   @async.with_timeout(120000, () => {
@@ -73,7 +75,7 @@ async test "real process kill at each recreate boundary preserves resynchronizat
       let run = async fn(
         probe : PipelineProbe,
         recreate : Bool,
-        copy_concurrency : Int,
+        copy_concurrency : Int32,
       ) -> Unit {
         @async.with_task_group(group => {
           group.spawn_bg(() => {

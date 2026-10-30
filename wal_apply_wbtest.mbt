@@ -10,11 +10,11 @@ priv struct WalProbeDestination {
   durable_ids : Map[String, Unit]
   owned_ids : Array[String]
   delivered : @async.CondVar
-  mut attempt : Int
+  mut attempt : Int32
   mut commit : Bool
-  mut flushes : Int
-  mut partial_flushes : Int
-  mut commits : Int
+  mut flushes : Int32
+  mut partial_flushes : Int32
+  mut commits : Int32
 }
 
 ///|

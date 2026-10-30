@@ -3,7 +3,7 @@ pub(all) enum StateRecord {
   Pipeline
   ReplicationCheckpoint
   Schemas
-  TableMetadata(UInt)
+  TableMetadata(UInt32)
 } derive(Eq, Debug)
 
 ///|
@@ -111,7 +111,7 @@ async fn StateSession::save_checkpoint(
 /// corresponding destination operation is durable.
 pub async fn StateSession::put_metadata(
   self : StateSession,
-  table : UInt,
+  table : UInt32,
   value : Json,
 ) -> Unit {
   if table == 0U {
@@ -119,7 +119,7 @@ pub async fn StateSession::put_metadata(
   }
   let document : Json = {
     "version": 1,
-    "table": table.to_json(),
+    "table": Json::Json(table),
     "value": value,
   }
   let body = @utf8.encode(document.stringify())
@@ -132,7 +132,7 @@ pub async fn StateSession::put_metadata(
 ///|
 pub async fn StateSession::get_metadata(
   self : StateSession,
-  table : UInt,
+  table : UInt32,
 ) -> Json? {
   if table == 0U {
     raise InvalidConfig("zero table OID")
@@ -148,7 +148,7 @@ pub async fn StateSession::get_metadata(
   let value = pg_json(@utf8.decode(body))
   guard value is Object(fields) &&
     fields.get("version") == Some(Json::number(1)) &&
-    fields.get("table") == Some(table.to_json()) else {
+    fields.get("table") == Some(Json::Json(table)) else {
     raise CheckpointError("destination metadata identity")
   }
   guard fields.get("value") is Some(value) else {

@@ -22,7 +22,7 @@ priv suberror PipelinePromotionRequested {
 }
 
 ///|
-fn timeline_number(text : String) -> UInt raise {
+fn timeline_number(text : String) -> UInt32 raise {
   if text.is_empty() || text.length() > 10 || text.any(c => c < '0' || c > '9') {
     raise UnsafeResume("invalid timeline number")
   }
@@ -34,7 +34,7 @@ fn timeline_number(text : String) -> UInt raise {
 }
 
 ///|
-fn timeline_filename(number : UInt) -> String {
+fn timeline_filename(number : UInt32) -> String {
   let hex = number.to_string(radix=16).to_upper()
   "0".repeat(8 - hex.length()) + hex + ".history"
 }
@@ -42,8 +42,8 @@ fn timeline_filename(number : UInt) -> String {
 ///|
 fn timeline_fork(
   history : String,
-  ancestor : UInt,
-  current : UInt,
+  ancestor : UInt32,
+  current : UInt32,
 ) -> Lsn raise {
   if history.is_empty() ||
     @utf8.encode(history).length() > 1048576 ||
@@ -165,7 +165,7 @@ async fn PipelineStore::recover_promotion(
   self : PipelineStore,
   conn : Connection,
   actual : Source,
-  boundary? : async (String) -> Unit = _ => (),
+  boundary~ : async (String) -> Unit = _ => (),
 ) -> Unit {
   let state = self.state
   if state.version != 1 ||
@@ -236,7 +236,7 @@ async fn PipelineStore::recover_promotion(
 async fn PipelineStore::commit_promotion(
   self : PipelineStore,
   intent : TimelinePromotion,
-  boundary? : async (String) -> Unit = _ => (),
+  boundary~ : async (String) -> Unit = _ => (),
 ) -> Unit {
   self.update(state => { ..state, promotion: Some(intent), })
   boundary("after_intent")

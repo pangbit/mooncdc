@@ -297,7 +297,7 @@ async test "live snapshot partitions and ordinary inheritance match pgoutput" {
             "CREATE PUBLICATION cdc_parts FOR TABLE cdc_parts.root, cdc_parts.parent WITH (publish_via_partition_root=\{via_root})",
           ),
         )
-        let relations : Map[UInt, Relation] = Map([])
+        let relations : Map[UInt32, Relation] = Map([])
         let ids : Array[String] = []
         let point = copy_snapshot(
           config,

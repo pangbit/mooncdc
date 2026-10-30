@@ -30,24 +30,24 @@ async fn source_monitor_capture(
     @fs.write_file(dir + "/" + phase + ".metrics", metrics)
     @fs.write_file(
       dir + "/" + phase + ".json",
-      {
-        "phase": phase.to_json(),
+      Json::Json({
+        "phase": Json::Json(phase),
         "source": ToJson::to_json(sub.source),
-        "current": observation.current.map(lsn => lsn.to_string()).to_json(),
-        "received": sub.received.to_string().to_json(),
-        "durable": sub.durable.to_string().to_json(),
-        "server_end": sub.server_end.to_string().to_json(),
-        "checkpoint": load_checkpoint(sub.path, sub.source)
-        .to_string()
-        .to_json(),
-        "confirmed_flush": confirmed.to_json(),
-        "sample_age_seconds": observation.sampled
-        .map(sampled => @bench.monotonic_clock_end(sampled) / 1000000.0)
-        .to_json(),
-        "health": control.health(stall_timeout_ms=10).status.to_json(),
-      }
-      .to_json()
-      .stringify(indent=2),
+        "current": Json::Json(observation.current.map(lsn => lsn.to_string())),
+        "received": Json::Json(sub.received.to_string()),
+        "durable": Json::Json(sub.durable.to_string()),
+        "server_end": Json::Json(sub.server_end.to_string()),
+        "checkpoint": Json::Json(
+          load_checkpoint(sub.path, sub.source).to_string(),
+        ),
+        "confirmed_flush": Json::Json(confirmed),
+        "sample_age_seconds": Json::Json(
+          observation.sampled.map(sampled => {
+            @bench.monotonic_clock_end(sampled) / 1000000.0
+          }),
+        ),
+        "health": Json::Json(control.health(stall_timeout_ms=10).status),
+      }).stringify(indent=2),
     )
   }
 }
@@ -58,7 +58,7 @@ priv struct SourceMonitorStallDestination {
   sub : Subscription
   sql : Connection
   start : Lsn
-  sender_timeout_ms : Int
+  sender_timeout_ms : Int32
   flush_only : Bool
 }
 

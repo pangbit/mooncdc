@@ -98,21 +98,21 @@ fn protocol_vectors() -> Array[ProtocolVector] {
 
 ///|
 fn protocol_values(values : ReadOnlyArray[Value]) -> Json {
-  values
-  .map(value => {
-    match value {
-      Binary(bytes) =>
-        Json::array(["b", @crypto.bytes_to_hex_string(bytes).to_json()])
-      Text(text) =>
-        Json::array([
-          "t",
-          @crypto.bytes_to_hex_string(@utf8.encode(text)).to_json(),
-        ])
-      Null => Json::array(["n"])
-      UnchangedToast => Json::array(["u"])
-    }
-  })
-  .to_json()
+  Json::Json(
+    values.map(value => {
+      match value {
+        Binary(bytes) =>
+          Json::array(["b", Json::Json(@crypto.bytes_to_hex_string(bytes))])
+        Text(text) =>
+          Json::array([
+            "t",
+            Json::Json(@crypto.bytes_to_hex_string(@utf8.encode(text))),
+          ])
+        Null => Json::array(["n"])
+        UnchangedToast => Json::array(["u"])
+      }
+    }),
+  )
 }
 
 ///|
@@ -124,10 +124,10 @@ fn protocol_normalize(bytes : Bytes) -> Json raise {
     cursor.done()
     return {
       "kind": "M",
-      "lsn": message.lsn.to_string().to_json(),
-      "transactional": message.transactional.to_json(),
-      "prefix": message.prefix.to_json(),
-      "content": @crypto.bytes_to_hex_string(message.content).to_json(),
+      "lsn": Json::Json(message.lsn.to_string()),
+      "transactional": Json::Json(message.transactional),
+      "prefix": Json::Json(message.prefix),
+      "content": Json::Json(@crypto.bytes_to_hex_string(message.content)),
     }
   }
   let decoder = Decoder::new(8192, 100, 10)
@@ -149,8 +149,8 @@ fn protocol_normalize(bytes : Bytes) -> Json raise {
     None => (Json::null(), Json::null())
   }
   {
-    "kind": kind.to_json(),
-    "relation": relation.oid.to_json(),
+    "kind": Json::Json(kind),
+    "relation": Json::Json(relation.oid),
     "old_kind": old_kind,
     "old": old_values,
     "new": next,
@@ -174,7 +174,7 @@ async test "pinned pglogrepl binary and logical message differential" {
     "integration/reference/pglogrepl-expected.json",
   )
   if phase == "generate" {
-    @fs.write_file(path, vectors.to_json().stringify())
+    @fs.write_file(path, Json::Json(vectors).stringify())
     println("PROTOCOL generated \{vectors.length()} vectors")
   } else {
     assert_eq(phase, "verify")
@@ -183,7 +183,7 @@ async test "pinned pglogrepl binary and logical message differential" {
     )
     assert_eq(results.length(), vectors.length())
     let mut valid = 0
-    let invalid : Map[String, Int] = Map([])
+    let invalid : Map[String, Int32] = Map([])
     for i, result in results {
       let vector = vectors[i]
       assert_eq(result.name, vector.name)
@@ -201,7 +201,7 @@ async test "pinned pglogrepl binary and logical message differential" {
       }
     }
     println(
-      "PROTOCOL matched \{valid} valid vectors; strict MoonCDC rejection versus Go: \{invalid.to_json().stringify()}",
+      "PROTOCOL matched \{valid} valid vectors; strict MoonCDC rejection versus Go: \{Json::Json(invalid).stringify()}",
     )
   }
 }

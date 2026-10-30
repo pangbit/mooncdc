@@ -19,8 +19,8 @@ priv struct MemoryApplyDestination {
   pressure : MemoryPressure
   monitor : @memory.Monitor
   control : ApplyControl
-  mut writes : Int
-  mut flushes : Int
+  mut writes : Int32
+  mut flushes : Int32
 }
 
 ///|

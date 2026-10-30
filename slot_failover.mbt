@@ -53,7 +53,7 @@ async fn ensure_slot_failover(conn : Connection, source : Source) -> Unit {
 // Copying is persisted before creating this slot. The durable main-slot/table
 // identity also owns cleanup after a crash, removal from the publication, or a
 // later configuration change that disables failover.
-fn failover_copy_slot(source : Source, oid : UInt) -> String {
+fn failover_copy_slot(source : Source, oid : UInt32) -> String {
   copy_slot_prefix(source.slot) + "f\{oid}"
 }
 
@@ -61,7 +61,7 @@ fn failover_copy_slot(source : Source, oid : UInt) -> String {
 async fn cleanup_copy_slots(
   conn : Connection,
   source : Source,
-  tables : Array[UInt],
+  tables : Array[UInt32],
 ) -> Unit {
   if tables.is_empty() {
     return
@@ -95,8 +95,8 @@ async fn cleanup_copy_slots(
 async fn cleanup_copy_slot(
   config : ConnectionConfig,
   source : Source,
-  oid : UInt,
-  pipeline_source_change? : Bool = false,
+  oid : UInt32,
+  pipeline_source_change~ : Bool = false,
 ) -> Unit {
   @async.with_timeout(config.timeout_ms, () => {
     let conn = connect(
@@ -135,7 +135,7 @@ async fn cleanup_copy_slot(
 async fn cleanup_copy_slot_on_exit(
   config : ConnectionConfig,
   source : Source,
-  oid : UInt,
+  oid : UInt32,
 ) -> Unit {
   cleanup_copy_slot(config, source, oid) catch {
     @async.TimeoutError

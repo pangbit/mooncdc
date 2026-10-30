@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -7,6 +7,7 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/core/string",
 }
+----
 
 ///|
 fn verify_result(output : String) -> Unit raise {
@@ -61,15 +62,15 @@ async fn main {
     @fs.write_file(root + "/" + name + ".stdout", output.stdout_bytes())
     @fs.write_file(root + "/" + name + ".stderr", output.stderr())
     records.push({
-      "name": name.to_json(),
-      "program": program.to_json(),
-      "args": args.to_json(),
-      "env": extra.to_json(),
-      "exit_code": output.exit_code().to_json(),
+      "name": Json::Json(name),
+      "program": Json::Json(program),
+      "args": Json::Json(args),
+      "env": Json::Json(extra),
+      "exit_code": Json::Json(output.exit_code()),
     })
     @fs.write_file(
       root + "/commands.json",
-      records.to_json().stringify(indent=2),
+      Json::Json(records).stringify(indent=2),
     )
     println("CHECK: \{name} exit=\{output.exit_code()}")
     output
@@ -79,7 +80,10 @@ async fn main {
   run("source-diff", "git", ["diff", "--binary"], Map([])).check()
   let files = @shell.Cmd(
     "git",
-    ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".", ":(exclude)docs/reports/evidence"],
+    [
+      "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".",
+      ":(exclude)docs/reports/evidence",
+    ],
     cwd=repo,
   ).output()
   files.check()
@@ -133,7 +137,7 @@ async fn main {
       ("pg18", "postgres:18.6", "/var/lib/postgresql"),
     ] {
     services[name] = {
-      "image": image.to_json(),
+      "image": Json::Json(image),
       "environment": {
         "POSTGRES_USER": "cdc",
         "POSTGRES_PASSWORD": "mooncdc-test-only",
@@ -141,7 +145,7 @@ async fn main {
         "POSTGRES_INITDB_ARGS": "--auth-host=scram-sha-256",
       },
       "ports": [{ "host_ip": "127.0.0.1", "target": 5432, "published": "0" }],
-      "tmpfs": [mount.to_json()],
+      "tmpfs": [Json::Json(mount)],
       "command": [
         "postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=16",
         "-c", "max_wal_senders=16", "-c", "wal_sender_timeout=5s",
@@ -158,7 +162,7 @@ async fn main {
   let compose = root + "/compose.json"
   @fs.write_file(
     compose,
-    Json::object({ "services": services.to_json() }).stringify(indent=2),
+    Json::object({ "services": Json::Json(services) }).stringify(indent=2),
   )
   let prefix = ["compose", "-p", project, "-f", compose]
   defer {

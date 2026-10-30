@@ -1,5 +1,5 @@
 ///|
-fn validate_copy_connections(value : Int) -> Unit raise {
+fn validate_copy_connections(value : Int32) -> Unit raise {
   if value <= 0 || value > 256 {
     raise InvalidConfig("snapshot copy connections must be between 1 and 256")
   }
@@ -15,7 +15,7 @@ priv enum CtidRange {
 ///|
 // Storage size is observed at planning time, not at the imported MVCC snapshot.
 // Keep the first and last ranges open, including the one-range case.
-fn ctid_ranges(blocks : UInt64, partitions : Int) -> Array[CtidRange] raise {
+fn ctid_ranges(blocks : UInt64, partitions : Int32) -> Array[CtidRange] raise {
   if partitions <= 0 || partitions > 1024 || blocks > 0xffffffffUL {
     raise InvalidConfig("invalid CTID planning limit")
   }
@@ -67,8 +67,8 @@ priv struct SnapshotCopyJob {
 ///|
 fn snapshot_copy_partition_target(
   estimates : Array[CopyEstimate],
-  connections : Int,
-) -> Int raise {
+  connections : Int32,
+) -> Int32 raise {
   validate_copy_connections(connections)
   if estimates.all(estimate => estimate.blocks == 0UL) {
     return 0
@@ -94,7 +94,7 @@ fn snapshot_copy_partition_target(
 ///|
 fn snapshot_copy_jobs(
   estimates : Array[CopyEstimate],
-  connections : Int,
+  connections : Int32,
 ) -> Array[SnapshotCopyJob] raise {
   let target = snapshot_copy_partition_target(estimates, connections)
   let mut weight = 0.0
@@ -128,10 +128,10 @@ fn snapshot_copy_jobs(
 ///|
 async fn Connection::copy_snapshot_cursor(
   self : Connection,
-  columns : Int,
-  batch_rows : Int,
-  timeout : Int,
-  max_batch_bytes : Int,
+  columns : Int32,
+  batch_rows : Int32,
+  timeout : Int32,
+  max_batch_bytes : Int32,
   activity : ActivityHandle?,
   consume : async (ReadOnlyArray[ReadOnlyArray[Value]]) -> Unit,
   before_read? : async (ActivityHandle?) -> Unit,
@@ -208,10 +208,10 @@ async fn Connection::copy_snapshot_parallel(
   relation : Relation,
   partitioned : Bool,
   row_filter : String?,
-  connections : Int,
-  batch_rows : Int,
-  max_frame_bytes : Int,
-  max_batch_bytes : Int,
+  connections : Int32,
+  batch_rows : Int32,
+  max_frame_bytes : Int32,
+  max_batch_bytes : Int32,
   planning_activity : ActivityHandle?,
   consume : async (ReadOnlyArray[ReadOnlyArray[Value]]) -> Unit,
   activity_control? : ApplyControl,

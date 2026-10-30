@@ -12,7 +12,7 @@ permissions:
 # The GitHub-hosted jobs below set no aggregate TasksMax/pids.max; a green run
 # here is separate evidence and must not claim that diagnostic's cgroup profile.
 env:
-  MOONBIT_TOOLCHAIN: '0.10.14+7d59c7ec9'
+  MOONBIT_TOOLCHAIN: '0.10.18+6c83a7f62'
 jobs:
   commit-subjects:
     runs-on: ubuntu-latest
@@ -44,8 +44,8 @@ jobs:
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh -o "$RUNNER_TEMP/install-moonbit.sh"
           bash "$RUNNER_TEMP/install-moonbit.sh" "$MOONBIT_TOOLCHAIN"
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
-          test "$("$HOME/.moon/bin/moon" version | sed -n '1p')" = 'moon 0.1.20260920 (914d7da 2026-09-20)'
-          test "$("$HOME/.moon/bin/moonc" -v)" = 'v0.10.14+7d59c7ec9 (2026-09-18)'
+          test "$("$HOME/.moon/bin/moon" version | sed -n '1p')" = 'moon 0.1.20261028 (e1e1f15 2026-10-28)'
+          test "$("$HOME/.moon/bin/moonc" -v)" = 'v0.10.18+6c83a7f62 (2026-10-28)'
       - run: moon update
       - run: moon run tools/codec-reference-test.mbtx
       - run: moon run tools/config-reference-test.mbtx
@@ -71,8 +71,8 @@ jobs:
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh -o "$RUNNER_TEMP/install-moonbit.sh"
           bash "$RUNNER_TEMP/install-moonbit.sh" "$MOONBIT_TOOLCHAIN"
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
-          test "$("$HOME/.moon/bin/moon" version | sed -n '1p')" = 'moon 0.1.20260920 (914d7da 2026-09-20)'
-          test "$("$HOME/.moon/bin/moonc" -v)" = 'v0.10.14+7d59c7ec9 (2026-09-18)'
+          test "$("$HOME/.moon/bin/moon" version | sed -n '1p')" = 'moon 0.1.20261028 (e1e1f15 2026-10-28)'
+          test "$("$HOME/.moon/bin/moonc" -v)" = 'v0.10.18+6c83a7f62 (2026-10-28)'
       - run: moon version --all
       - run: moon update
       - run: moon check . cmd/replicator internal/memory internal/yaml internal/saslprep --target native --deny-warn
@@ -111,7 +111,7 @@ jobs:
       - run: moon run tools/replicator-config-test.mbtx
       - run: moon run tools/connection-options-asan.mbtx
       - run: moon run tools/memory-sampler-asan.mbtx
-      - run: moon info --target native && moon fmt --check
+      - run: moon info --target native && moon fmt --check . tools/*.mbtx
       - run: git diff --exit-code -- '*.mbti'
       - run: moon doc && moon package --list
       - run: moon run tools/package-test.mbtx --target native
@@ -138,8 +138,8 @@ jobs:
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh -o "$RUNNER_TEMP/install-moonbit.sh"
           bash "$RUNNER_TEMP/install-moonbit.sh" "$MOONBIT_TOOLCHAIN"
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
-          test "$("$HOME/.moon/bin/moon" version | sed -n '1p')" = 'moon 0.1.20260920 (914d7da 2026-09-20)'
-          test "$("$HOME/.moon/bin/moonc" -v)" = 'v0.10.14+7d59c7ec9 (2026-09-18)'
+          test "$("$HOME/.moon/bin/moon" version | sed -n '1p')" = 'moon 0.1.20261028 (e1e1f15 2026-10-28)'
+          test "$("$HOME/.moon/bin/moonc" -v)" = 'v0.10.18+6c83a7f62 (2026-10-28)'
       - run: docker compose -p mooncdc-test -f integration/compose.yaml up -d --wait ${{ matrix.service }}
       - run: moon version --all
       - run: moon update

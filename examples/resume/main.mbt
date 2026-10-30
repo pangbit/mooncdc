@@ -19,8 +19,8 @@ async fn persist(path : String, tx : @cdc.Transaction) -> Bool {
     }
   }
   entries.push({
-    "id": tx.id.to_json(),
-    "business_ids": business_ids.to_json(),
+    "id": Json::Json(tx.id),
+    "business_ids": Json::Json(business_ids),
     "transaction": tx.to_json(),
   })
   let file = @fs.open(
@@ -30,7 +30,7 @@ async fn persist(path : String, tx : @cdc.Transaction) -> Bool {
     permission=0o600,
   )
   defer file.close()
-  file.write(entries.to_json().stringify())
+  file.write(Json::Json(entries).stringify())
   file.sync()
   @fs.rename(path + ".tmp", path)
   // The caller passes <directory>/events.json, so syncing the parent is explicit.

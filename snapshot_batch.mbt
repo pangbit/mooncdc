@@ -3,13 +3,13 @@
 // only the wait on an owned read task, never the partially consumed wire frame.
 async fn Connection::fetch_snapshot_rows(
   self : Connection,
-  maximum_rows : Int,
-  columns : Int,
-  timeout : Int,
+  maximum_rows : Int32,
+  columns : Int32,
+  timeout : Int32,
   batch : BatchRuntime,
   activity : ActivityHandle?,
   consume : async (ReadOnlyArray[ReadOnlyArray[Value]]) -> Unit,
-) -> Int {
+) -> Int32 {
   // One sample for the entire FETCH, including result consumption/backpressure
   // and cancellation, not one per row/frame or per adaptive flush.
   let query_started = @bench.monotonic_clock_start()

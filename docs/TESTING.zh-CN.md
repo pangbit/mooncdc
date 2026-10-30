@@ -16,7 +16,8 @@
 
 ## 工具链与离线本地门槛
 
-已接受的工具链为 `moonc v0.10.14+7d59c7ec9` 和 `moon 0.1.20260920 (914d7da)`。
+开发和 CI 工具链为 `moonc v0.10.18+6c83a7f62` 和 `moon 0.1.20261028 (e1e1f15)`。
+历史发布结果仍以各次运行记录的工具链为准。
 依赖固定在 `moon.mod`。网络获准时可单独用 `moon update` 准备依赖；以下命令使用已有
 缓存，不发布包。
 
@@ -31,8 +32,8 @@ moon test tools/publish-check.mbtx --target native --frozen
 moon test tools/cli-active-promotion-test.mbtx --target native --frozen
 moon test tools/active-store-promotion-test.mbtx --target native --frozen
 python3 -B tools/package-footprint-sample_test.py
-moon info --target native --frozen && moon fmt
-moon fmt --check
+moon info --target native --frozen && moon fmt . tools/*.mbtx
+moon fmt --check . tools/*.mbtx
 moon package --list --frozen
 moon package --frozen
 ```
@@ -43,7 +44,8 @@ moon package --frozen
 `tools/fixtures/` 中的 active-promotion 解析器夹具是自包含模拟输入。
 旧 runtime-only 模式已停用，正常 full 模式构建当前源码。
 
-本工具链在 Linux 编译时需要已记录的 64 MiB soft stack。在构建子 shell 使用
+验证升级工具链时保留此前已验证的 Linux 编译 64 MiB soft stack；这不是重新测得的最低值。
+在构建子 shell 使用
 `ulimit -S -s 65536`，然后在另一个子 shell 以 8 MiB 执行已构建测试。
 `moon test ... --build-only` 与 `moon test ...` 应采用相同输入和目标目录，
 避免运行时在较小栈上重新编译。仅发现 native 单测身份，不证明环境开关控制的真实测试体已运行。

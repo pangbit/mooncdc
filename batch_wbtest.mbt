@@ -38,7 +38,7 @@ async test "adaptive snapshot batches resize flush deadlines and retain partiall
       defer server.close()
       let control = ApplyControl()
       let mut capacity = 1000UL
-      let sizes : Array[Int] = []
+      let sizes : Array[Int32] = []
       let values : Array[String] = []
       let read : async (@memory.Snapshot?) -> @memory.Refresh = _ => {
         snapshot: { used: 0UL, total: capacity, source: @memory.System, },
@@ -111,7 +111,7 @@ async test "adaptive snapshot batches resize flush deadlines and retain partiall
               }),
             }
             defer connection.close()
-            let run = async fn() -> Int {
+            let run = async fn() -> Int32 {
               batch.governor.with_slots(1UL, () => {
                 connection.fetch_snapshot_rows(4, 1, 1000, batch, None, rows => {
                   sizes.push(rows.length())

@@ -1,6 +1,6 @@
 ///|
 priv struct CleanupDestination {
-  bounds : Map[UInt, SchemaId]
+  bounds : Map[UInt32, SchemaId]
   mut fail : Bool
 }
 
@@ -82,7 +82,7 @@ impl Destination for CleanupDestination with fn flush(_self) {
 priv struct CleanupSchemaStore {
   inner : &SchemaStore
   mut fail : Bool
-  calls : Array[ReadOnlyArray[(UInt, SchemaId)]]
+  calls : Array[ReadOnlyArray[(UInt32, SchemaId)]]
 }
 
 ///|
@@ -123,7 +123,7 @@ async test "schema cleanup retains replay DDL endpoints and excludes unowned tab
         guard ddl_fixture() is Object(payload) else {
           fail("fixture must be an object")
         }
-        payload["oid"] = oid.to_json()
+        payload["oid"] = Json::Json(oid)
         schemas.put(
           parse_schema(Json::object(payload), {
             commit_lsn: { value: version, },

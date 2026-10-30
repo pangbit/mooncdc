@@ -1,13 +1,13 @@
 ///|
 fn ddl_fixture(
-  identity? : String = "d",
-  command? : String = "ALTER TABLE",
+  identity~ : String = "d",
+  command~ : String = "ALTER TABLE",
   publication? : String,
 ) -> Json {
   {
-    "command_tag": command.to_json(),
+    "command_tag": Json::Json(command),
     "publication_name": match publication {
-      Some(value) => value.to_json()
+      Some(value) => Json::Json(value)
       None => Json::null()
     },
     "nspname": "public",
@@ -15,7 +15,7 @@ fn ddl_fixture(
     "oid": 42,
     "identity": {
       "primary_key_attnums": [3, 1],
-      "relreplident": identity.to_json(),
+      "relreplident": Json::Json(identity),
       "replica_identity_index_attnums": [2],
     },
     "columns": [

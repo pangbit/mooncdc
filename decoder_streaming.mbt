@@ -2,9 +2,9 @@
 priv struct StreamBuffer {
   mut changes : Array[Change]
   // First change offset, in arrival order rather than numeric XID order.
-  mut subtransactions : Array[(UInt, Int)]
-  mut bytes : Int
-  mut events : Int
+  mut subtransactions : Array[(UInt32, Int32)]
+  mut bytes : Int32
+  mut events : Int32
 }
 
 ///|
@@ -12,15 +12,15 @@ priv struct StreamBuffer {
 // enter a Subscription queue or become an acknowledgement position.
 priv struct StreamDecoder {
   decoder : Decoder
-  streams : Map[UInt, StreamBuffer]
-  mut active : UInt?
-  mut bytes : Int
-  mut events : Int
-  stream_limit : Int
+  streams : Map[UInt32, StreamBuffer]
+  mut active : UInt32?
+  mut bytes : Int32
+  mut events : Int32
+  stream_limit : Int32
 }
 
 ///|
-fn StreamDecoder::new(decoder : Decoder, stream_limit : Int) -> StreamDecoder {
+fn StreamDecoder::new(decoder : Decoder, stream_limit : Int32) -> StreamDecoder {
   {
     decoder,
     streams: Map([]),
@@ -35,7 +35,7 @@ fn StreamDecoder::new(decoder : Decoder, stream_limit : Int) -> StreamDecoder {
 fn StreamDecoder::charge(
   self : StreamDecoder,
   stream : StreamBuffer,
-  count : Int,
+  count : Int32,
 ) -> Unit raise {
   if stream.bytes > self.decoder.limit - count ||
     self.bytes > self.decoder.limit - count {
@@ -49,7 +49,7 @@ fn StreamDecoder::charge(
 fn StreamDecoder::decode(
   self : StreamDecoder,
   data : Bytes,
-) -> (UInt, Lsn, Lsn, Int64, ReadOnlyArray[Change])? raise {
+) -> (UInt32, Lsn, Lsn, Int64, ReadOnlyArray[Change])? raise {
   let c = Cursor::new(data)
   let tag = c.byte()
   match tag {

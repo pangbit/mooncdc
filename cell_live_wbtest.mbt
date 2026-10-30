@@ -2,8 +2,8 @@
 fn assert_typed_row(
   relation : Relation,
   row : ReadOnlyArray[Value],
-  enum_array : UInt,
-  enum_scalar : UInt,
+  enum_array : UInt32,
+  enum_scalar : UInt32,
 ) -> Unit raise {
   let values : Map[String, Cell] = Map([])
   for i, column in relation.columns {

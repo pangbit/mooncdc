@@ -5,12 +5,12 @@
 pub(all) enum TableSyncCopy {
   IncludeAllTables
   SkipAllTables
-  IncludeTables(ReadOnlyArray[UInt])
-  SkipTables(ReadOnlyArray[UInt])
+  IncludeTables(ReadOnlyArray[UInt32])
+  SkipTables(ReadOnlyArray[UInt32])
 } derive(Eq, Debug)
 
 ///|
-fn TableSyncCopy::should_copy_table(self : TableSyncCopy, oid : UInt) -> Bool {
+fn TableSyncCopy::should_copy_table(self : TableSyncCopy, oid : UInt32) -> Bool {
   match self {
     IncludeAllTables => true
     SkipAllTables => false
@@ -24,7 +24,7 @@ fn TableSyncCopy::validate(self : TableSyncCopy) -> Unit raise {
   match self {
     IncludeAllTables | SkipAllTables => ()
     IncludeTables(ids) | SkipTables(ids) => {
-      let seen : Map[UInt, Bool] = Map([])
+      let seen : Map[UInt32, Bool] = Map([])
       for oid in ids {
         if seen.contains(oid) {
           raise InvalidConfig("duplicate table_sync_copy table OID")

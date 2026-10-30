@@ -112,7 +112,7 @@ test "report envelopes use UTF8 byte lengths event identity and stable redacted 
   )
   assert_eq(@json.parse(lines[1]), {
     "type": "event",
-    "length": @utf8.encode(lines[2].to_owned()).length().to_json(),
+    "length": Json::Json(@utf8.encode(lines[2].to_owned()).length()),
   })
   guard @json.parse(lines[2])
     is {
@@ -156,10 +156,10 @@ async test "controlled HTTP reports preserve endpoint headers and do not propaga
       let port = server.addr.port()
       let config = parse_config(
         merge_config(fixture(), {
-          "sentry": { "dsn": "http://public@127.0.0.1:\{port}/42".to_json() },
+          "sentry": { "dsn": Json::Json("http://public@127.0.0.1:\{port}/42") },
           "supabase": {
             "project_ref": "project",
-            "api_url": "http://127.0.0.1:\{port}".to_json(),
+            "api_url": Json::Json("http://127.0.0.1:\{port}"),
             "api_key": "fake-key",
           },
         }),
@@ -218,7 +218,7 @@ async test "report transport timeout response limits and cancellation join owned
         merge_config(fixture(), {
           "supabase": {
             "project_ref": "project",
-            "api_url": "http://127.0.0.1:\{server.addr.port()}".to_json(),
+            "api_url": Json::Json("http://127.0.0.1:\{server.addr.port()}"),
             "api_key": "fake-key",
           },
         }),
@@ -292,7 +292,7 @@ priv struct ReportingTestStore {
   mut record : Bytes?
   mut reject_save : Bool
   mut reject_load : Bool
-  mut saves : Int
+  mut saves : Int32
 }
 
 ///|
@@ -366,7 +366,7 @@ async test "reporting store reports new terminal states after persistence and su
       merge_config(fixture(), {
         "supabase": {
           "project_ref": "project",
-          "api_url": "http://127.0.0.1:\{server.addr.port()}".to_json(),
+          "api_url": Json::Json("http://127.0.0.1:\{server.addr.port()}"),
           "api_key": "fake-key",
         },
       }),

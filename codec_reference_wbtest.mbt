@@ -1,7 +1,7 @@
 ///|
 priv struct CodecVector {
-  selector : Int
-  oid : UInt
+  selector : Int32
+  oid : UInt32
   input : String
   result : Json?
 } derive(ToJson, @json.FromJson)
@@ -10,7 +10,7 @@ priv struct CodecVector {
 fn normalize_date(date : PgDate) -> Json {
   match date {
     Finite(year~, month~, day~) =>
-      [year.to_json(), month.to_json(), day.to_json()]
+      [Json::Json(year), Json::Json(month), Json::Json(day)]
     PosInfinity => "infinity"
     NegInfinity => "-infinity"
   }
@@ -18,7 +18,7 @@ fn normalize_date(date : PgDate) -> Json {
 
 ///|
 fn normalize_time(time : PgTime) -> Json {
-  [time.seconds.to_json(), time.nanoseconds.to_json()]
+  [Json::Json(time.seconds), Json::Json(time.nanoseconds)]
 }
 
 ///|
@@ -37,7 +37,7 @@ fn normalize_timestamp(value : PgTimestamp) -> Json {
 fn normalize_json(value : Json) -> Json {
   match value {
     Number(number, repr~) =>
-      ["number", repr.unwrap_or(number.to_string()).to_json()]
+      ["number", Json::Json(repr.unwrap_or(number.to_string()))]
     Object(fields) => {
       let normalized : Map[String, Json] = Map([])
       for key, value in fields {
@@ -45,7 +45,7 @@ fn normalize_json(value : Json) -> Json {
       }
       ["object", Json::object(normalized)]
     }
-    Array(items) => ["array", items.map(normalize_json).to_json()]
+    Array(items) => ["array", Json::Json(items.map(normalize_json))]
     _ => value
   }
 }
@@ -55,38 +55,42 @@ fn normalize_cell(value : Cell) -> Json {
   match value {
     SqlNull => Json::null()
     ToastUnchanged => "toast"
-    Bool(v) => ["bool", v.to_json()]
-    String(v) => ["string", v.to_json()]
-    I16(v) => ["i16", v.to_string().to_json()]
-    I32(v) => ["i32", v.to_string().to_json()]
-    I64(v) => ["i64", v.to_string().to_json()]
-    U32(v) => ["u32", v.to_string().to_json()]
+    Bool(v) => ["bool", Json::Json(v)]
+    String(v) => ["string", Json::Json(v)]
+    I16(v) => ["i16", Json::Json(v.to_string())]
+    I32(v) => ["i32", Json::Json(v.to_string())]
+    I64(v) => ["i64", Json::Json(v.to_string())]
+    U32(v) => ["u32", Json::Json(v.to_string())]
     F32(v) =>
       [
         "f32",
-        (if v.is_nan() {
-          "NaN"
-        } else {
-          v.reinterpret_as_uint().to_string(radix=16)
-        }).to_json(),
+        Json::Json(
+          if v.is_nan() {
+            "NaN"
+          } else {
+            v.reinterpret_as_uint().to_string(radix=16)
+          },
+        ),
       ]
     F64(v) =>
       [
         "f64",
-        (if v.is_nan() {
-          "NaN"
-        } else {
-          v.reinterpret_as_uint64().to_string(radix=16)
-        }).to_json(),
+        Json::Json(
+          if v.is_nan() {
+            "NaN"
+          } else {
+            v.reinterpret_as_uint64().to_string(radix=16)
+          },
+        ),
       ]
-    Numeric(v) => ["numeric", v.to_json()]
-    Bytes(v) => ["bytes", @crypto.bytes_to_hex_string(v).to_json()]
-    Uuid(v) => ["uuid", @crypto.bytes_to_hex_string(v).to_json()]
+    Numeric(v) => ["numeric", Json::Json(v)]
+    Bytes(v) => ["bytes", Json::Json(@crypto.bytes_to_hex_string(v))]
+    Uuid(v) => ["uuid", Json::Json(@crypto.bytes_to_hex_string(v))]
     Json(v) => ["json", normalize_json(v)]
     Date(v) => ["date", normalize_date(v)]
     Time(v) => ["time", normalize_time(v)]
     TimeTz(v, offset_seconds~) =>
-      ["timetz", normalize_time(v), offset_seconds.to_json()]
+      ["timetz", normalize_time(v), Json::Json(offset_seconds)]
     Timestamp(v) => ["timestamp", normalize_timestamp(v)]
     TimestampTz(v) => ["timestamptz", normalize_timestamp(v)]
     Array(values) =>
@@ -96,7 +100,7 @@ fn normalize_cell(value : Cell) -> Json {
 
 ///|
 fn codec_vectors() -> Array[CodecVector] {
-  let pairs : Array[(UInt, UInt, Array[String])] = [
+  let pairs : Array[(UInt32, UInt32, Array[String])] = [
     (16U, 1000U, ["t", "f", "true", ""]),
     (21U, 1005U, ["-32768", "32767", "32768", "1_0", "0x10"]),
     (23U, 1007U, ["2147483647", "-2147483648", "2147483648", "+42"]),
@@ -267,7 +271,7 @@ async test "codec reference process worker" {
         }
         if actual != row.result.unwrap() {
           println(
-            "CODEC mismatch oid=\{row.oid} input=\{row.input.to_json().stringify()} actual=\{actual.stringify()} reference=\{row.result.unwrap().stringify()}",
+            "CODEC mismatch oid=\{row.oid} input=\{Json::Json(row.input).stringify()} actual=\{actual.stringify()} reference=\{row.result.unwrap().stringify()}",
           )
           mismatches += 1
         }

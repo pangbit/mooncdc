@@ -1,8 +1,8 @@
 ///|
 fn configcat_fixture(
   base : String,
-  custom? : Bool = true,
-  key? : String = "abcdefghijklmnopqrstuv/ABCDEFGHIJKLMNOPQRSTUV",
+  custom~ : Bool = true,
+  key~ : String = "abcdefghijklmnopqrstuv/ABCDEFGHIJKLMNOPQRSTUV",
 ) -> ConfigCatOptions {
   {
     sdk_key: key,
@@ -27,7 +27,7 @@ async test "ConfigCat configuration preserves fixed defaults keys user and offli
       merge_config(fixture(), {
         "supabase": {
           "project_ref": "test-project",
-          "configcat_sdk_key": key.to_json(),
+          "configcat_sdk_key": Json::Json(key),
         },
       }),
     )
@@ -208,7 +208,7 @@ async test "ConfigCat V6 governance custom and proxy preferences control bounded
       let stay = custom && (proxy || redirect != 2)
       let first : Json = {
         "f": {},
-        "p": { "u": new_url.to_json(), "r": redirect.to_json() },
+        "p": { "u": Json::Json(new_url), "r": Json::Json(redirect) },
         "fixture": "old",
       }
       let last : Json = { "f": {}, "fixture": "new" }

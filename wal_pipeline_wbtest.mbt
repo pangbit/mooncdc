@@ -2,7 +2,7 @@
 priv struct WalBoundaryDestination {
   status : WriteStatus
   batches : Array[WalBatch]
-  mut flushes : Int
+  mut flushes : Int32
 }
 
 ///|

@@ -1,5 +1,5 @@
 ///|
-fn begin_fixture(lsn? : UInt64 = 100) -> Bytes {
+fn begin_fixture(lsn~ : UInt64 = 100) -> Bytes {
   let b = @buffer.Buffer()
   b.write_byte(b'B')
   b.write_uint64_be(lsn)
@@ -9,7 +9,7 @@ fn begin_fixture(lsn? : UInt64 = 100) -> Bytes {
 }
 
 ///|
-fn commit_fixture(lsn? : UInt64 = 100) -> Bytes {
+fn commit_fixture(lsn~ : UInt64 = 100) -> Bytes {
   let b = @buffer.Buffer()
   b.write_byte(b'C')
   b.write_byte(b'\x00')

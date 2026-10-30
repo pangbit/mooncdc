@@ -3,12 +3,12 @@ priv struct ChHttp {
   endpoint : String
   user : String
   password : String
-  timeout_ms : Int
-  connectivity_ms : Int
-  schema_ms : Int
-  ddl_ms : Int
-  insert_ms : Int
-  epsilon_ms : Int
+  timeout_ms : Int32
+  connectivity_ms : Int32
+  schema_ms : Int32
+  ddl_ms : Int32
+  insert_ms : Int32
+  epsilon_ms : Int32
 }
 
 ///|
@@ -24,12 +24,12 @@ fn ChHttp::new(
   endpoint : String,
   user : String,
   password : String,
-  timeout_ms : Int,
-  connectivity_ms? : Int = 8000,
-  schema_ms? : Int = 16000,
-  ddl_ms? : Int = 128000,
-  insert_ms? : Int = 256000,
-  epsilon_ms? : Int = 4000,
+  timeout_ms : Int32,
+  connectivity_ms~ : Int32 = 8000,
+  schema_ms~ : Int32 = 16000,
+  ddl_ms~ : Int32 = 128000,
+  insert_ms~ : Int32 = 256000,
+  epsilon_ms~ : Int32 = 4000,
 ) -> ChHttp raise {
   if !(endpoint.has_prefix("http://") || endpoint.has_prefix("https://")) ||
     endpoint.contains("?") ||
@@ -66,7 +66,7 @@ fn ChHttp::new(
 }
 
 ///|
-fn ChHttp::server_budget(self : ChHttp, operation : ChOperation) -> Int {
+fn ChHttp::server_budget(self : ChHttp, operation : ChOperation) -> Int32 {
   match operation {
     Connectivity => self.connectivity_ms
     SchemaQuery => self.schema_ms
@@ -76,7 +76,7 @@ fn ChHttp::server_budget(self : ChHttp, operation : ChOperation) -> Int {
 }
 
 ///|
-fn ch_timeout_seconds(milliseconds : Int) -> String {
+fn ch_timeout_seconds(milliseconds : Int32) -> String {
   // Zero disables several ClickHouse server limits, so floor at one second.
   (milliseconds / 1000).max(1).to_string()
 }
@@ -107,9 +107,9 @@ fn ChHttp::query_settings(self : ChHttp, operation : ChOperation) -> String {
 async fn ChHttp::query(
   self : ChHttp,
   sql : String,
-  body? : Bytes = b"",
-  insert? : Bool = false,
-  operation? : ChOperation = Ddl,
+  body~ : Bytes = b"",
+  insert~ : Bool = false,
+  operation~ : ChOperation = Ddl,
 ) -> String {
   let operation = if insert { InsertRequest } else { operation }
   let timeout = (self.server_budget(operation) + self.epsilon_ms).min(
@@ -175,7 +175,7 @@ async fn ChHttp::insert(
   table : String,
   layout : ChLayout,
   rows : ReadOnlyArray[Bytes],
-  max_bytes : Int,
+  max_bytes : Int32,
   token : String?,
 ) -> Unit {
   if max_bytes <= 0 {

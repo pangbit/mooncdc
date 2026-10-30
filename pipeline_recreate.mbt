@@ -42,7 +42,7 @@ async fn PipelineStore::recreate_slot(
   self : PipelineStore,
   conn : Connection,
   failover : Bool,
-  boundary? : async (String) -> Unit = _ => (),
+  boundary~ : async (String) -> Unit = _ => (),
 ) -> Unit {
   let path = self.path + ".checkpoint"
   let checkpoint_lock = record_lock(path, self.session)

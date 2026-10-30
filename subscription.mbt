@@ -20,15 +20,15 @@ pub struct Subscription {
   priv queue : Array[Transaction]
   priv wal_queue : Array[WalBatch]
   priv wal_events : Bool
-  priv pending : Map[Int, Pending]
+  priv pending : Map[Int32, Pending]
   priv ready : @async.CondVar
   priv ack_mutex : @async.Mutex
   priv send_mutex : @async.Mutex
-  priv mut sequence : Int
-  priv mut acknowledged : Int
-  priv mut reconnects : Int
+  priv mut sequence : Int32
+  priv mut acknowledged : Int32
+  priv mut reconnects : Int32
   priv mut closed : Bool
-  priv max_pending : Int
+  priv max_pending : Int32
   priv binary : Bool
   priv messages : Bool
   priv protocol : PgOutputProtocol
@@ -145,7 +145,7 @@ pub fn Subscription::diagnostics(self : Subscription) -> Diagnostics {
 ///|
 async fn Subscription::feedback(
   self : Subscription,
-  request_reply? : Bool = false,
+  request_reply~ : Bool = false,
 ) -> Unit {
   self.send_mutex.acquire()
   defer self.send_mutex.release()
@@ -348,11 +348,11 @@ async fn Subscription::read_stream(
 ///|
 async fn Subscription::receive(
   self : Subscription,
-  max_bytes : Int,
-  max_events : Int,
-  max_metadata : Int,
-  max_reconnects : Int,
-  delay_ms : Int,
+  max_bytes : Int32,
+  max_events : Int32,
+  max_metadata : Int32,
+  max_reconnects : Int32,
+  delay_ms : Int32,
 ) -> Unit {
   for ;; {
     self.read_stream(Decoder::new(max_bytes, max_events, max_metadata)) catch {
@@ -427,27 +427,27 @@ async fn[T] subscribe_impl(
   start~ : Start,
   checkpoint_path~ : String,
   consume : async (Subscription) -> T,
-  max_frame_bytes? : Int = 16777216,
-  max_transaction_bytes? : Int = 67108864,
-  max_transaction_events? : Int = 100000,
-  max_pending_transactions? : Int = 16,
-  max_metadata_entries? : Int = 4096,
-  heartbeat_ms? : Int = 1000,
-  max_reconnects? : Int = 3,
-  reconnect_delay_ms? : Int = 250,
-  binary? : Bool = false,
-  messages? : Bool = false,
-  protocol? : PgOutputProtocol = V1,
+  max_frame_bytes~ : Int32 = 16777216,
+  max_transaction_bytes~ : Int32 = 67108864,
+  max_transaction_events~ : Int32 = 100000,
+  max_pending_transactions~ : Int32 = 16,
+  max_metadata_entries~ : Int32 = 4096,
+  heartbeat_ms~ : Int32 = 1000,
+  max_reconnects~ : Int32 = 3,
+  reconnect_delay_ms~ : Int32 = 250,
+  binary~ : Bool = false,
+  messages~ : Bool = false,
+  protocol~ : PgOutputProtocol = V1,
   nontransactional_message? : async (LogicalMessage) -> Unit,
-  backpressure? : Bool = false,
+  backpressure~ : Bool = false,
   state_session? : StateSession,
-  worker_retry? : Bool = false,
+  worker_retry~ : Bool = false,
   pipeline_source? : Source,
   activity_control? : ApplyControl,
   memory? : @memory.Monitor,
   batch_governor? : @memory.Governor,
-  wal_events? : Bool = false,
-  source_monitor_interval_ms? : Int,
+  wal_events~ : Bool = false,
+  source_monitor_interval_ms? : Int32,
 ) -> T {
   if wal_events && !worker_retry {
     raise InvalidConfig("WAL event delivery requires an outer worker retry")

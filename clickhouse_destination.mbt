@@ -15,13 +15,13 @@ pub struct ClickHouseDestination {
   priv publication : String
   priv schemas : &SchemaStore
   priv engine : ClickHouseEngine
-  priv max_insert_bytes : Int
+  priv max_insert_bytes : Int32
   priv mutex : @async.Mutex
   priv mut session : StateSession?
   priv mut running : Bool
-  priv copies : Map[UInt, ReplicatedSchema]
-  priv attempts : Map[UInt, String]
-  priv tables : Map[UInt, ChTable]
+  priv copies : Map[UInt32, ReplicatedSchema]
+  priv attempts : Map[UInt32, String]
+  priv tables : Map[UInt32, ChTable]
 }
 
 ///|
@@ -49,14 +49,14 @@ pub fn ClickHouseDestination::new(
   database~ : String,
   publication~ : String,
   schema_store~ : &SchemaStore,
-  engine? : ClickHouseEngine = ReplacingMergeTree,
-  max_insert_bytes? : Int = 67108864,
-  timeout_ms? : Int = 260000,
-  connectivity_timeout_ms? : Int = 8000,
-  schema_timeout_ms? : Int = 16000,
-  ddl_timeout_ms? : Int = 128000,
-  insert_timeout_ms? : Int = 256000,
-  client_timeout_epsilon_ms? : Int = 4000,
+  engine~ : ClickHouseEngine = ReplacingMergeTree,
+  max_insert_bytes~ : Int32 = 67108864,
+  timeout_ms~ : Int32 = 260000,
+  connectivity_timeout_ms~ : Int32 = 8000,
+  schema_timeout_ms~ : Int32 = 16000,
+  ddl_timeout_ms~ : Int32 = 128000,
+  insert_timeout_ms~ : Int32 = 256000,
+  client_timeout_epsilon_ms~ : Int32 = 4000,
 ) -> ClickHouseDestination raise {
   if database.is_empty() || database.contains("\u0000") || max_insert_bytes <= 0 {
     raise InvalidConfig("invalid ClickHouse database or insert limit")
@@ -332,7 +332,7 @@ async fn ClickHouseDestination::write_events(
   self : ClickHouseDestination,
   tx : Transaction,
 ) -> WriteStatus {
-  let current : Map[UInt, SchemaSnapshot] = Map([])
+  let current : Map[UInt32, SchemaSnapshot] = Map([])
   for index, change in tx.changes {
     if change is Message(message) {
       if message.schema_snapshot(

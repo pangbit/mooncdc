@@ -7,19 +7,19 @@ import {
 }
 
 // Values
-pub async fn copy_snapshot(ConnectionConfig, slot~ : String, publication~ : String, async (SnapshotEvent) -> Unit, batch_rows? : Int, copy_connections? : Int, max_frame_bytes? : Int, max_batch_bytes? : Int, slot_failover? : Bool) -> SnapshotPosition
+pub async fn copy_snapshot(ConnectionConfig, slot~ : String, publication~ : String, async (SnapshotEvent) -> Unit, batch_rows? : Int32, copy_connections? : Int32, max_frame_bytes? : Int32, max_batch_bytes? : Int32, slot_failover? : Bool) -> SnapshotPosition
 
-pub async fn copy_snapshot_to(ConnectionConfig, &Destination, slot~ : String, publication~ : String, batch_rows? : Int, copy_connections? : Int, max_frame_bytes? : Int, max_batch_bytes? : Int, schema_store? : &SchemaStore, slot_failover? : Bool) -> SnapshotPosition
+pub async fn copy_snapshot_to(ConnectionConfig, &Destination, slot~ : String, publication~ : String, batch_rows? : Int32, copy_connections? : Int32, max_frame_bytes? : Int32, max_batch_bytes? : Int32, schema_store? : &SchemaStore, slot_failover? : Bool) -> SnapshotPosition
 
 pub async fn pipeline_status(String) -> PipelineStatus
 
-pub async fn run_pipeline(ConnectionConfig, &Destination, publication~ : String, destination_id~ : String, control~ : ApplyControl, state_path? : String, state_store? : &StateStore, slot_prefix? : String, copy_concurrency? : Int, copy_connections_per_table? : Int, table_sync_monitor_refresh_interval_ms? : Int, batch_rows? : Int, schema_store? : &SchemaStore, table_retry_delay_ms? : Int, max_table_retries? : Int, table_sync_copy? : TableSyncCopy, source_migrations? : Bool, slot_failover? : Bool, invalidated_slot_behavior? : InvalidatedSlotBehavior, memory_backpressure? : MemoryBackpressureConfig, batch? : BatchConfig, memory_refresh_interval_ms? : Int) -> Unit
+pub async fn run_pipeline(ConnectionConfig, &Destination, publication~ : String, destination_id~ : String, control~ : ApplyControl, state_path? : String, state_store? : &StateStore, slot_prefix? : String, copy_concurrency? : Int32, copy_connections_per_table? : Int32, table_sync_monitor_refresh_interval_ms? : Int32, batch_rows? : Int32, schema_store? : &SchemaStore, table_retry_delay_ms? : Int32, max_table_retries? : Int32, table_sync_copy? : TableSyncCopy, source_migrations? : Bool, slot_failover? : Bool, invalidated_slot_behavior? : InvalidatedSlotBehavior, memory_backpressure? : MemoryBackpressureConfig, batch? : BatchConfig, memory_refresh_interval_ms? : Int32) -> Unit
 
 pub async fn run_source_migrations(ConnectionConfig, control? : ApplyControl) -> Unit
 
 pub async fn state_store_status(&StateStore) -> PipelineStatus?
 
-pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, async (Subscription) -> T, checkpoint_path? : String, checkpoint_store? : &StateStore, max_frame_bytes? : Int, max_transaction_bytes? : Int, max_transaction_events? : Int, max_pending_transactions? : Int, max_metadata_entries? : Int, heartbeat_ms? : Int, max_reconnects? : Int, reconnect_delay_ms? : Int, binary? : Bool, messages? : Bool, protocol? : PgOutputProtocol, nontransactional_message? : async (LogicalMessage) -> Unit, backpressure? : Bool) -> T
+pub async fn[T] subscribe(ConnectionConfig, slot~ : String, publication~ : String, start~ : Start, async (Subscription) -> T, checkpoint_path? : String, checkpoint_store? : &StateStore, max_frame_bytes? : Int32, max_transaction_bytes? : Int32, max_transaction_events? : Int32, max_pending_transactions? : Int32, max_metadata_entries? : Int32, heartbeat_ms? : Int32, max_reconnects? : Int32, reconnect_delay_ms? : Int32, binary? : Bool, messages? : Bool, protocol? : PgOutputProtocol, nontransactional_message? : async (LogicalMessage) -> Unit, backpressure? : Bool) -> T
 
 pub fn validate_metrics_listen_address(String) -> Unit raise
 
@@ -27,9 +27,9 @@ pub async fn[T] with_destination(&Destination, async () -> T) -> T
 
 pub async fn[T] with_file_schema_store(String, identity~ : String, async (&SchemaStore) -> T) -> T
 
-pub async fn[T] with_health_server(ApplyControl, async () -> T, port? : Int, stall_timeout_ms? : Int) -> T
+pub async fn[T] with_health_server(ApplyControl, async () -> T, port? : Int32, stall_timeout_ms? : Int32) -> T
 
-pub async fn[T] with_metrics_server(ApplyControl, async () -> T, port? : Int, listen_address? : String, pipeline_id? : String, destination? : String, project? : String, stall_timeout_ms? : Int) -> T
+pub async fn[T] with_metrics_server(ApplyControl, async () -> T, port? : Int32, listen_address? : String, pipeline_id? : String, destination? : String, project? : String, stall_timeout_ms? : Int32) -> T
 
 pub async fn[T] with_state_schema_store(&StateStore, identity~ : String, async (&SchemaStore) -> T) -> T
 
@@ -78,17 +78,17 @@ pub struct ApplyControl {
 }
 pub fn ApplyControl::ApplyControl() -> Self
 pub fn ApplyControl::activities(Self) -> ReadOnlyArray[ActivitySnapshot]
-pub fn ApplyControl::health(Self, stall_timeout_ms? : Int) -> PipelineHealth raise
-pub fn ApplyControl::prometheus(Self, pipeline_id? : String, destination? : String, project? : String, stall_timeout_ms? : Int) -> String raise
-pub async fn ApplyControl::retry_table(Self, UInt) -> Bool
+pub fn ApplyControl::health(Self, stall_timeout_ms? : Int32) -> PipelineHealth raise
+pub fn ApplyControl::prometheus(Self, pipeline_id? : String, destination? : String, project? : String, stall_timeout_ms? : Int32) -> String raise
+pub async fn ApplyControl::retry_table(Self, UInt32) -> Bool
 pub fn ApplyControl::stop(Self) -> Unit
 
 pub struct BatchConfig {
   memory_budget_ratio : Float
   max_bytes : UInt64
-  max_fill_ms : Int
+  max_fill_ms : Int32
 }
-pub fn BatchConfig::new(memory_budget_ratio? : Float, max_bytes? : UInt64, max_fill_ms? : Int) -> Self
+pub fn BatchConfig::new(memory_budget_ratio? : Float, max_bytes? : UInt64, max_fill_ms? : Int32) -> Self
 
 pub(all) enum Cell {
   SqlNull
@@ -96,15 +96,15 @@ pub(all) enum Cell {
   Bool(Bool)
   String(String)
   I16(Int16)
-  I32(Int)
+  I32(Int32)
   I64(Int64)
-  U32(UInt)
+  U32(UInt32)
   F32(Float)
   F64(Double)
   Numeric(String)
   Date(PgDate)
   Time(PgTime)
-  TimeTz(PgTime, offset_seconds~ : Int)
+  TimeTz(PgTime, offset_seconds~ : Int32)
   Timestamp(PgTimestamp)
   TimestampTz(PgTimestamp)
   Uuid(Bytes)
@@ -139,10 +139,10 @@ pub async fn ClickHouseDestination::bind_snapshot_schema(Self, Relation, SchemaS
 pub async fn ClickHouseDestination::bind_state(Self, StateSession) -> Unit
 pub async fn ClickHouseDestination::finish_table_copy(Self, Relation) -> Unit
 pub async fn ClickHouseDestination::flush(Self) -> Unit
-pub fn ClickHouseDestination::new(endpoint~ : String, user~ : String, password~ : String, database~ : String, publication~ : String, schema_store~ : &SchemaStore, engine? : ClickHouseEngine, max_insert_bytes? : Int, timeout_ms? : Int, connectivity_timeout_ms? : Int, schema_timeout_ms? : Int, ddl_timeout_ms? : Int, insert_timeout_ms? : Int, client_timeout_epsilon_ms? : Int) -> Self raise
+pub fn ClickHouseDestination::new(endpoint~ : String, user~ : String, password~ : String, database~ : String, publication~ : String, schema_store~ : &SchemaStore, engine? : ClickHouseEngine, max_insert_bytes? : Int32, timeout_ms? : Int32, connectivity_timeout_ms? : Int32, schema_timeout_ms? : Int32, ddl_timeout_ms? : Int32, insert_timeout_ms? : Int32, client_timeout_epsilon_ms? : Int32) -> Self raise
 pub async fn ClickHouseDestination::release_state(Self) -> Unit
 pub async fn ClickHouseDestination::reset_table(Self, Relation, attempt~ : String) -> Unit
-pub async fn ClickHouseDestination::schema_retention(Self, UInt) -> SchemaId?
+pub async fn ClickHouseDestination::schema_retention(Self, UInt32) -> SchemaId?
 pub async fn ClickHouseDestination::shutdown(Self) -> Unit
 pub async fn ClickHouseDestination::startup(Self) -> Unit
 pub fn ClickHouseDestination::supports_wal_batches(Self) -> Bool
@@ -161,8 +161,8 @@ pub fn ClickHouseEngine::to_repr(Self) -> @debug.Repr
 
 pub struct Column {
   name : String
-  type_oid : UInt
-  type_modifier : Int
+  type_oid : UInt32
+  type_modifier : Int32
   key : Bool
 } derive(Eq, ToJson, @debug.Debug)
 pub fn Column::equal(Self, Self) -> Bool
@@ -191,15 +191,15 @@ pub fn ColumnPresenceReason::to_repr(Self) -> @debug.Repr
 pub(all) struct ConnectionConfig {
   host : String
   hostaddr : String?
-  port : Int
+  port : Int32
   user : String
   password : String
   database : String
   security : Security
-  timeout_ms : Int
+  timeout_ms : Int32
   keepalive : TcpKeepaliveConfig
 }
-pub fn ConnectionConfig::new(host~ : String, user~ : String, password? : String, database? : String, port? : Int, security? : Security, timeout_ms? : Int, hostaddr? : String, keepalive? : TcpKeepaliveConfig) -> Self raise
+pub fn ConnectionConfig::new(host~ : String, user~ : String, password? : String, database? : String, port? : Int32, security? : Security, timeout_ms? : Int32, hostaddr? : String, keepalive? : TcpKeepaliveConfig) -> Self raise
 
 pub struct DestinationEvents {
   commit_lsn : Lsn
@@ -207,16 +207,16 @@ pub struct DestinationEvents {
   session : String
   // private fields
 }
-pub fn DestinationEvents::event_id(Self, Int) -> String?
-pub fn DestinationEvents::replicated_schemas(Self, Int) -> ReadOnlyArray[ReplicatedSchema]
+pub fn DestinationEvents::event_id(Self, Int32) -> String?
+pub fn DestinationEvents::replicated_schemas(Self, Int32) -> ReadOnlyArray[ReplicatedSchema]
 
 pub struct Diagnostics {
-  reconnects : Int
+  reconnects : Int32
   received : Lsn
   durable : Lsn
   server_end : Lsn
-  outstanding_transactions : Int
-  queued_transactions : Int
+  outstanding_transactions : Int32
+  queued_transactions : Int32
   wal_lag_bytes : UInt64
 } derive(ToJson, @debug.Debug)
 pub fn Diagnostics::to_json(Self) -> Json
@@ -265,7 +265,7 @@ pub fn LogicalMessage::to_repr(Self) -> @debug.Repr
 pub struct Lsn {
   value : UInt64
 } derive(Compare, Eq, ToJson, @debug.Debug)
-pub fn Lsn::compare(Self, Self) -> Int
+pub fn Lsn::compare(Self, Self) -> Int32
 pub fn Lsn::equal(Self, Self) -> Bool
 pub fn Lsn::not_equal(Self, Self) -> Bool
 pub fn Lsn::op_ge(Self, Self) -> Bool
@@ -280,9 +280,9 @@ pub fn Lsn::to_string(Self) -> String
 pub struct MemoryBackpressureConfig {
   activate_threshold : Float
   resume_threshold : Float
-  refresh_interval_ms : Int
+  refresh_interval_ms : Int32
 }
-pub fn MemoryBackpressureConfig::new(activate_threshold? : Float, resume_threshold? : Float, refresh_interval_ms? : Int) -> Self
+pub fn MemoryBackpressureConfig::new(activate_threshold? : Float, resume_threshold? : Float, refresh_interval_ms? : Int32) -> Self
 
 pub(all) enum OldTuple {
   Key(ReadOnlyArray[Value])
@@ -294,7 +294,7 @@ pub fn OldTuple::to_json(Self) -> Json
 pub fn OldTuple::to_repr(Self) -> @debug.Repr
 
 pub(all) enum PgDate {
-  Finite(year~ : Int, month~ : Int, day~ : Int)
+  Finite(year~ : Int32, month~ : Int32, day~ : Int32)
   PosInfinity
   NegInfinity
 } derive(Eq, @debug.Debug)
@@ -311,8 +311,8 @@ pub fn PgOutputProtocol::not_equal(Self, Self) -> Bool
 pub fn PgOutputProtocol::to_repr(Self) -> @debug.Repr
 
 pub struct PgTime {
-  seconds : Int
-  nanoseconds : Int
+  seconds : Int32
+  nanoseconds : Int32
 } derive(Eq, @debug.Debug)
 pub fn PgTime::equal(Self, Self) -> Bool
 pub fn PgTime::not_equal(Self, Self) -> Bool
@@ -364,7 +364,7 @@ pub async fn PostgresStateStore::save(Self, String, StateRecord, Bytes) -> Unit
 pub impl StateStore for PostgresStateStore
 
 pub struct Relation {
-  oid : UInt
+  oid : UInt32
   namespace_ : String
   name : String
   replica_identity : Byte
@@ -393,11 +393,11 @@ pub fn ReplicatedSchema::with_schema(Self, SchemaSnapshot) -> Self raise
 
 pub struct SchemaColumn {
   name : String
-  type_oid : UInt
-  type_modifier : Int
-  ordinal : Int
+  type_oid : UInt32
+  type_modifier : Int32
+  ordinal : Int32
   nullable : Bool
-  primary_key_ordinal : Int?
+  primary_key_ordinal : Int32?
   default_expression : String?
 } derive(Eq, ToJson, @debug.Debug)
 pub fn SchemaColumn::equal(Self, Self) -> Bool
@@ -410,7 +410,7 @@ pub struct SchemaId {
   message_lsn : Lsn
 } derive(Compare, Eq, @debug.Debug)
 pub fn SchemaId::before_lsn(Lsn) -> Self raise
-pub fn SchemaId::compare(Self, Self) -> Int
+pub fn SchemaId::compare(Self, Self) -> Int32
 pub fn SchemaId::equal(Self, Self) -> Bool
 pub fn SchemaId::not_equal(Self, Self) -> Bool
 pub fn SchemaId::op_ge(Self, Self) -> Bool
@@ -439,7 +439,7 @@ pub fn SchemaPlan::to_repr(Self) -> @debug.Repr
 
 pub struct SchemaSnapshot {
   id : SchemaId
-  oid : UInt
+  oid : UInt32
   namespace_ : String
   name : String
   replica_identity : Byte
@@ -487,7 +487,7 @@ pub(all) enum StateRecord {
   Pipeline
   ReplicationCheckpoint
   Schemas
-  TableMetadata(UInt)
+  TableMetadata(UInt32)
 } derive(Eq, @debug.Debug)
 pub fn StateRecord::equal(Self, Self) -> Bool
 pub fn StateRecord::not_equal(Self, Self) -> Bool
@@ -497,21 +497,21 @@ pub struct StateSession {
   // private fields
 }
 pub fn StateSession::check(Self) -> Unit raise
-pub async fn StateSession::get_metadata(Self, UInt) -> Json?
-pub async fn StateSession::put_metadata(Self, UInt, Json) -> Unit
+pub async fn StateSession::get_metadata(Self, UInt32) -> Json?
+pub async fn StateSession::put_metadata(Self, UInt32, Json) -> Unit
 
 pub struct Subscription {
   // private fields
 }
 pub async fn Subscription::ack(Self, Transaction) -> Unit
-pub async fn Subscription::apply_to(Self, &Destination, control~ : ApplyControl, flush_every? : Int, flush_interval_ms? : Int) -> Unit
+pub async fn Subscription::apply_to(Self, &Destination, control~ : ApplyControl, flush_every? : Int32, flush_interval_ms? : Int32) -> Unit
 pub fn Subscription::close(Self) -> Unit
 pub fn Subscription::diagnostics(Self) -> Diagnostics
 pub async fn Subscription::next(Self) -> Transaction
 
 pub struct TableCopyBatchId {
   attempt : String
-  relation_id : UInt
+  relation_id : UInt32
   sequence : UInt64
 } derive(Eq, ToJson, @debug.Debug)
 pub fn TableCopyBatchId::equal(Self, Self) -> Bool
@@ -533,8 +533,8 @@ pub fn TableRetryPolicy::to_repr(Self) -> @debug.Repr
 pub(all) enum TableSyncCopy {
   IncludeAllTables
   SkipAllTables
-  IncludeTables(ReadOnlyArray[UInt])
-  SkipTables(ReadOnlyArray[UInt])
+  IncludeTables(ReadOnlyArray[UInt32])
+  SkipTables(ReadOnlyArray[UInt32])
 } derive(Eq, @debug.Debug)
 pub fn TableSyncCopy::equal(Self, Self) -> Bool
 pub fn TableSyncCopy::not_equal(Self, Self) -> Bool
@@ -545,31 +545,31 @@ pub(all) enum TableSyncPhase {
   Copying
   Catchup(Lsn)
   Ready(Lsn)
-  Errored(reason~ : String, retry~ : TableRetryPolicy, attempts~ : Int)
+  Errored(reason~ : String, retry~ : TableRetryPolicy, attempts~ : Int32)
 } derive(Eq, @debug.Debug)
 pub fn TableSyncPhase::equal(Self, Self) -> Bool
 pub fn TableSyncPhase::not_equal(Self, Self) -> Bool
 pub fn TableSyncPhase::to_repr(Self) -> @debug.Repr
 
 pub struct TableSyncStatus {
-  oid : UInt
+  oid : UInt32
   phase : TableSyncPhase
 } derive(@debug.Debug)
 pub fn TableSyncStatus::to_repr(Self) -> @debug.Repr
 
 pub(all) struct TcpKeepaliveConfig {
-  idle_secs : Int
-  interval_secs : Int
-  retries : Int
+  idle_secs : Int32
+  interval_secs : Int32
+  retries : Int32
 } derive(Eq, @debug.Debug)
 pub fn TcpKeepaliveConfig::equal(Self, Self) -> Bool
-pub fn TcpKeepaliveConfig::new(idle_secs? : Int, interval_secs? : Int, retries? : Int) -> Self
+pub fn TcpKeepaliveConfig::new(idle_secs? : Int32, interval_secs? : Int32, retries? : Int32) -> Self
 pub fn TcpKeepaliveConfig::not_equal(Self, Self) -> Bool
 pub fn TcpKeepaliveConfig::to_repr(Self) -> @debug.Repr
 
 pub struct Transaction {
   id : String
-  xid : UInt
+  xid : UInt32
   commit_lsn : Lsn
   end_lsn : Lsn
   commit_time_us : Int64
@@ -577,14 +577,14 @@ pub struct Transaction {
   // private fields
 } derive(@debug.Debug)
 pub fn Transaction::destination_events(Self) -> DestinationEvents
-pub fn Transaction::event_id(Self, Int) -> String?
-pub fn Transaction::replicated_schemas(Self, Int) -> ReadOnlyArray[ReplicatedSchema]
+pub fn Transaction::event_id(Self, Int32) -> String?
+pub fn Transaction::replicated_schemas(Self, Int32) -> ReadOnlyArray[ReplicatedSchema]
 pub fn Transaction::to_json(Self) -> Json
 pub fn Transaction::to_repr(Self) -> @debug.Repr
 pub impl ToJson for Transaction
 
 pub struct TypeInfo {
-  oid : UInt
+  oid : UInt32
   namespace_ : String
   name : String
 } derive(Eq, ToJson, @debug.Debug)
@@ -599,7 +599,7 @@ pub(all) enum Value {
   Binary(Bytes)
   UnchangedToast
 } derive(Eq, ToJson, @debug.Debug)
-pub fn Value::decode_text(Self, UInt, array_element_oid? : UInt) -> Cell raise
+pub fn Value::decode_text(Self, UInt32, array_element_oid? : UInt32) -> Cell raise
 pub fn Value::equal(Self, Self) -> Bool
 pub fn Value::not_equal(Self, Self) -> Bool
 pub fn Value::to_json(Self) -> Json
@@ -607,7 +607,7 @@ pub fn Value::to_repr(Self) -> @debug.Repr
 
 pub struct WalBatch {
   id : String
-  xid : UInt
+  xid : UInt32
   commit_lsn : Lsn
   commit_time_us : Int64
   changes : ReadOnlyArray[Change]
@@ -615,8 +615,8 @@ pub struct WalBatch {
   // private fields
 } derive(@debug.Debug)
 pub fn WalBatch::destination_events(Self) -> DestinationEvents
-pub fn WalBatch::event_id(Self, Int) -> String?
-pub fn WalBatch::replicated_schemas(Self, Int) -> ReadOnlyArray[ReplicatedSchema]
+pub fn WalBatch::event_id(Self, Int32) -> String?
+pub fn WalBatch::replicated_schemas(Self, Int32) -> ReadOnlyArray[ReplicatedSchema]
 pub fn WalBatch::to_repr(Self) -> @debug.Repr
 
 pub(all) enum WriteStatus {
@@ -638,7 +638,7 @@ pub(open) trait Destination {
   async fn bind_snapshot_schema(Self, Relation, SchemaSnapshot) -> Unit = _
   async fn startup(Self) -> Unit = _
   async fn shutdown(Self) -> Unit = _
-  async fn schema_retention(Self, UInt) -> SchemaId? = _
+  async fn schema_retention(Self, UInt32) -> SchemaId? = _
   async fn reset_table(Self, Relation, attempt~ : String) -> Unit
   async fn write_rows(Self, Relation, ReadOnlyArray[ReadOnlyArray[Value]], TableCopyBatchId?) -> WriteStatus
   async fn finish_table_copy(Self, Relation) -> Unit = _
@@ -647,10 +647,10 @@ pub(open) trait Destination {
 }
 
 pub(open) trait SchemaStore {
-  async fn get(Self, UInt, SchemaId) -> SchemaSnapshot?
+  async fn get(Self, UInt32, SchemaId) -> SchemaSnapshot?
   async fn all(Self) -> ReadOnlyArray[SchemaSnapshot]
   async fn put(Self, SchemaSnapshot) -> Unit
-  async fn prune(Self, ReadOnlyArray[(UInt, SchemaId)]) -> Int
+  async fn prune(Self, ReadOnlyArray[(UInt32, SchemaId)]) -> Int32
 }
 
 pub(open) trait StateStore {

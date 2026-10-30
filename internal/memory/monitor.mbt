@@ -99,7 +99,7 @@ pub async fn Monitor::wait_for_pressure(self : Monitor) -> Unit {
 
 ///|
 pub async fn[T] with_monitor(
-  interval_ms : Int,
+  interval_ms : Int32,
   thresholds : (Float, Float)?,
   run : async (Monitor) -> T,
 ) -> T {
@@ -108,7 +108,7 @@ pub async fn[T] with_monitor(
 
 ///|
 pub async fn[T] with_sampler(
-  interval_ms : Int,
+  interval_ms : Int32,
   thresholds : (Float, Float)?,
   read : async (Snapshot?) -> Refresh,
   run : async (Monitor) -> T,

@@ -1,5 +1,5 @@
 ///|
-fn decimal_part(text : StringView) -> Int raise {
+fn decimal_part(text : StringView) -> Int32 raise {
   if text.is_empty() || !text.iter().all(ch => ch >= '0' && ch <= '9') {
     raise Conversion("temporal digits")
   }
@@ -7,7 +7,7 @@ fn decimal_part(text : StringView) -> Int raise {
 }
 
 ///|
-fn month_days(year : Int, month : Int) -> Int raise {
+fn month_days(year : Int32, month : Int32) -> Int32 raise {
   match month {
     1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
     4 | 6 | 9 | 11 => 30
@@ -79,7 +79,7 @@ fn pg_time(text : String) -> PgTime raise {
     if fraction.is_empty() || !fraction.iter().all(ch => ch >= '0' && ch <= '9') {
       raise Conversion("time fraction")
     }
-    nanoseconds = decimal_part(fraction[:Int::min(fraction.length(), 9)])
+    nanoseconds = decimal_part(fraction[:Int32::min(fraction.length(), 9)])
     for _ in fraction.length()..<9 {
       nanoseconds *= 10
     }
@@ -88,13 +88,13 @@ fn pg_time(text : String) -> PgTime raise {
     raise Conversion("time range")
   }
   {
-    seconds: hour * 3600 + minute * 60 + Int::min(second, 59),
+    seconds: hour * 3600 + minute * 60 + Int32::min(second, 59),
     nanoseconds: nanoseconds + (if second == 60 { 1000000000 } else { 0 }),
   }
 }
 
 ///|
-fn split_pg_offset(text : String) -> (String, Int) raise {
+fn split_pg_offset(text : String) -> (String, Int32) raise {
   let mut sign_at = text.length() - 1
   while sign_at >= 0 && text[sign_at] != '+' && text[sign_at] != '-' {
     sign_at -= 1
@@ -136,7 +136,7 @@ fn split_pg_offset(text : String) -> (String, Int) raise {
 }
 
 ///|
-fn shift_date(date : PgDate, delta : Int) -> PgDate raise {
+fn shift_date(date : PgDate, delta : Int32) -> PgDate raise {
   guard date is Finite(year~, month~, day~) else {
     raise Conversion("infinite local date")
   }

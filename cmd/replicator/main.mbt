@@ -5,7 +5,7 @@ priv struct ValidationSchemas {}
 // Called only after the scoped async operation has unwound/joined every child.
 // libc exit flushes stdio; bypassing async's final signal re-raise gives service
 // supervisors the outcome of draining instead of the initiating signal.
-extern "C" fn finish_process(code : Int) -> Unit = "exit"
+extern "C" fn finish_process(code : Int32) -> Unit = "exit"
 
 ///|
 impl @cdc.SchemaStore for ValidationSchemas with fn get(_, _, _) {
@@ -61,7 +61,7 @@ fn ReplicatorConfig::destination(
 ///|
 fn ReplicatorConfig::identity(self : ReplicatorConfig) -> String {
   // JSON framing prevents delimiter collisions; credentials are never persisted.
-  [
+  Json::Json([
     self.source.host,
     self.source.port.to_string(),
     self.source.database,
@@ -73,9 +73,7 @@ fn ReplicatorConfig::identity(self : ReplicatorConfig) -> String {
     } else {
       "replacing_merge_tree"
     },
-  ]
-  .to_json()
-  .stringify()
+  ]).stringify()
 }
 
 ///|
@@ -156,7 +154,7 @@ async fn ReplicatorConfig::validate(self : ReplicatorConfig) -> Unit {
 ///|
 fn ReplicatorConfig::metrics_settings(
   self : ReplicatorConfig,
-) -> (Int, String?)? {
+) -> (Int32, String?)? {
   self.metrics_port.map(port => (port, self.metrics_listen_address))
 }
 

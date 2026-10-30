@@ -11,7 +11,7 @@ pub(all) enum WriteStatus {
 /// A new snapshot generates a new attempt and resets each destination table first.
 pub struct TableCopyBatchId {
   attempt : String
-  relation_id : UInt
+  relation_id : UInt32
   sequence : UInt64
 } derive(Eq, Debug, ToJson)
 
@@ -34,7 +34,7 @@ pub(open) trait Destination {
   async fn shutdown(Self) -> Unit = _
   // Earliest schema still needed by durable target metadata, including both
   // endpoints of pending DDL. None disables automatic pruning for this table.
-  async fn schema_retention(Self, UInt) -> SchemaId? = _
+  async fn schema_retention(Self, UInt32) -> SchemaId? = _
   // Fence all earlier copy writes before clearing table data and replay markers.
   async fn reset_table(Self, Relation, attempt~ : String) -> Unit
   // Empty rows carry no ID and let the destination create an empty table.
@@ -121,12 +121,12 @@ pub async fn copy_snapshot_to(
   destination : &Destination,
   slot~ : String,
   publication~ : String,
-  batch_rows? : Int = 256,
-  copy_connections? : Int = 1,
-  max_frame_bytes? : Int = 16777216,
-  max_batch_bytes? : Int = 67108864,
+  batch_rows~ : Int32 = 256,
+  copy_connections~ : Int32 = 1,
+  max_frame_bytes~ : Int32 = 16777216,
+  max_batch_bytes~ : Int32 = 67108864,
   schema_store? : &SchemaStore,
-  slot_failover? : Bool = false,
+  slot_failover~ : Bool = false,
 ) -> SnapshotPosition {
   copy_snapshot_to_impl(
     connection,
@@ -150,19 +150,19 @@ async fn copy_snapshot_to_impl(
   destination : &Destination,
   slot~ : String,
   publication~ : String,
-  batch_rows~ : Int,
-  copy_connections? : Int = 1,
-  max_frame_bytes~ : Int,
-  max_batch_bytes~ : Int,
+  batch_rows~ : Int32,
+  copy_connections~ : Int32 = 1,
+  max_frame_bytes~ : Int32,
+  max_batch_bytes~ : Int32,
   temporary~ : Bool,
-  table~ : UInt?,
+  table~ : UInt32?,
   schema_store? : &SchemaStore,
   after_copy? : async (Connection, SnapshotPosition) -> Unit,
   on_snapshot? : (SnapshotPosition) -> Unit,
   before_snapshot_schema? : async (SnapshotPosition) -> Unit,
   activity_control? : ApplyControl,
-  copy_rows? : Bool = true,
-  slot_failover? : Bool = false,
+  copy_rows~ : Bool = true,
+  slot_failover~ : Bool = false,
   worker? : SessionWorker,
   memory? : @memory.Monitor,
   batch? : BatchRuntime,
@@ -294,7 +294,7 @@ async fn copy_snapshot_to_impl(
 pub struct ApplyControl {
   priv mut stopped : Bool
   priv changed : @async.CondVar
-  priv mut table_retry : (async (UInt) -> Bool)?
+  priv mut table_retry : (async (UInt32) -> Bool)?
   priv mut lifecycle : PipelineLifecycle
   priv mut pipeline_active : Bool
   priv mut activity_sequence : UInt64
@@ -355,8 +355,8 @@ pub async fn Subscription::apply_to(
   self : Subscription,
   destination : &Destination,
   control~ : ApplyControl,
-  flush_every? : Int = 8,
-  flush_interval_ms? : Int = 1000,
+  flush_every~ : Int32 = 8,
+  flush_interval_ms~ : Int32 = 1000,
 ) -> Unit {
   self.apply_to_impl(destination, control~, flush_every~, flush_interval_ms~)
 }
@@ -366,8 +366,8 @@ async fn Subscription::apply_to_impl(
   self : Subscription,
   destination : &Destination,
   control~ : ApplyControl,
-  flush_every? : Int = 8,
-  flush_interval_ms? : Int = 1000,
+  flush_every~ : Int32 = 8,
+  flush_interval_ms~ : Int32 = 1000,
   on_checkpoint? : async () -> Unit,
   batch? : BatchRuntime,
 ) -> Unit {

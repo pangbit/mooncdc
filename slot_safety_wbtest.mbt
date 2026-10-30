@@ -189,7 +189,7 @@ async test "slot safety live advancement invalidation and quiet publication WAL"
           "SELECT wal_status, invalidation_reason, restart_lsn::text, confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name='cdc_safety_lost'",
         )
         println(
-          "SLOT INVALIDATION: attempt=\{attempt} checkpoint=\{start.to_string()} state=\{state.to_json().stringify()}",
+          "SLOT INVALIDATION: attempt=\{attempt} checkpoint=\{start.to_string()} state=\{Json::Json(state).stringify()}",
         )
         if cell(state, 0, 0) == "lost" {
           assert_eq(cell(state, 0, 1), "wal_removed")

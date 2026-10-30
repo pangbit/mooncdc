@@ -17,8 +17,8 @@ pub struct PostgresStateStore {
 pub fn PostgresStateStore::new(
   config : ConnectionConfig,
   store_id~ : String,
-  schema? : String = "public",
-  table? : String = "mooncdc_state",
+  schema~ : String = "public",
+  table~ : String = "mooncdc_state",
   control? : ApplyControl,
 ) -> PostgresStateStore raise {
   validate_connection(config)

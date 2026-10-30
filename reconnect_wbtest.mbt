@@ -23,9 +23,9 @@ async fn mock_replication(
   mode : String,
   stream? : async (@socket.Tcp) -> Unit,
   rejected_slot? : Array[String?],
-  binary? : Bool = false,
-  messages? : Bool = false,
-  protocol? : PgOutputProtocol = V1,
+  binary~ : Bool = false,
+  messages~ : Bool = false,
+  protocol~ : PgOutputProtocol = V1,
   identified? : Source,
 ) -> Unit {
   let size = Cursor::new(tcp.read_exactly(4)).i32()
@@ -136,8 +136,8 @@ async fn mock_replication(
 async fn reconnect_scenario(
   plan : Array[String],
   expected : String,
-  binary? : Bool = false,
-  messages? : Bool = false,
+  binary~ : Bool = false,
+  messages~ : Bool = false,
 ) -> Unit {
   @async.with_timeout(5000, () => {
     let server = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))

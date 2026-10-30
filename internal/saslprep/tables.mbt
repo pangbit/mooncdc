@@ -4,18 +4,18 @@
 // Licenses and exact source hashes: data/README.md.
 
 ///|
-let non_ascii_space_ranges : ReadOnlyArray[Int] = [
+let non_ascii_space_ranges : ReadOnlyArray[Int32] = [
   160, 160, 5760, 5760, 8192, 8203, 8239, 8239, 8287, 8287, 12288, 12288,
 ]
 
 ///|
-let commonly_mapped_to_nothing_ranges : ReadOnlyArray[Int] = [
+let commonly_mapped_to_nothing_ranges : ReadOnlyArray[Int32] = [
   173, 173, 847, 847, 6150, 6150, 6155, 6157, 8203, 8205, 8288, 8288, 65024, 65039,
   65279, 65279,
 ]
 
 ///|
-let prohibited_output_ranges : ReadOnlyArray[Int] = [
+let prohibited_output_ranges : ReadOnlyArray[Int32] = [
   0, 31, 127, 160, 832, 833, 1757, 1757, 1807, 1807, 5760, 5760, 6158, 6158, 8192,
   8207, 8232, 8239, 8287, 8291, 8298, 8303, 12272, 12283, 12288, 12288, 55296, 63743,
   64976, 65007, 65279, 65279, 65529, 65535, 119155, 119162, 131070, 131071, 196606,
@@ -26,7 +26,7 @@ let prohibited_output_ranges : ReadOnlyArray[Int] = [
 ]
 
 ///|
-let unassigned_codepoint_ranges : ReadOnlyArray[Int] = [
+let unassigned_codepoint_ranges : ReadOnlyArray[Int32] = [
   545, 545, 564, 591, 686, 687, 751, 767, 848, 863, 880, 883, 886, 889, 891, 893,
   895, 899, 907, 907, 909, 909, 930, 930, 975, 975, 1015, 1023, 1159, 1159, 1231,
   1231, 1270, 1271, 1274, 1279, 1296, 1328, 1367, 1368, 1376, 1376, 1416, 1416, 1419,
@@ -91,7 +91,7 @@ let unassigned_codepoint_ranges : ReadOnlyArray[Int] = [
 ]
 
 ///|
-let randalcat_codepoint_ranges : ReadOnlyArray[Int] = [
+let randalcat_codepoint_ranges : ReadOnlyArray[Int32] = [
   1470, 1470, 1472, 1472, 1475, 1475, 1488, 1514, 1520, 1524, 1563, 1563, 1567, 1567,
   1569, 1594, 1600, 1610, 1645, 1647, 1649, 1749, 1757, 1757, 1765, 1766, 1786, 1790,
   1792, 1805, 1808, 1808, 1810, 1836, 1920, 1957, 1969, 1969, 8207, 8207, 64285,
@@ -101,7 +101,7 @@ let randalcat_codepoint_ranges : ReadOnlyArray[Int] = [
 ]
 
 ///|
-let lcat_codepoint_ranges : ReadOnlyArray[Int] = [
+let lcat_codepoint_ranges : ReadOnlyArray[Int32] = [
   1470, 1470, 1472, 1472, 1475, 1475, 1488, 1514, 1520, 1524, 1563, 1563, 1567, 1567,
   1569, 1594, 1600, 1610, 1645, 1647, 1649, 1749, 1757, 1757, 1765, 1766, 1786, 1790,
   1792, 1805, 1808, 1808, 1810, 1836, 1920, 1957, 1969, 1969, 8207, 8207, 64285,
@@ -111,7 +111,7 @@ let lcat_codepoint_ranges : ReadOnlyArray[Int] = [
 ]
 
 ///|
-let decompositions : ReadOnlyArray[Int] = [
+let decompositions : ReadOnlyArray[Int32] = [
   160, 0, 97, 32, 168, 0, 34, 0, 170, 0, 97, 97, 175, 0, 34, 2, 178, 0, 97, 50, 179,
   0, 97, 51, 180, 0, 34, 4, 181, 0, 97, 956, 184, 0, 34, 6, 185, 0, 97, 49, 186,
   0, 97, 111, 188, 0, 35, 8, 189, 0, 35, 11, 190, 0, 35, 14, 192, 0, 2, 17, 193,
@@ -1740,7 +1740,7 @@ let decompositions : ReadOnlyArray[Int] = [
 ]
 
 ///|
-let decomposition_codepoints : ReadOnlyArray[Int] = [
+let decomposition_codepoints : ReadOnlyArray[Int32] = [
   32, 776, 32, 772, 32, 769, 32, 807, 49, 8260, 52, 49, 8260, 50, 51, 8260, 52, 65,
   768, 65, 769, 65, 770, 65, 771, 65, 776, 65, 778, 67, 807, 69, 768, 69, 769, 69,
   770, 69, 776, 73, 768, 73, 769, 73, 770, 73, 776, 78, 771, 79, 768, 79, 769, 79,

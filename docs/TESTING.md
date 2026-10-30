@@ -13,8 +13,9 @@ historical results and [reference tests](REFERENCE_TESTS.md) for upstream checks
 
 ## Toolchain and offline local gates
 
-The accepted toolchain is `moonc v0.10.14+7d59c7ec9` with
-`moon 0.1.20260920 (914d7da)`. Dependencies are pinned in `moon.mod`.
+The development and CI toolchain is `moonc v0.10.18+6c83a7f62` with
+`moon 0.1.20261028 (e1e1f15)`. Dependencies are pinned in `moon.mod`.
+Historical release results retain the toolchain recorded with each run.
 Provision dependencies separately with `moon update` when network use is allowed;
 the following commands use the existing cache and never publish a package.
 
@@ -29,8 +30,8 @@ moon test tools/publish-check.mbtx --target native --frozen
 moon test tools/cli-active-promotion-test.mbtx --target native --frozen
 moon test tools/active-store-promotion-test.mbtx --target native --frozen
 python3 -B tools/package-footprint-sample_test.py
-moon info --target native --frozen && moon fmt
-moon fmt --check
+moon info --target native --frozen && moon fmt . tools/*.mbtx
+moon fmt --check . tools/*.mbtx
 moon package --list --frozen
 moon package --frozen
 ```
@@ -43,7 +44,8 @@ into an implicit download. The active-promotion parser fixtures under
 `tools/fixtures/` are synthetic and self-contained. Its obsolete runtime-only
 execution profile is retired; normal full mode builds current sources.
 
-Linux compilation needs the recorded 64 MiB soft stack for this toolchain.
+Keep the previously validated 64 MiB Linux compilation soft stack while
+checking the upgraded toolchain; this is not a newly measured minimum.
 Build tests with `ulimit -S -s 65536` in a build subshell, then execute the
 already-built tests with an 8 MiB soft stack in a separate runtime subshell.
 Use `moon test ... --build-only` / `moon test ...` with identical inputs and

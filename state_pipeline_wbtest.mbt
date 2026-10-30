@@ -2,7 +2,7 @@
 priv struct StoredProbe {
   target : PipelineProbe
   mut session : StateSession?
-  mut restored : Int
+  mut restored : Int32
 }
 
 ///|
@@ -30,8 +30,8 @@ impl Destination for StoredProbe with fn reset_table(self, relation, attempt~) {
   self.session
   .unwrap()
   .put_metadata(relation.oid, {
-    "attempt": attempt.to_json(),
-    "name": relation.name.to_json(),
+    "attempt": Json::Json(attempt),
+    "name": Json::Json(relation.name),
   })
 }
 

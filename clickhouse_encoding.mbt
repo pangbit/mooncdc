@@ -6,7 +6,7 @@ fn ch_string(out : @buffer.Buffer, value : String) -> Unit {
 }
 
 ///|
-fn ch_date_days(date : PgDate) -> Int raise {
+fn ch_date_days(date : PgDate) -> Int32 raise {
   guard date is Finite(year~, month~, day~) else {
     raise Conversion("ClickHouse cannot encode infinite dates")
   }
@@ -56,9 +56,9 @@ fn ch_validate_time(value : PgTime) -> Unit raise {
 }
 
 ///|
-fn ch_pad(value : Int, width : Int) -> String {
+fn ch_pad(value : Int32, width : Int32) -> String {
   let text = value.to_string()
-  "0".repeat(Int::max(width - text.length(), 0)) + text
+  "0".repeat(Int32::max(width - text.length(), 0)) + text
 }
 
 ///|
@@ -83,7 +83,7 @@ fn ch_time(value : PgTime) -> String raise {
 }
 
 ///|
-fn ch_timetz(value : PgTime, offset : Int) -> String raise {
+fn ch_timetz(value : PgTime, offset : Int32) -> String raise {
   if offset <= -86400 || offset >= 86400 {
     raise Conversion("invalid UTC offset")
   }
@@ -109,7 +109,7 @@ fn ch_json(value : Json) -> String {
       keys.sort_by((a, b) => {
         let a = @utf8.encode(a)
         let b = @utf8.encode(b)
-        for i in 0..<Int::min(a.length(), b.length()) {
+        for i in 0..<Int32::min(a.length(), b.length()) {
           if a[i] != b[i] {
             return a[i].compare(b[i])
           }
@@ -118,7 +118,7 @@ fn ch_json(value : Json) -> String {
       })
       "{" +
       keys
-      .map(key => key.to_json().stringify() + ":" + ch_json(fields[key]))
+      .map(key => Json::Json(key).stringify() + ":" + ch_json(fields[key]))
       .join(",") +
       "}"
     }

@@ -50,7 +50,7 @@ pub async fn sql(query : String) -> String {
 }
 
 ///|
-pub async fn prepare(name : String, seed? : String = "") -> @cdc.Lsn {
+pub async fn prepare(name : String, seed~ : String = "") -> @cdc.Lsn {
   ignore(
     sql(
       "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name='\{name}'",

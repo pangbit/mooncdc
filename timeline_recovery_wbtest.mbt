@@ -230,7 +230,7 @@ async test "promotion record boundaries recover without changing durable positio
           stored_checkpoint(path + ".checkpoint", intent.to, session),
           Lsn::parse(intent.position),
         )
-        assert_eq(next.state.tables.to_json(), state.tables.to_json())
+        assert_eq(Json::Json(next.state.tables), Json::Json(state.tables))
         assert_eq(next.state.write_horizon, state.write_horizon)
       }
       if backend == "legacy" {

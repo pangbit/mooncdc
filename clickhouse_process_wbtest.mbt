@@ -2,7 +2,7 @@
 priv struct ChProcessStore {
   inner : &StateStore
   dir : String
-  mut remaining : Int?
+  mut remaining : Int32?
   after_save : Bool
 }
 

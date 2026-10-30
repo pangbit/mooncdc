@@ -29,7 +29,7 @@ fn StoredDecoding::snapshot_id(self : StoredDecoding) -> SchemaId raise {
 async fn StoredDecoding::restore(
   self : StoredDecoding,
   schemas : &SchemaStore,
-  oid : UInt,
+  oid : UInt32,
   cutoff : Lsn,
 ) -> ReplicatedSchema {
   let id = self.snapshot_id()
@@ -60,7 +60,7 @@ priv enum TableDecoding {
 priv struct PipelineDecoding {
   schemas : &SchemaStore
   bootstrap : SchemaId
-  tables : Map[UInt, TableDecoding]
+  tables : Map[UInt32, TableDecoding]
 }
 
 ///|
@@ -139,7 +139,7 @@ async fn PipelineDecoding::relation(
 ///|
 async fn PipelineDecoding::row(
   self : PipelineDecoding,
-  oid : UInt,
+  oid : UInt32,
   table : StoredTable?,
   position : Lsn,
 ) -> ReplicatedSchema {
@@ -175,11 +175,11 @@ async fn PipelineDecoding::transaction(
   stored : Array[StoredTable],
   publication : String,
 ) -> Transaction {
-  let tables : Map[UInt, StoredTable] = Map([])
+  let tables : Map[UInt32, StoredTable] = Map([])
   for table in stored {
     tables[table.oid] = table
   }
-  let resolved : Map[Int, ReadOnlyArray[ReplicatedSchema]] = Map([])
+  let resolved : Map[Int32, ReadOnlyArray[ReplicatedSchema]] = Map([])
   for index, change in tx.changes {
     match change {
       Message(message) =>

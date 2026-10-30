@@ -106,15 +106,15 @@ fn streaming_normalize(vector : StreamingVector) -> Json raise {
       b'S' =>
         {
           "kind": "S",
-          "xid": c.i32().reinterpret_as_uint().to_json(),
-          "first": (c.byte() == b'\x01').to_json(),
+          "xid": Json::Json(c.i32().reinterpret_as_uint()),
+          "first": Json::Json(c.byte() == b'\x01'),
         }
       b'E' => { "kind": "E" }
       b'A' =>
         {
           "kind": "A",
-          "xid": c.i32().reinterpret_as_uint().to_json(),
-          "subxid": c.i32().reinterpret_as_uint().to_json(),
+          "xid": Json::Json(c.i32().reinterpret_as_uint()),
+          "subxid": Json::Json(c.i32().reinterpret_as_uint()),
         }
       b'c' => {
         guard result is Some((xid, commit, end, time, _)) else {
@@ -122,10 +122,10 @@ fn streaming_normalize(vector : StreamingVector) -> Json raise {
         }
         {
           "kind": "c",
-          "xid": xid.to_json(),
-          "commit": commit.to_string().to_json(),
-          "end": end.to_string().to_json(),
-          "time": time.to_json(),
+          "xid": Json::Json(xid),
+          "commit": Json::Json(commit.to_string()),
+          "end": Json::Json(end.to_string()),
+          "time": Json::Json(time),
         }
       }
       _ => fail("boundary")
@@ -146,41 +146,41 @@ fn streaming_normalize(vector : StreamingVector) -> Json raise {
         Bytes::make(1, tag) + bytes[c.pos:].to_owned(),
       )
       guard value is Object(fields) else { fail("object") }
-      fields["xid"] = xid.to_json()
+      fields["xid"] = Json::Json(xid)
       Json::object(fields)
     }
     RelationChanged(r) =>
       {
         "kind": "R",
-        "xid": xid.to_json(),
-        "relation": r.oid.to_json(),
-        "namespace": r.namespace_.to_json(),
-        "name": r.name.to_json(),
-        "identity": r.replica_identity.to_int().to_json(),
-        "columns": r.columns
-        .map(col => {
-          "name": col.name.to_json(),
-          "oid": col.type_oid.to_json(),
-          "modifier": col.type_modifier.to_json(),
-          "key": col.key.to_json(),
-        })
-        .to_json(),
+        "xid": Json::Json(xid),
+        "relation": Json::Json(r.oid),
+        "namespace": Json::Json(r.namespace_),
+        "name": Json::Json(r.name),
+        "identity": Json::Json(r.replica_identity.to_int()),
+        "columns": Json::Json(
+          r.columns.map(col => {
+            "name": Json::Json(col.name),
+            "oid": Json::Json(col.type_oid),
+            "modifier": Json::Json(col.type_modifier),
+            "key": Json::Json(col.key),
+          }),
+        ),
       }
     TypeChanged(t) =>
       {
         "kind": "Y",
-        "xid": xid.to_json(),
-        "oid": t.oid.to_json(),
-        "namespace": t.namespace_.to_json(),
-        "name": t.name.to_json(),
+        "xid": Json::Json(xid),
+        "oid": Json::Json(t.oid),
+        "namespace": Json::Json(t.namespace_),
+        "name": Json::Json(t.name),
       }
     Truncate(relations, cascade~, restart_identity~) =>
       {
         "kind": "T",
-        "xid": xid.to_json(),
-        "relations": relations.map(r => r.oid).to_json(),
-        "cascade": cascade.to_json(),
-        "restart_identity": restart_identity.to_json(),
+        "xid": Json::Json(xid),
+        "relations": Json::Json(relations.map(r => r.oid)),
+        "cascade": Json::Json(cascade),
+        "restart_identity": Json::Json(restart_identity),
       }
     _ => fail("unexpected v2 change")
   }
@@ -204,7 +204,7 @@ async test "pinned pglogrepl v2 finite streaming wire differential" {
     "integration/reference/pglogrepl-v2-expected.json",
   )
   if phase == "generate" {
-    @fs.write_file(path, vectors.to_json().stringify(indent=2))
+    @fs.write_file(path, Json::Json(vectors).stringify(indent=2))
     println("STREAMING REFERENCE generated \{vectors.length()} vectors")
   } else {
     assert_eq(phase, "verify")
@@ -213,7 +213,7 @@ async test "pinned pglogrepl v2 finite streaming wire differential" {
     )
     assert_eq(results.length(), vectors.length())
     let mut valid = 0
-    let invalid : Map[String, Int] = Map([])
+    let invalid : Map[String, Int32] = Map([])
     for index, result in results {
       let vector = vectors[index]
       assert_eq(result.name, vector.name)
@@ -227,7 +227,7 @@ async test "pinned pglogrepl v2 finite streaming wire differential" {
       }
     }
     println(
-      "STREAMING REFERENCE matched \{valid} valid vectors; strict MoonCDC rejection versus Go: \{invalid.to_json().stringify()}",
+      "STREAMING REFERENCE matched \{valid} valid vectors; strict MoonCDC rejection versus Go: \{Json::Json(invalid).stringify()}",
     )
   }
 }

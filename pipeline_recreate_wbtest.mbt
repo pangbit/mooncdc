@@ -56,8 +56,8 @@ async fn run_recreate_probe(
   path : String,
   store : &StateStore?,
   previous : Lsn,
-  policy? : TableSyncCopy = IncludeAllTables,
-  slot_failover? : Bool = false,
+  policy~ : TableSyncCopy = IncludeAllTables,
+  slot_failover~ : Bool = false,
 ) -> Unit {
   @async.with_task_group(group => {
     group.spawn_bg(() => {
@@ -491,8 +491,8 @@ async test "live slot recreation resumes every durable boundary with legacy file
 ///|
 priv struct RecreateLifecycleProbe {
   target : PipelineProbe
-  mut startups : Int
-  mut shutdowns : Int
+  mut startups : Int32
+  mut shutdowns : Int32
 }
 
 ///|

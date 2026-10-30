@@ -1,24 +1,24 @@
 ///|
 priv struct Decoder {
-  relations : Map[UInt, Relation]
-  types : Map[UInt, TypeInfo]
-  mut xid : UInt?
+  relations : Map[UInt32, Relation]
+  types : Map[UInt32, TypeInfo]
+  mut xid : UInt32?
   mut final_lsn : UInt64
   mut time : Int64
   mut changes : Array[Change]
-  mut bytes : Int
-  mut events : Int
-  mut ordinal : Int
-  limit : Int
-  event_limit : Int
-  metadata_limit : Int
+  mut bytes : Int32
+  mut events : Int32
+  mut ordinal : Int32
+  limit : Int32
+  event_limit : Int32
+  metadata_limit : Int32
 }
 
 ///|
 fn Decoder::new(
-  limit : Int,
-  event_limit : Int,
-  metadata_limit : Int,
+  limit : Int32,
+  event_limit : Int32,
+  metadata_limit : Int32,
 ) -> Decoder {
   {
     relations: Map([]),
@@ -37,7 +37,7 @@ fn Decoder::new(
 }
 
 ///|
-fn Decoder::relation(self : Decoder, oid : UInt) -> Relation raise {
+fn Decoder::relation(self : Decoder, oid : UInt32) -> Relation raise {
   guard self.relations.get(oid) is Some(r) else {
     raise Protocol("unknown relation OID")
   }
@@ -261,7 +261,7 @@ fn Decoder::header(self : Decoder) -> WalHeader raise {
 fn Decoder::decode(
   self : Decoder,
   data : Bytes,
-) -> (UInt, Lsn, Lsn, Int64, ReadOnlyArray[Change])? raise {
+) -> (UInt32, Lsn, Lsn, Int64, ReadOnlyArray[Change])? raise {
   match self.decode_event(data) {
     Begin(_) => None
     Change(_, change, _) => {

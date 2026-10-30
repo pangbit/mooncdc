@@ -61,7 +61,7 @@ fn WalAccumulator::take(self : WalAccumulator) -> WalBatch? {
 fn WalAccumulator::remaining(
   self : WalAccumulator,
   batch : BatchRuntime,
-) -> Int {
+) -> Int32 {
   self.started.map_or(batch.max_fill_ms, started => {
     (batch.max_fill_ms.to_double() -
     @bench.monotonic_clock_end(started) / 1000.0)

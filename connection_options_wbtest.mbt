@@ -1,5 +1,5 @@
 ///|
-extern "C" fn keepalive_value(fd : Int, kind : Int) -> Int = "mooncdc_keepalive_value"
+extern "C" fn keepalive_value(fd : Int32, kind : Int32) -> Int32 = "mooncdc_keepalive_value"
 
 ///|
 test "hostaddr parsing keeps numeric IPv4 IPv6 and plaintext boundaries" {

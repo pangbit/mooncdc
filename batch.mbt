@@ -3,14 +3,14 @@
 pub struct BatchConfig {
   memory_budget_ratio : Float
   max_bytes : UInt64
-  max_fill_ms : Int
+  max_fill_ms : Int32
 }
 
 ///|
 pub fn BatchConfig::new(
-  memory_budget_ratio? : Float = 0.2F,
-  max_bytes? : UInt64 = 33554432UL,
-  max_fill_ms? : Int = 10000,
+  memory_budget_ratio~ : Float = 0.2F,
+  max_bytes~ : UInt64 = 33554432UL,
+  max_fill_ms~ : Int32 = 10000,
 ) -> BatchConfig {
   { memory_budget_ratio, max_bytes, max_fill_ms, }
 }
@@ -27,7 +27,7 @@ fn BatchConfig::validate(self : BatchConfig) -> Unit raise {
 priv struct BatchRuntime {
   governor : @memory.Governor
   monitor : @memory.Monitor
-  max_fill_ms : Int
+  max_fill_ms : Int32
 }
 
 ///|

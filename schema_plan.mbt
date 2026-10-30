@@ -60,15 +60,15 @@ fn mapped_columns(
 pub fn ReplicatedSchema::plan_change(
   self : ReplicatedSchema,
   after : ReplicatedSchema,
-  map_name? : (String) -> String = name => name,
+  map_name~ : (String) -> String = name => name,
 ) -> SchemaPlan raise {
   if self.schema.oid != after.schema.oid {
     raise Protocol("cannot plan across table identities")
   }
   let before_columns = mapped_columns(self, map_name)
   let after_columns = mapped_columns(after, map_name)
-  let before_by_ordinal : Map[Int, SchemaColumn] = Map([])
-  let after_by_ordinal : Map[Int, SchemaColumn] = Map([])
+  let before_by_ordinal : Map[Int32, SchemaColumn] = Map([])
+  let after_by_ordinal : Map[Int32, SchemaColumn] = Map([])
   let occupied : Map[String, Bool] = Map([])
   let reserved : Map[String, Bool] = Map([])
   for column in before_columns {
@@ -81,7 +81,7 @@ pub fn ReplicatedSchema::plan_change(
     reserved[column.name] = true
   }
   let operations : Array[SchemaOperation] = []
-  let pending : Array[(Int, String)] = []
+  let pending : Array[(Int32, String)] = []
   let mut primary_key_changed = false
   for column in before_columns {
     match after_by_ordinal.get(column.ordinal) {

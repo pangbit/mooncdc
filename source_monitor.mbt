@@ -39,7 +39,7 @@ async fn sample_source_lsn(
 async fn[T] with_source_monitor(
   config : ConnectionConfig,
   activity : ActivityHandle,
-  interval_ms : Int,
+  interval_ms : Int32,
   progress : () -> (Lsn, Lsn),
   run : async () -> T,
 ) -> T {

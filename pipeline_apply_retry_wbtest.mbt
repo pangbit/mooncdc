@@ -93,13 +93,13 @@ priv struct ApplyRetryProbe {
   config : ConnectionConfig
   path : String
   mode : String
-  mut failures : Int
+  mut failures : Int32
   ids : Array[String]
-  event_counts : Array[Int]
+  event_counts : Array[Int32]
   mut before : Lsn?
   mut end : Lsn?
-  mut startups : Int
-  mut shutdowns : Int
+  mut startups : Int32
+  mut shutdowns : Int32
   mut pending : Bool
 }
 

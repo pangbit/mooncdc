@@ -1,11 +1,11 @@
 ///|
 /// Persisted schemas must be visible in the cache only after durable storage succeeds.
 pub(open) trait SchemaStore {
-  async fn get(Self, UInt, SchemaId) -> SchemaSnapshot?
+  async fn get(Self, UInt32, SchemaId) -> SchemaSnapshot?
   async fn all(Self) -> ReadOnlyArray[SchemaSnapshot]
   async fn put(Self, SchemaSnapshot) -> Unit
   // Keep the newest version at/before each bound, and all versions after it.
-  async fn prune(Self, ReadOnlyArray[(UInt, SchemaId)]) -> Int
+  async fn prune(Self, ReadOnlyArray[(UInt32, SchemaId)]) -> Int32
 }
 
 ///|
@@ -41,7 +41,7 @@ pub fn SchemaSnapshot::from_json(json : Json) -> SchemaSnapshot raise {
 
 ///|
 priv struct SchemaFile {
-  version : Int
+  version : Int32
   identity : String
   schemas : Array[StoredSchema]
 } derive(ToJson, @json.FromJson)
@@ -184,8 +184,8 @@ impl SchemaStore for DurableSchemaStore with fn prune(self, bounds) {
   if self.closed {
     raise Closed
   }
-  let keep : Map[UInt, SchemaId] = Map([])
-  let seen : Map[UInt, Bool] = Map([])
+  let keep : Map[UInt32, SchemaId] = Map([])
+  let seen : Map[UInt32, Bool] = Map([])
   for (oid, bound) in bounds {
     if seen.contains(oid) {
       raise InvalidConfig("duplicate schema retention table")

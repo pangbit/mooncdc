@@ -2,8 +2,8 @@
 priv struct BatchApplyDestination {
   control : ApplyControl
   timed : Bool
-  mut writes : Int
-  mut flushes : Int
+  mut writes : Int32
+  mut flushes : Int32
 }
 
 ///|

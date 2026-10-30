@@ -239,13 +239,15 @@ fn ErrorReports::notification_body(
   (
     {
       "template_alias": "etl-pipeline-notification",
-      "dedup_key": ("pipeline-error:" + self.pipeline_id + ":" + digest).to_json(),
+      "dedup_key": Json::Json(
+        "pipeline-error:" + self.pipeline_id + ":" + digest,
+      ),
       "fields": {
-        "pipeline_id": self.pipeline_id.to_json(),
+        "pipeline_id": Json::Json(self.pipeline_id),
         "notification_title": "Replication pipeline error",
         "notification_message": "Your replication pipeline encountered an error during execution. Review the details below and check the logs for more information.",
         "notification_details_label": "Error details",
-        "notification_details": message.to_json(),
+        "notification_details": Json::Json(message),
       },
     } : Json).stringify()
 }
@@ -254,7 +256,7 @@ fn ErrorReports::notification_body(
 fn ErrorReports::envelope(
   self : ErrorReports,
   message : String,
-  oid : UInt?,
+  oid : UInt32?,
 ) -> String raise {
   guard @env.rand(16) is Some(entropy) else {
     fail("report entropy unavailable")
@@ -263,29 +265,29 @@ fn ErrorReports::envelope(
   let tags : Map[String, Json] = {
     "service": "replicator",
     "destination": "clickhouse",
-    "pipeline_id": self.pipeline_id.to_json(),
+    "pipeline_id": Json::Json(self.pipeline_id),
   }
   if oid is Some(oid) {
-    tags["table_id"] = oid.to_string().to_json()
+    tags["table_id"] = Json::Json(oid.to_string())
   }
   if self.version is Some(version) {
-    tags["version"] = version.to_json()
+    tags["version"] = Json::Json(version)
   }
   let event : Json = {
-    "event_id": event_id.to_json(),
-    "timestamp": (@env.now().to_double() / 1000.0).to_json(),
+    "event_id": Json::Json(event_id),
+    "timestamp": Json::Json(@env.now().to_double() / 1000.0),
     "platform": "other",
     "level": "error",
-    "environment": self.environment.to_json(),
-    "tags": tags.to_json(),
+    "environment": Json::Json(self.environment),
+    "tags": Json::Json(tags),
     "exception": {
-      "values": [{ "type": "ReplicationError", "value": message.to_json() }],
+      "values": [{ "type": "ReplicationError", "value": Json::Json(message) }],
     },
   }
   let body = event.stringify()
-  ({ "event_id": event_id.to_json() } : Json).stringify() +
+  ({ "event_id": Json::Json(event_id) } : Json).stringify() +
   "\n" +
-  ({ "type": "event", "length": @utf8.encode(body).length().to_json() } : Json).stringify() +
+  ({ "type": "event", "length": Json::Json(@utf8.encode(body).length()) } : Json).stringify() +
   "\n" +
   body +
   "\n"
@@ -296,7 +298,7 @@ async fn report_post(
   endpoint : String,
   body : String,
   headers : @http.Headers,
-  timeout_ms : Int,
+  timeout_ms : Int32,
 ) -> String {
   if @utf8.encode(body).length() > 1048576 {
     fail("report request limit")
@@ -324,8 +326,8 @@ async fn report_post(
 async fn ErrorReports::report(
   self : ErrorReports,
   message : String,
-  oid : UInt?,
-  timeout_ms? : Int = 10000,
+  oid : UInt32?,
+  timeout_ms~ : Int32 = 10000,
 ) -> Unit {
   let message = self.redact(message)
   if self.sentry is Some(target) {
@@ -365,7 +367,7 @@ async fn ErrorReports::report(
 priv struct ReportingStore {
   inner : &@cdc.StateStore
   reports : ErrorReports
-  known : Map[UInt, @cdc.TableSyncPhase]
+  known : Map[UInt32, @cdc.TableSyncPhase]
   mut observation_ready : Bool
 }
 
@@ -404,7 +406,7 @@ impl @cdc.StateStore for ReportingStore with fn save(self, owner, record, bytes)
   if record == @cdc.Pipeline {
     try {
       if @cdc.state_store_status(self.inner) is Some(status) {
-        let terminal : Array[(UInt, String)] = []
+        let terminal : Array[(UInt32, String)] = []
         for table in status.tables {
           if self.observation_ready &&
             table.phase is @cdc.Errored(reason~, retry~, ..) &&

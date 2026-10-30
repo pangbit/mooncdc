@@ -2,10 +2,10 @@
 priv struct CopyIudGate {
   mut held : Bool
   mut release : Bool
-  mut admissions : Int
-  mut inserts : Int
-  mut snapshots : Int
-  mut resets : Int
+  mut admissions : Int32
+  mut inserts : Int32
+  mut snapshots : Int32
+  mut resets : Int32
 }
 
 ///|
@@ -20,7 +20,7 @@ fn copy_iud_metric(text : String, name : String) -> UInt64 raise {
 }
 
 ///|
-async fn copy_iud_copying(store : &StateStore, oid : UInt) -> String {
+async fn copy_iud_copying(store : &StateStore, oid : UInt32) -> String {
   let status = state_store_status(store).unwrap()
   assert_eq(status.tables.length(), 1)
   assert_eq(status.tables[0].oid, oid)
@@ -97,7 +97,7 @@ async fn copy_iud_history(
     ("2", "two", "DELETE", 3),
     ("4", "four-final", "UPDATE", 4),
   ]
-  let seen : Map[Int, Bool] = Map([])
+  let seen : Map[Int32, Bool] = Map([])
   let identities : Map[String, Bool] = Map([])
   for line in result.split("\n").filter(line => !line.is_empty()) {
     guard @json.parse(line)
@@ -244,7 +244,7 @@ async fn copy_iud_case(
         )
         @fs.write_file(
           evidence + "/postgres-cleanup.json",
-          Json::object({ "owned_schema": name.to_json(), "removed": true }).stringify(),
+          Json::object({ "owned_schema": Json::Json(name), "removed": true }).stringify(),
         )
       })
     })
@@ -284,12 +284,10 @@ async fn copy_iud_case(
     @fs.write_file(
       evidence + "/versions.json",
       Json::object({
-        "postgres_version_num": version.to_json(),
-        "clickhouse_version": http
-        .query("SELECT version()")
-        .trim()
-        .to_owned()
-        .to_json(),
+        "postgres_version_num": Json::Json(version),
+        "clickhouse_version": Json::Json(
+          http.query("SELECT version()").trim().to_owned(),
+        ),
       }).stringify(),
     )
     ignore(http.query("CREATE DATABASE " + ch_quote(name, '"')))
@@ -297,7 +295,7 @@ async fn copy_iud_case(
       ignore(http.query("DROP DATABASE " + ch_quote(name, '"')))
       @fs.write_file(
         evidence + "/clickhouse-cleanup.json",
-        Json::object({ "owned_database": name.to_json(), "removed": true }).stringify(),
+        Json::object({ "owned_database": Json::Json(name), "removed": true }).stringify(),
       )
     })
     let table_name = ch_table_name(name, "items", engine)
@@ -393,12 +391,12 @@ async fn copy_iud_case(
         assert_true(low < high)
         intervals.push((low, high))
         commits.push({
-          "index": index.to_json(),
-          "sql": operation.to_json(),
-          "before_lsn": cell(before, 0, 0).to_json(),
-          "after_lsn": cell(after, 0, 0).to_json(),
-          "before_time": cell(before, 0, 1).to_json(),
-          "after_time": cell(after, 0, 1).to_json(),
+          "index": Json::Json(index),
+          "sql": Json::Json(operation),
+          "before_lsn": Json::Json(cell(before, 0, 0)),
+          "after_lsn": Json::Json(cell(after, 0, 0)),
+          "before_time": Json::Json(cell(before, 0, 1)),
+          "after_time": Json::Json(cell(after, 0, 1)),
         })
         ignore(copy_iud_copying(store, oid))
         assert_false(gate.release)
@@ -433,7 +431,7 @@ async fn copy_iud_case(
       )
       @fs.write_file(
         evidence + "/commits.json",
-        commits.to_json().stringify(indent=2),
+        Json::Json(commits).stringify(indent=2),
       )
       @fs.write_file(evidence + "/held-after-dml.metrics", after_metrics)
       @fs.write_file(
@@ -443,10 +441,12 @@ async fn copy_iud_case(
       @fs.write_file(
         evidence + "/release.json",
         Json::object({
-          "gate_admissions": gate.admissions.to_json(),
+          "gate_admissions": Json::Json(gate.admissions),
           "committed_transactions": 5,
           "copy_completed": 0,
-          "source_time": cell(sql.query("SELECT clock_timestamp()::text"), 0, 0).to_json(),
+          "source_time": Json::Json(
+            cell(sql.query("SELECT clock_timestamp()::text"), 0, 0),
+          ),
         }).stringify(),
       )
       gate.release = true
@@ -564,32 +564,34 @@ async fn copy_iud_case(
         let metrics_port = reservation.addr.port()
         reservation.close()
         let cli_config : Json = {
-          "id": name.to_json(),
-          "publication": name.to_json(),
+          "id": Json::Json(name),
+          "publication": Json::Json(name),
           "run_source_migrations": false,
           "source": {
             "host": "127.0.0.1",
-            "port": config.port.to_json(),
+            "port": Json::Json(config.port),
             "user": "cdc",
             "password": "mooncdc-test-only",
             "database": "postgres",
             "security": "local_plaintext",
           },
-          "state": { "schema": name.to_json() },
+          "state": { "schema": Json::Json(name) },
           "destination": {
             "type": "clickhouse",
-            "url": proxy_endpoint.to_json(),
+            "url": Json::Json(proxy_endpoint),
             "user": "cdc",
             "password": "mooncdc-test-only",
-            "database": name.to_json(),
-            "engine": (if engine == ReplacingMergeTree {
-              "replacing_merge_tree"
-            } else {
-              "merge_tree"
-            }).to_json(),
+            "database": Json::Json(name),
+            "engine": Json::Json(
+              if engine == ReplacingMergeTree {
+                "replacing_merge_tree"
+              } else {
+                "merge_tree"
+              },
+            ),
           },
           "metrics": {
-            "port": metrics_port.to_json(),
+            "port": Json::Json(metrics_port),
             "listen_address": "127.0.0.1",
           },
           "copy_concurrency": 1,

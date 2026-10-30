@@ -1,7 +1,7 @@
 ///|
 priv struct Cursor {
   data : Bytes
-  mut pos : Int
+  mut pos : Int32
 }
 
 ///|
@@ -10,7 +10,7 @@ fn Cursor::new(data : Bytes) -> Cursor {
 }
 
 ///|
-fn Cursor::take(self : Cursor, size : Int) -> Bytes raise {
+fn Cursor::take(self : Cursor, size : Int32) -> Bytes raise {
   if size < 0 || size > self.data.length() - self.pos {
     raise Protocol("truncated or invalid length")
   }
@@ -25,13 +25,13 @@ fn Cursor::byte(self : Cursor) -> Byte raise {
 }
 
 ///|
-fn Cursor::u16(self : Cursor) -> Int raise {
+fn Cursor::u16(self : Cursor) -> Int32 raise {
   let b = self.take(2)
   (b[0].to_int() << 8) | b[1].to_int()
 }
 
 ///|
-fn Cursor::i32(self : Cursor) -> Int raise {
+fn Cursor::i32(self : Cursor) -> Int32 raise {
   let b = self.take(4)
   (b[0].to_int() << 24) |
   (b[1].to_int() << 16) |
@@ -79,8 +79,8 @@ fn packet(tag : Byte, body : Bytes) -> Bytes {
 ///|
 async fn read_frame(
   reader : &@io.Reader,
-  limit : Int,
-  role? : FrameConnectionRole = Unknown,
+  limit : Int32,
+  role~ : FrameConnectionRole = Unknown,
 ) -> (Byte, Bytes) {
   let header = reader.read_exactly(5)
   let size = Cursor::new(header[1:].to_owned()).i32()

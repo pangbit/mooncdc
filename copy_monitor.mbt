@@ -54,7 +54,7 @@ async fn sample_copy_slot(
 async fn[T] with_copy_monitor(
   config : ConnectionConfig,
   slot : String,
-  interval_ms : Int,
+  interval_ms : Int32,
   metrics : RuntimeMetrics,
   run : async ((SnapshotPosition) -> Unit) -> T,
 ) -> T {

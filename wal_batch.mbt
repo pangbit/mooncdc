@@ -1,6 +1,6 @@
 ///|
 priv struct WalHeader {
-  xid : UInt
+  xid : UInt32
   commit_lsn : Lsn
   commit_time_us : Int64
 }
@@ -8,7 +8,7 @@ priv struct WalHeader {
 ///|
 priv enum DecodedWalEvent {
   Begin(WalHeader)
-  Change(WalHeader, Change, Int?)
+  Change(WalHeader, Change, Int32?)
   Commit(WalHeader, Lsn)
 }
 
@@ -19,29 +19,29 @@ priv enum DecodedWalEvent {
 /// authorizes a checkpoint. Replay uses the original transaction/event IDs.
 pub struct WalBatch {
   id : String
-  xid : UInt
+  xid : UInt32
   commit_lsn : Lsn
   commit_time_us : Int64
   changes : ReadOnlyArray[Change]
   end_lsn : Lsn?
   priv session : String
-  priv sequence : Int
+  priv sequence : Int32
   priv ids : ReadOnlyArray[String?]
-  priv decoded_schemas : Map[Int, ReadOnlyArray[ReplicatedSchema]]?
+  priv decoded_schemas : Map[Int32, ReadOnlyArray[ReplicatedSchema]]?
 } derive(Debug)
 
 ///|
 pub extend WalBatch with Debug::{to_repr}
 
 ///|
-pub fn WalBatch::event_id(self : WalBatch, index : Int) -> String? {
+pub fn WalBatch::event_id(self : WalBatch, index : Int32) -> String? {
   self.ids.get(index).bind(value => value)
 }
 
 ///|
 pub fn WalBatch::replicated_schemas(
   self : WalBatch,
-  index : Int,
+  index : Int32,
 ) -> ReadOnlyArray[ReplicatedSchema] {
   self.decoded_schemas.map_or([], schemas => schemas.get(index).unwrap_or([]))
 }
@@ -80,7 +80,7 @@ fn DecodedWalEvent::batch(
   self : DecodedWalEvent,
   source : Source,
   session : String,
-  sequence : Int,
+  sequence : Int32,
 ) -> WalBatch {
   let (header, changes, end_lsn, ordinal) = match self {
     Begin(header) => (header, [], None, None)
