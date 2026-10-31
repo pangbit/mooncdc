@@ -9,11 +9,12 @@ English is the authoritative version.
 
 
 Follow [MoonBit's publishing guide](https://docs.moonbitlang.com/en/latest/toolchain/moon/package-manage-tour.html).
-Version 0.1.1 was published on 2026-10-29 and 0.1.0 on 2026-10-21; CI does not
-publish packages. For 0.1.2, reuse the [directed password/COPY results](VALIDATION.md#unreleased-follow-up)
-and unchanged [0.1.1 evidence](VALIDATION.md#011-patch-candidate), then
-run the final candidate through the existing CI once for release, PG17/18 and
-archive-consumer coverage. Do not duplicate that matrix on another host.
+CI does not publish packages. Version 0.1.3 is a toolchain compatibility patch
+requiring `moonc v0.10.18+6c83a7f62` and `moon` / `moonrun 0.1.20261028 (e1e1f15)`.
+Reuse the [six successful toolchain adaptation jobs](https://github.com/pangbit/mooncdc/actions/runs/41149520495)
+at `070df56` for unchanged product inputs. Track the release source and tag CI,
+inspect the exact registry archive and documentation build, and run one clean
+exact-version consumer. Do not duplicate the functional matrix on another host.
 
 1. Review the unit, PostgreSQL 18/17, TLS, example and recovery gates in
    [TESTING](TESTING.md). Reuse only evidence bound to the accepted source, API,
@@ -79,7 +80,7 @@ and recheck the exact version immediately before an authorized upload. Keep the
 current name, version, repository ownership and licenses until explicitly changed.
 
 After publication, create a consumer outside this repository and its workspace,
-with a normal exact dependency `"pangbit/mooncdc@0.1.2"` in `moon.mod` and the
+with a normal exact dependency `"pangbit/mooncdc@0.1.3"` in `moon.mod` and the
 root package import `"pangbit/mooncdc"` in `moon.pkg`. Use the public README/API
 consumer examples, run strict native check/test and debug/release build/run,
 and retain the resolved version, registry archive checksum and actual exit codes.

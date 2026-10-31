@@ -11,11 +11,11 @@
 
 
 遵循[MoonBit 发布指南](https://docs.moonbitlang.com/en/latest/toolchain/moon/package-manage-tour.html)。
-0.1.1 已于 2026-10-29 发布，0.1.0 已于 2026-10-21 发布，CI 不执行发布。
-0.1.2 复用[密码及 COPY 定向结果](VALIDATION.zh-CN.md#unreleased-follow-up)和
-未受影响的 [0.1.1 证据](VALIDATION.zh-CN.md#011-patch-candidate)，
-再让最终候选执行一次现有 CI，覆盖 release、PG17/18 与归档消费者。
-不在其他主机重复该矩阵。
+CI 不执行发布。0.1.3 为工具链兼容补丁，要求 `moonc v0.10.18+6c83a7f62`，
+配套 `moon` / `moonrun 0.1.20261028 (e1e1f15)`。对未变的产品输入，复用
+`070df56` 的[六项成功适配 CI](https://github.com/pangbit/mooncdc/actions/runs/41149520495)。
+跟踪发布源码和标签的 CI，核对精确注册库归档及文档构建，并运行一次干净的精确版本消费者。
+不在其他主机重复功能矩阵。
 
 1. 审阅[测试](TESTING.zh-CN.md)中的单元、PostgreSQL 18/17、TLS、示例和恢复门槛。
    只复用绑定于相同源码、API、依赖和已启用测试体的证据，记录输入变化和缺口。
@@ -67,7 +67,7 @@ GitHub push、CI 成功和 Mooncakes 发布必须分别报告。CI 不需要注�
 未明确变更前，保持现有名称、版本、仓库所有权和许可证。
 
 发布后，在本仓库及 workspace 外创建消费者，在 `moon.mod` 普通依赖中声明
-`"pangbit/mooncdc@0.1.2"`，在 `moon.pkg` 导入 root 包 `"pangbit/mooncdc"`。
+`"pangbit/mooncdc@0.1.3"`，在 `moon.pkg` 导入 root 包 `"pangbit/mooncdc"`。
 采用 README/API 公开示例，运行严格 native check/test 及 debug/release build/run，
 保留实际解析版本、注册库归档校验值及退出码。
 不得用 `moon.work`、本地路径、symlink 或依赖覆盖指向 checkout/提取包。

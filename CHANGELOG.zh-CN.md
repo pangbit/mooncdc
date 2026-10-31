@@ -8,6 +8,21 @@
 英文版本为权威版本。
 
 
+<a id="013"></a>
+
+## 0.1.3
+
+- 要求本次已验证的 MoonBit 工具链：`moonc v0.10.18+6c83a7f62`，配套
+  `moon` / `moonrun 0.1.20261028 (e1e1f15)`。
+- 替换弃用的核心 JSON 转换调用，保持序列化值不变；更新维护脚本的 import
+  frontmatter 和格式化输出，包含等价的 `Int32` / `UInt32` 接口名称及默认参数语法。
+- CI 固定到新版工具链，并检查维护脚本格式。依赖版本和 PostgreSQL → ClickHouse
+  功能范围不变。
+
+`070df56` 的[工具链适配 CI](https://github.com/pangbit/mooncdc/actions/runs/41149520495)
+六项任务全部通过，覆盖 Linux/macOS debug 与 release、源码包消费者、参考实现对照及
+PostgreSQL 17/18 集成。本次发布准备仅修改版本元数据与文档。
+
 <a id="012"></a>
 
 ## 0.1.2

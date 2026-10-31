@@ -13,8 +13,9 @@ MoonBit 编写的 PostgreSQL → ClickHouse CDC 库与独立同步工具。库�
 [当前交付范围](docs/RELEASE_SCOPE.zh-CN.md)。底层订阅使用原生 `pgoutput` 协议 v1，按完整的
 已提交事务交付数据，提供显式确认、持久检查点和有限次数断线重连。
 
-**0.1.2：Native 后端的 PostgreSQL → ClickHouse 库与 CLI。**
-增加 PostgreSQL 兼容的 Unicode SCRAM 密码及库／CLI 的 COPY/IUD 定向验证，
+**0.1.3：Native 后端的 PostgreSQL → ClickHouse 库与 CLI。**
+本次工具链兼容补丁要求 `moonc v0.10.18+6c83a7f62`，配套
+`moon` / `moonrun 0.1.20261028 (e1e1f15)`；功能范围和依赖版本不变，
 见[变更记录](CHANGELOG.zh-CN.md)。验收方法及绑定源码的证据见[测试说明](docs/TESTING.zh-CN.md)。
 采用至少一次投递，业务端必须处理重放。
 
@@ -27,8 +28,8 @@ MoonBit 编写的 PostgreSQL → ClickHouse CDC 库与独立同步工具。库�
 
 ## 安装与使用
 
-先用 `moon view pangbit/mooncdc@0.1.2` 查询版本是否可用，再通过
-`moon add pangbit/mooncdc@0.1.2` 安装，并核对实际解析版本。
+先用 `moon view pangbit/mooncdc@0.1.3` 查询版本是否可用，再通过
+`moon add pangbit/mooncdc@0.1.3` 安装，并核对实际解析版本。
 仓库中的可运行程序见[示例](examples/README.zh-CN.md)，源码包及注册库消费者检查见
 [发布流程](docs/RELEASING.zh-CN.md)。
 

@@ -6,6 +6,21 @@
 English is the authoritative version.
 
 
+## 0.1.3
+
+- Require the reviewed MoonBit toolchain: `moonc v0.10.18+6c83a7f62` with
+  `moon` / `moonrun 0.1.20261028 (e1e1f15)`.
+- Replace deprecated core JSON conversions while preserving serialized values.
+  Update maintenance-script import frontmatter and formatter output, including
+  equivalent `Int32` / `UInt32` interface names and default-parameter syntax.
+- Pin CI to the upgraded toolchain and check maintenance-script formatting.
+  Dependency versions and the PostgreSQL → ClickHouse feature scope are unchanged.
+
+The [toolchain adaptation CI](https://github.com/pangbit/mooncdc/actions/runs/41149520495)
+passed all six jobs at `070df56`, including Linux/macOS debug and release tests,
+source-package consumers, reference checks and PostgreSQL 17/18 integration.
+This release preparation changes version metadata and documentation only.
+
 ## 0.1.2
 
 - Prepare SCRAM-SHA-256 passwords using PostgreSQL-compatible Unicode mapping,

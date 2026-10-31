@@ -13,9 +13,10 @@ The low-level subscription uses native `pgoutput` protocol v1, delivers complete
 committed transactions, and provides explicit acknowledgement, durable checkpoints
 and bounded reconnection.
 
-**0.1.2: a native PostgreSQL → ClickHouse library and CLI.**
-It adds PostgreSQL-compatible Unicode SCRAM passwords and directed COPY/IUD
-validation for the library and CLI; see the [changelog](CHANGELOG.md). See
+**0.1.3: a native PostgreSQL → ClickHouse library and CLI.**
+This toolchain compatibility patch requires `moonc v0.10.18+6c83a7f62` and
+`moon` / `moonrun 0.1.20261028 (e1e1f15)`. It preserves the feature scope and
+dependency versions; see the [changelog](CHANGELOG.md). See
 [testing](docs/TESTING.md) for validation methods and source-bound evidence.
 Delivery is at least once; applications must handle replay.
 
@@ -30,8 +31,8 @@ final release commit passed remote CI. See the version binding in testing.
 
 ## Installation and usage
 
-Query availability with `moon view pangbit/mooncdc@0.1.2`, then install
-with `moon add pangbit/mooncdc@0.1.2` and verify the resolved version.
+Query availability with `moon view pangbit/mooncdc@0.1.3`, then install
+with `moon add pangbit/mooncdc@0.1.3` and verify the resolved version.
 See [examples](examples/README.md) for runnable repository programs and
 [releasing](docs/RELEASING.md) for source-package and registry consumer checks.
 
