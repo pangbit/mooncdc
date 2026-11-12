@@ -9,10 +9,11 @@ English is the authoritative version.
 
 
 Follow [MoonBit's publishing guide](https://docs.moonbitlang.com/en/latest/toolchain/moon/package-manage-tour.html).
-CI does not publish packages. Version 0.1.3 is a toolchain compatibility patch
-requiring `moonc v0.10.18+6c83a7f62` and `moon` / `moonrun 0.1.20261028 (e1e1f15)`.
-Reuse the [six successful toolchain adaptation jobs](https://github.com/pangbit/mooncdc/actions/runs/41149520495)
-at `070df56` for unchanged product inputs. Track the release source and tag CI,
+CI does not publish packages. This development checkout requires
+`moonc v0.10.20+65efd5b93` and `moon` / `moonrun 0.1.20261104 (940aa18)`.
+The [six successful October toolchain jobs](https://github.com/pangbit/mooncdc/actions/runs/41149520495)
+at `070df56` are historical evidence for 0.1.3, not acceptance of this November
+adaptation. Track the current release source, toolchain and tag CI,
 inspect the exact registry archive and documentation build, and run one clean
 exact-version consumer. Do not duplicate the functional matrix on another host.
 

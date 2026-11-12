@@ -1,20 +1,23 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum ColumnPresenceReason {
   TableSchema
   Publication
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum ColumnAlteration {
   Rename
   DataType
   Nullability
   DefaultExpression
-} derive(Eq, Debug)
+}
 
 ///|
 /// Alter changes exactly one field group; its before state includes earlier
 /// operations. Names have already been mapped to the destination namespace.
+#derive(Eq, Debug)
 pub(all) enum SchemaOperation {
   DropColumn(SchemaColumn, reason~ : ColumnPresenceReason)
   AddColumn(SchemaColumn, reason~ : ColumnPresenceReason)
@@ -23,14 +26,15 @@ pub(all) enum SchemaOperation {
     after~ : SchemaColumn,
     kind~ : ColumnAlteration
   )
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub struct SchemaPlan {
   operations : ReadOnlyArray[SchemaOperation]
   primary_key_changed : Bool
   has_rename_cycles : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 fn mapped_columns(

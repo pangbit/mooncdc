@@ -1,53 +1,60 @@
 ///|
 /// Raw transfer values preserve SQL NULL and unchanged out-of-line TOAST distinctly.
+#derive(Eq, Debug, ToJson)
 pub(all) enum Value {
   Null
   Text(String)
   Binary(Bytes)
   UnchangedToast
-} derive(Eq, Debug, ToJson)
+}
 
 ///|
+#derive(Eq, Debug, ToJson)
 pub struct Column {
   name : String
   type_oid : UInt32
   type_modifier : Int32
   key : Bool
-} derive(Eq, Debug, ToJson)
+}
 
 ///|
 /// Immutable metadata snapshot attached to each row change.
+#derive(Eq, Debug, ToJson)
 pub struct Relation {
   oid : UInt32
   namespace_ : String
   name : String
   replica_identity : Byte
   columns : ReadOnlyArray[Column]
-} derive(Eq, Debug, ToJson)
+}
 
 ///|
+#derive(Eq, Debug, ToJson)
 pub struct TypeInfo {
   oid : UInt32
   namespace_ : String
   name : String
-} derive(Eq, Debug, ToJson)
+}
 
 ///|
 /// Arbitrary pg_logical_emit_message payload. Content is not assumed to be UTF-8.
+#derive(Eq, Debug, ToJson)
 pub struct LogicalMessage {
   transactional : Bool
   lsn : Lsn
   prefix : String
   content : Bytes
-} derive(Eq, Debug, ToJson)
+}
 
 ///|
+#derive(Eq, Debug, ToJson)
 pub(all) enum OldTuple {
   Key(ReadOnlyArray[Value])
   Full(ReadOnlyArray[Value])
-} derive(Eq, Debug, ToJson)
+}
 
 ///|
+#derive(Eq, Debug, ToJson)
 pub(all) enum Change {
   RelationChanged(Relation)
   TypeChanged(TypeInfo)
@@ -57,10 +64,11 @@ pub(all) enum Change {
   Truncate(ReadOnlyArray[Relation], cascade~ : Bool, restart_identity~ : Bool)
   Origin(Lsn, String)
   Message(LogicalMessage)
-} derive(Eq, Debug, ToJson)
+}
 
 ///|
 /// Complete committed transaction. Use `event_id` for stable row-event identity.
+#derive(Debug)
 pub struct Transaction {
   id : String
   xid : UInt32
@@ -72,7 +80,7 @@ pub struct Transaction {
   priv sequence : Int32
   priv projected_ids : ReadOnlyArray[String?]?
   priv decoded_schemas : Map[Int32, ReadOnlyArray[ReplicatedSchema]]?
-} derive(Debug)
+}
 
 ///|
 /// Exact per-event schemas resolved by a pipeline with a SchemaStore. Truncate
@@ -131,6 +139,7 @@ pub fn Transaction::event_id(self : Transaction, index : Int32) -> String? {
 
 ///|
 /// Position and count diagnostics; WAL lag is an estimate, not unconsumed row count.
+#derive(Debug, ToJson)
 pub struct Diagnostics {
   reconnects : Int32
   received : Lsn
@@ -139,4 +148,4 @@ pub struct Diagnostics {
   outstanding_transactions : Int32
   queued_transactions : Int32
   wal_lag_bytes : UInt64
-} derive(Debug, ToJson)
+}

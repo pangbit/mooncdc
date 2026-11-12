@@ -1,10 +1,11 @@
 ///|
+#derive(ToJson, @json.FromJson)
 priv struct CodecVector {
   selector : Int32
   oid : UInt32
   input : String
   result : Json?
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
 fn normalize_date(date : PgDate) -> Json {

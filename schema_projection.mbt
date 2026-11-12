@@ -1,19 +1,21 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum IdentityKind {
   Missing
   PrimaryKey
   FullRow
   AlternativeKey
-} derive(Eq, Debug)
+}
 
 ///|
 /// Both masks have full-schema width. Identity is intersected with publication
 /// membership, independently of catalog primary-key membership and ordering.
+#derive(Eq, Debug)
 pub struct ReplicatedSchema {
   schema : SchemaSnapshot
   replicated : ReadOnlyArray[Bool]
   identity : ReadOnlyArray[Bool]
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn ReplicatedSchema::new(

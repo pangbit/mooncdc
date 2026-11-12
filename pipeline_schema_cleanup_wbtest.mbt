@@ -22,7 +22,11 @@ async test "ClickHouse retention preserves both pending DDL endpoints" {
       target.bind_state(session)
       // This metadata-only unit exercises no HTTP; live tests use startup.
       target.running = true
-      defer target.shutdown()
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => target.shutdown())
+      errdefer {
+        cleanup_failed.val = true
+      }
       assert_eq(target.schema_retention(42U), None)
       let before = ch_test_schema(ch_test_columns(), 100)
       let after = ch_test_schema(ch_test_columns(), 300)

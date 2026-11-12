@@ -1,10 +1,11 @@
 ///|
+#derive(ToJson)
 priv struct StreamingVector {
   name : String
   hex : String
   valid : Bool
   in_stream : Bool
-} derive(ToJson)
+}
 
 ///|
 fn streaming_vectors() -> Array[StreamingVector] raise {

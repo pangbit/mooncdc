@@ -1,13 +1,14 @@
 ///|
 // A durable intent bridges two separately atomic state records. Recovery accepts
 // either checkpoint binding while the intent is present, never an arbitrary pair.
+#derive(ToJson, @json.FromJson)
 priv struct TimelinePromotion {
   from : Source
   to : Source
   position : String
   fork : String
   horizon : String
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
 // An outer pipeline owns the proof and record rebinding. Subscription itself

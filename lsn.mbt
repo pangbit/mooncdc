@@ -1,8 +1,9 @@
 ///|
 /// An unsigned PostgreSQL WAL position.
+#derive(Eq, Compare, Debug, ToJson)
 pub struct Lsn {
   value : UInt64
-} derive(Eq, Compare, Debug, ToJson)
+}
 
 ///|
 /// Parse the PostgreSQL hexadecimal `high/low` notation.

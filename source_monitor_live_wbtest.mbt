@@ -185,7 +185,13 @@ async test "live independent source samples advance during gated reads and block
         monitor => {
           assert_true(monitor.is_paused())
           let start = fresh_slot(sql, "source_monitor_paused")
-          defer drop_slot(sql, "source_monitor_paused")
+          let cleanup_failed = Ref(false)
+          defer finish_test_cleanup(cleanup_failed, () => {
+            drop_slot(sql, "source_monitor_paused")
+          })
+          errdefer {
+            cleanup_failed.val = true
+          }
           let control = ApplyControl()
           control.lifecycle = Running
           control.metrics_data.memory = Some(monitor)
@@ -256,7 +262,11 @@ async test "live independent source samples advance during gated reads and block
           "source_monitor_write"
         }
         let start = fresh_slot(sql, slot)
-        defer drop_slot(sql, slot)
+        let cleanup_failed = Ref(false)
+        defer finish_test_cleanup(cleanup_failed, () => drop_slot(sql, slot))
+        errdefer {
+          cleanup_failed.val = true
+        }
         let control = ApplyControl()
         control.lifecycle = Running
         subscribe_impl(

@@ -1,9 +1,10 @@
 ///|
 /// Schema versions sort by transaction commit, then logical-message position.
+#derive(Eq, Compare, Debug)
 pub struct SchemaId {
   commit_lsn : Lsn
   message_lsn : Lsn
-} derive(Eq, Compare, Debug)
+}
 
 ///|
 /// Inclusive schema bound for an exclusive replication checkpoint.
@@ -18,6 +19,7 @@ pub fn SchemaId::before_lsn(position : Lsn) -> SchemaId raise {
 }
 
 ///|
+#derive(Eq, Debug, ToJson)
 pub struct SchemaColumn {
   name : String
   type_oid : UInt32
@@ -26,10 +28,11 @@ pub struct SchemaColumn {
   nullable : Bool
   primary_key_ordinal : Int32?
   default_expression : String?
-} derive(Eq, Debug, ToJson)
+}
 
 ///|
 /// Full table schema; publication membership is separate from identity membership.
+#derive(Debug)
 pub struct SchemaSnapshot {
   id : SchemaId
   oid : UInt32
@@ -39,7 +42,7 @@ pub struct SchemaSnapshot {
   columns : ReadOnlyArray[SchemaColumn]
   priv identity_attnums : ReadOnlyArray[Int32]
   priv payload : Json
-} derive(Debug)
+}
 
 ///|
 pub impl Eq for SchemaSnapshot with fn equal(self, other) {
@@ -53,6 +56,7 @@ pub impl Eq for SchemaSnapshot with fn equal(self, other) {
 }
 
 ///|
+#derive(@json.FromJson)
 priv struct DdlColumn {
   attname : String
   atttypid : UInt32
@@ -60,16 +64,18 @@ priv struct DdlColumn {
   attnum : Int32
   attnotnull : Bool
   default_expression : Json?
-} derive(@json.FromJson)
+}
 
 ///|
+#derive(@json.FromJson)
 priv struct DdlIdentity {
   primary_key_attnums : Array[Int32]
   relreplident : String
   replica_identity_index_attnums : Array[Int32]
-} derive(@json.FromJson)
+}
 
 ///|
+#derive(@json.FromJson)
 priv struct DdlPayload {
   command_tag : String
   publication_name : Json?
@@ -78,7 +84,7 @@ priv struct DdlPayload {
   oid : UInt32
   identity : DdlIdentity
   columns : Array[DdlColumn]
-} derive(@json.FromJson)
+}
 
 ///|
 fn ddl_optional_string(value : Json?) -> String? raise {

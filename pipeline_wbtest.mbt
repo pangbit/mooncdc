@@ -193,11 +193,12 @@ priv suberror PipelineProbeFailure {
 }
 
 ///|
+#derive(ToJson, @json.FromJson)
 priv struct PipelineProbeData {
   rows : Map[String, Map[String, String?]]
   resets : Map[String, Int32]
   applied : Array[String]
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
 priv struct PipelineProbe {

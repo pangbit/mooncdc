@@ -1,9 +1,10 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum Source {
   System
   ProcessCgroup
   RootCgroup
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Source with Eq::{equal, not_equal}
@@ -12,11 +13,12 @@ pub extend Source with Eq::{equal, not_equal}
 pub extend Source with Debug::{to_repr}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct Snapshot {
   used : UInt64
   total : UInt64
   source : Source
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Snapshot with Eq::{equal, not_equal}
@@ -25,10 +27,11 @@ pub extend Snapshot with Eq::{equal, not_equal}
 pub extend Snapshot with Debug::{to_repr}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct Refresh {
   snapshot : Snapshot
   fresh : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Refresh with Eq::{equal, not_equal}

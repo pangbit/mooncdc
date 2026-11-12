@@ -1,4 +1,5 @@
 ///|
+#derive(ToJson)
 priv struct PlanVector {
   before : Array[SchemaColumn]
   after : Array[SchemaColumn]
@@ -6,7 +7,7 @@ priv struct PlanVector {
   after_mask : Array[Bool]
   lower : Bool
   result : Json?
-} derive(ToJson)
+}
 
 ///|
 fn plan_schema(

@@ -78,7 +78,13 @@ async test "live PostgreSQL schema records recover history and fence a lost owne
       defer sql.close()
       let name = "schema_state_" + pipeline_nonce()
       ignore(sql.query("CREATE SCHEMA \{name}"))
-      defer ignore(sql.query("DROP SCHEMA \{name} CASCADE"))
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        ignore(sql.query("DROP SCHEMA \{name} CASCADE"))
+      })
+      errdefer {
+        cleanup_failed.val = true
+      }
       let state = PostgresStateStore::new(
         config,
         store_id="schemas",

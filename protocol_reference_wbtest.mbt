@@ -1,16 +1,18 @@
 ///|
+#derive(ToJson)
 priv struct ProtocolVector {
   name : String
   hex : String
   valid : Bool
-} derive(ToJson)
+}
 
 ///|
+#derive(@json.FromJson)
 priv struct ProtocolResult {
   name : String
   status : String
   value : Json
-} derive(@json.FromJson)
+}
 
 ///|
 fn protocol_tuple(values : ReadOnlyArray[Value]) -> Bytes {

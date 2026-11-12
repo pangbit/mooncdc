@@ -1,10 +1,11 @@
 ///|
 /// pgoutput v2 buffers streamed, possibly aborted transactions until Stream Commit.
 /// V1 remains the default and the pipeline protocol.
+#derive(Eq, Debug)
 pub(all) enum PgOutputProtocol {
   V1
   V2Streaming
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend PgOutputProtocol with Eq::{equal, not_equal}

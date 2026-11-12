@@ -94,11 +94,15 @@ async test "live typed cells agree between snapshot and WAL with stable session 
           "CREATE SCHEMA cdc_cells; CREATE TYPE cdc_cells.mood AS ENUM('happy','sad'); CREATE TABLE cdc_cells.items(id int PRIMARY KEY,b bool,i2 int2,i4 int4,i8 int8,o oid,f4 float4,f8 float8,n numeric,bytes bytea,d date,t time,tz timetz,ts timestamp,tstz timestamptz,u uuid,j json,jb jsonb,ints int8[],texts text[],numerics numeric[],byte_arrays bytea[],mood cdc_cells.mood,moods cdc_cells.mood[],nothing text,intervals interval[],networks inet[],ranges int4range[]); CREATE PUBLICATION cdc_cells FOR TABLE cdc_cells.items",
         ),
       )
-      defer {
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
         drop_slot(sql, "cdc_cells")
         ignore(
           sql.query("DROP PUBLICATION cdc_cells; DROP SCHEMA cdc_cells CASCADE"),
         )
+      })
+      errdefer {
+        cleanup_failed.val = true
       }
       let insert =
         #|INSERT INTO cdc_cells.items VALUES(

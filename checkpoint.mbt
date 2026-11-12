@@ -33,20 +33,22 @@ pub async fn SnapshotPosition::save_checkpoint(
 }
 
 ///|
+#derive(Eq, ToJson, @json.FromJson)
 priv struct Source {
   system_id : String
   timeline : String
   database : String
   slot : String
   publication : String
-} derive(Eq, ToJson, @json.FromJson)
+}
 
 ///|
+#derive(ToJson, @json.FromJson)
 priv struct Checkpoint {
   version : Int32
   source : Source
   lsn : String
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
 fn checkpoint_bytes(source : Source, lsn : Lsn) -> Bytes {

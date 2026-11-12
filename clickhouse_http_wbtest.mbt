@@ -278,9 +278,15 @@ async test "ClickHouse live RowBinary names types and both engines" {
   let db = "mooncdc_encoding_" +
     @crypto.bytes_to_hex_string(@env.rand(8).unwrap())
   ignore(http.query("CREATE DATABASE " + ch_quote(db, '"')))
-  defer (ignore(http.query("DROP DATABASE " + ch_quote(db, '"'))) catch {
-    _ => ()
+  let cleanup_failed = Ref(false)
+  defer finish_test_cleanup(cleanup_failed, () => {
+    ignore(http.query("DROP DATABASE " + ch_quote(db, '"'))) catch {
+      _ => ()
+    }
   })
+  errdefer {
+    cleanup_failed.val = true
+  }
   let source : Array[(String, UInt32, Bool)] = [
     ("id", 23U, false),
     ("uuid", 2950U, false),

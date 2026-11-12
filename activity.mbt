@@ -1,31 +1,35 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum PipelineLifecycle {
   Initializing
   Running
   Stopping
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum ActivityKind {
   InitialTableCopy
   WalApply(wal_sender_timeout_ms~ : UInt64)
-} derive(Eq, Debug)
+}
 
 ///|
 /// Activity is elapsed monotonic time, not durable destination progress.
+#derive(Eq, Debug)
 pub struct ActivitySnapshot {
   kind : ActivityKind
   inactive_ms : UInt64
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub struct PipelineHealth {
   lifecycle : PipelineLifecycle
   live : Bool
   ready : Bool
   // Readiness reason: ok, initializing, inactive, or stopping.
   status : String
-} derive(Eq, Debug)
+}
 
 ///|
 priv struct ActivityState {

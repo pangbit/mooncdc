@@ -14,9 +14,9 @@ MoonBit 编写的 PostgreSQL → ClickHouse CDC 库与独立同步工具。库�
 已提交事务交付数据，提供显式确认、持久检查点和有限次数断线重连。
 
 **0.1.3：Native 后端的 PostgreSQL → ClickHouse 库与 CLI。**
-本次工具链兼容补丁要求 `moonc v0.10.18+6c83a7f62`，配套
-`moon` / `moonrun 0.1.20261028 (e1e1f15)`；功能范围和依赖版本不变，
-见[变更记录](CHANGELOG.zh-CN.md)。验收方法及绑定源码的证据见[测试说明](docs/TESTING.zh-CN.md)。
+当前开发代码要求 `moonc v0.10.20+65efd5b93`，配套
+`moon` / `moonrun 0.1.20261104 (940aa18)`；功能范围和依赖版本不变，
+此前发布归档不包含本次十一月适配。见[变更记录](CHANGELOG.zh-CN.md)；验收方法及绑定源码的证据见[测试说明](docs/TESTING.zh-CN.md)。
 采用至少一次投递，业务端必须处理重放。
 
 2026-10-20 的固定核心提交已通过 Linux PG17/18 库4格和 CLI8格验收。

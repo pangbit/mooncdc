@@ -3,6 +3,7 @@
 /// Unknown scalar types retain text; TOAST is distinct from both SQL and JSON null.
 /// JSON numbers retain exact text in Number.repr; its Double is approximate.
 /// Cell equality compares that text recursively, including decimal scale.
+#derive(Debug)
 pub(all) enum Cell {
   SqlNull
   ToastUnchanged
@@ -24,7 +25,7 @@ pub(all) enum Cell {
   Json(Json)
   Bytes(Bytes)
   Array(ReadOnlyArray[Cell])
-} derive(Debug)
+}
 
 ///|
 pub impl Eq for Cell with fn equal(left, right) {
@@ -51,28 +52,31 @@ pub impl Eq for Cell with fn equal(left, right) {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum PgDate {
   Finite(year~ : Int32, month~ : Int32, day~ : Int32)
   PosInfinity
   NegInfinity
-} derive(Eq, Debug)
+}
 
 ///|
 /// seconds=86400 and nanoseconds=0 denotes the distinct 24:00:00 value.
 /// A leap second uses second 59 with nanoseconds in 1000000000..<2000000000.
+#derive(Eq, Debug)
 pub struct PgTime {
   seconds : Int32
   nanoseconds : Int32
-} derive(Eq, Debug)
+}
 
 ///|
 /// Finite timestamps use astronomical years (1 BC = year 0).
 /// TimestampTz cells normalize finite values to UTC.
+#derive(Eq, Debug)
 pub(all) enum PgTimestamp {
   Finite(date~ : PgDate, time~ : PgTime)
   PosInfinity
   NegInfinity
-} derive(Eq, Debug)
+}
 
 ///|
 fn array_element(oid : UInt32) -> UInt32? {

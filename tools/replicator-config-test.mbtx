@@ -10,10 +10,11 @@ import {
 ----
 
 ///|
+#derive(Eq, Debug)
 enum CliBuildMode {
   Debug
   Release
-} derive(Eq, Debug)
+}
 
 ///|
 fn cli_build_mode(args : Array[String]) -> CliBuildMode raise {

@@ -1,10 +1,11 @@
 ///|
 /// Reject lost WAL by default. Explicit recreation resynchronizes every table,
 /// honoring the configured initial-copy selection; it cannot restore lost WAL.
+#derive(Eq, Debug)
 pub(all) enum InvalidatedSlotBehavior {
   RejectInvalidatedSlot
   RecreateInvalidatedSlot
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend InvalidatedSlotBehavior with Eq::{equal, not_equal}

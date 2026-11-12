@@ -14,9 +14,10 @@ committed transactions, and provides explicit acknowledgement, durable checkpoin
 and bounded reconnection.
 
 **0.1.3: a native PostgreSQL → ClickHouse library and CLI.**
-This toolchain compatibility patch requires `moonc v0.10.18+6c83a7f62` and
-`moon` / `moonrun 0.1.20261028 (e1e1f15)`. It preserves the feature scope and
-dependency versions; see the [changelog](CHANGELOG.md). See
+This development checkout requires `moonc v0.10.20+65efd5b93` and
+`moon` / `moonrun 0.1.20261104 (940aa18)`. It preserves the feature scope and
+dependency versions; previously published archives do not include this November
+adaptation. See the [changelog](CHANGELOG.md) and
 [testing](docs/TESTING.md) for validation methods and source-bound evidence.
 Delivery is at least once; applications must handle replay.
 

@@ -1,5 +1,6 @@
 ///|
 /// Failures which require caller intervention; transport errors retain their original type.
+#derive(Debug)
 pub(all) suberror CdcError {
   Protocol(String)
   Conversion(String)
@@ -10,4 +11,4 @@ pub(all) suberror CdcError {
   UnsafeResume(String)
   CheckpointError(String)
   Closed
-} derive(Debug)
+}

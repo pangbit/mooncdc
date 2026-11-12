@@ -62,9 +62,21 @@ async test "live source migrations upgrade validate lock rollback and pipeline s
       ignore(
         admin.query("CREATE ROLE \{role} LOGIN PASSWORD 'migration-test-only'"),
       )
-      defer ignore(admin.query("DROP ROLE \{role}"))
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        ignore(admin.query("DROP ROLE \{role}"))
+      })
+      errdefer {
+        cleanup_failed.val = true
+      }
       ignore(admin.query("CREATE DATABASE \{name}"))
-      defer ignore(admin.query("DROP DATABASE \{name}"))
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        ignore(admin.query("DROP DATABASE \{name}"))
+      })
+      errdefer {
+        cleanup_failed.val = true
+      }
       let config = { ..base, database: name, }
       let sql = connect(config, 16777216, false)
       defer sql.close()

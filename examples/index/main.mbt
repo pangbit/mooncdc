@@ -2,7 +2,20 @@
 async fn main {
   let name = "example_index"
   let start = @support.prepare(name)
-  defer @support.cleanup(name)
+  let cleanup_failed = Ref(false)
+  defer @async.protect_from_cancel(() => {
+    @async.with_timeout(10000, () => @support.cleanup(name)) catch {
+      error =>
+        if cleanup_failed.val {
+          println("Example cleanup failed after the body: \{error}")
+        } else {
+          raise error
+        }
+    }
+  })
+  errdefer {
+    cleanup_failed.val = true
+  }
   let dir = @fs.tmpdir(prefix="mooncdc-index-")
   defer @fs.rmdir(dir, recursive=true)
   let index : Map[String, @cdc.Value] = Map([])

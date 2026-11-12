@@ -16,7 +16,7 @@
 
 ## 工具链与离线本地门槛
 
-开发和 CI 工具链为 `moonc v0.10.18+6c83a7f62` 和 `moon 0.1.20261028 (e1e1f15)`。
+开发和 CI 工具链为 `moonc v0.10.20+65efd5b93` 和 `moon 0.1.20261104 (940aa18)`。
 历史发布结果仍以各次运行记录的工具链为准。
 依赖固定在 `moon.mod`。网络获准时可单独用 `moon update` 准备依赖；以下命令使用已有
 缓存，不发布包。
@@ -32,8 +32,8 @@ moon test tools/publish-check.mbtx --target native --frozen
 moon test tools/cli-active-promotion-test.mbtx --target native --frozen
 moon test tools/active-store-promotion-test.mbtx --target native --frozen
 python3 -B tools/package-footprint-sample_test.py
-moon info --target native --frozen && moon fmt . tools/*.mbtx
-moon fmt --check . tools/*.mbtx
+moon info --target native --frozen && moon fmt && moon fmt tools/*.mbtx
+moon fmt --check && moon fmt --check tools/*.mbtx
 moon package --list --frozen
 moon package --frozen
 ```

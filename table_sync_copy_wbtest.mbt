@@ -35,9 +35,15 @@ async test "live initial copy selection preserves schemas WAL and completed rest
           "CREATE SCHEMA \{name}; CREATE TABLE \{name}.a(id int PRIMARY KEY,value text); CREATE TABLE \{name}.b(id int PRIMARY KEY,value text); CREATE PUBLICATION \{name} FOR TABLE \{name}.a,\{name}.b",
         ),
       )
-      defer ignore(
-        sql.query("DROP PUBLICATION \{name}; DROP SCHEMA \{name} CASCADE"),
-      )
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        ignore(
+          sql.query("DROP PUBLICATION \{name}; DROP SCHEMA \{name} CASCADE"),
+        )
+      })
+      errdefer {
+        cleanup_failed.val = true
+      }
       let a = @string.parse_uint(
         cell(sql.query("SELECT '\{name}.a'::regclass::oid::text"), 0, 0),
       )
@@ -56,9 +62,15 @@ async test "live initial copy selection preserves schemas WAL and completed rest
         let dir = @fs.tmpdir(prefix="mooncdc-copy-policy-")
         defer @fs.rmdir(dir, recursive=true)
         let path = dir + "/state"
-        defer (if @fs.exists(path) {
-          drop_slot(sql, pipeline_status(path).slot)
+        let cleanup_failed = Ref(false)
+        defer finish_test_cleanup(cleanup_failed, () => {
+          if @fs.exists(path) {
+            drop_slot(sql, pipeline_status(path).slot)
+          }
         })
+        errdefer {
+          cleanup_failed.val = true
+        }
         with_file_schema_store(dir + "/schemas", identity="copy-policy", schemas => {
           for sequence in [2, 3] {
             let control = ApplyControl()

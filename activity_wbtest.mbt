@@ -121,7 +121,11 @@ async test "live health observes idle WAL but not keepalives during blocked appl
       for flush_only in [false, true] {
         let slot = "activity_" + pipeline_nonce()
         let start = fresh_slot(sql, slot)
-        defer drop_slot(sql, slot)
+        let cleanup_failed = Ref(false)
+        defer finish_test_cleanup(cleanup_failed, () => drop_slot(sql, slot))
+        errdefer {
+          cleanup_failed.val = true
+        }
         let control = ApplyControl()
         control.lifecycle = Running
         subscribe_impl(

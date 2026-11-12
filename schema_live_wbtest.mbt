@@ -96,11 +96,17 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
           "CREATE SCHEMA etl; CREATE SCHEMA cdc_ddl; CREATE TABLE cdc_ddl.items(a int NOT NULL,b text,c int NOT NULL,PRIMARY KEY(c,a) INCLUDE(b)); INSERT INTO cdc_ddl.items VALUES(1,'initial',1); CREATE PUBLICATION cdc_ddl FOR TABLE cdc_ddl.items; CREATE PUBLICATION cdc_ddl_other FOR TABLE cdc_ddl.items",
         ),
       )
-      defer ignore(
-        sql.query(
-          "DROP EVENT TRIGGER IF EXISTS supabase_etl_ddl_message_trigger; DROP PUBLICATION cdc_ddl,cdc_ddl_other; DROP SCHEMA etl CASCADE; DROP SCHEMA cdc_ddl CASCADE",
-        ),
-      )
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        ignore(
+          sql.query(
+            "DROP EVENT TRIGGER IF EXISTS supabase_etl_ddl_message_trigger; DROP PUBLICATION cdc_ddl,cdc_ddl_other; DROP SCHEMA etl CASCADE; DROP SCHEMA cdc_ddl CASCADE",
+          ),
+        )
+      })
+      errdefer {
+        cleanup_failed.val = true
+      }
       ignore(
         sql.query(
           @fs.read_file("integration/reference/etl/schema-change-messages.sql").text(),
@@ -116,7 +122,15 @@ async test "live upstream DDL trigger versions publication scope and pipeline pe
       let dir = @fs.tmpdir(prefix="mooncdc-ddl-")
       defer @fs.rmdir(dir, recursive=true)
       let path = dir + "/state"
-      defer (if @fs.exists(path) { drop_slot(sql, pipeline_status(path).slot) })
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        if @fs.exists(path) {
+          drop_slot(sql, pipeline_status(path).slot)
+        }
+      })
+      errdefer {
+        cleanup_failed.val = true
+      }
       let control = ApplyControl()
       with_file_schema_store(dir + "/schemas", identity="ddl/source/target", store => {
         let probe : SchemaProbe = {

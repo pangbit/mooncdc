@@ -313,7 +313,11 @@ async test "live failover snapshot slot remains persistent after success and cal
       defer sql.close()
       for failing in [false, true] {
         let slot = "failover_" + pipeline_nonce()
-        defer drop_slot(sql, slot)
+        let cleanup_failed = Ref(false)
+        defer finish_test_cleanup(cleanup_failed, () => drop_slot(sql, slot))
+        errdefer {
+          cleanup_failed.val = true
+        }
         let mut seen = false
         try
           ignore(
@@ -374,11 +378,17 @@ async test "live pipeline failover upgrades main slot and cleans copy slots acro
           "CREATE SCHEMA failover_test; CREATE TABLE failover_test.a(id int PRIMARY KEY,value text); CREATE TABLE failover_test.b(id int PRIMARY KEY,value text); INSERT INTO failover_test.a VALUES(1,'a'); INSERT INTO failover_test.b VALUES(1,'b'); CREATE PUBLICATION failover_test FOR TABLE failover_test.a,failover_test.b",
         ),
       )
-      defer ignore(
-        sql.query(
-          "DROP PUBLICATION failover_test; DROP SCHEMA failover_test CASCADE",
-        ),
-      )
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        ignore(
+          sql.query(
+            "DROP PUBLICATION failover_test; DROP SCHEMA failover_test CASCADE",
+          ),
+        )
+      })
+      errdefer {
+        cleanup_failed.val = true
+      }
       let dir = @fs.tmpdir(prefix="mooncdc-failover-")
       defer @fs.rmdir(dir, recursive=true)
       let path = dir + "/state"
@@ -392,7 +402,13 @@ async test "live pipeline failover upgrades main slot and cleans copy slots acro
         control=stop,
       )
       let source = read_pipeline_state(path).source
-      defer drop_slot(sql, source.slot)
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        drop_slot(sql, source.slot)
+      })
+      errdefer {
+        cleanup_failed.val = true
+      }
       let flag = "SELECT failover::text FROM pg_replication_slots WHERE slot_name='\{source.slot}'"
       assert_eq(cell(sql.query(flag), 0, 0), "false")
       let control = ApplyControl()
@@ -445,7 +461,13 @@ async test "live pipeline failover upgrades main slot and cleans copy slots acro
         copy_concurrency=1,
       )
       let failed = read_pipeline_state(failed_path)
-      defer drop_slot(sql, failed.source.slot)
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        drop_slot(sql, failed.source.slot)
+      })
+      errdefer {
+        cleanup_failed.val = true
+      }
       assert_eq(
         cell(
           sql.query(

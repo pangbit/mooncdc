@@ -227,7 +227,13 @@ async test "ClickHouse live cancelled INSERT drains before replay reset and shut
       @async.with_timeout(15000, () => {
         let database = "mooncdc_cancel_" + pipeline_nonce()
         ignore(remote.query("CREATE DATABASE " + ch_quote(database, '"')))
-        defer ignore(remote.query("DROP DATABASE " + ch_quote(database, '"')))
+        let cleanup_failed = Ref(false)
+        defer finish_test_cleanup(cleanup_failed, () => {
+          ignore(remote.query("DROP DATABASE " + ch_quote(database, '"')))
+        })
+        errdefer {
+          cleanup_failed.val = true
+        }
         let server = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
         defer server.close()
         let dir = @fs.tmpdir(prefix="mooncdc-ch-cancel-live-")

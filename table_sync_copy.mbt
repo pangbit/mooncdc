@@ -2,12 +2,13 @@
 /// Select initial rows by source table OID. Skipped tables still reset/create an
 /// empty destination, retain schemas and join WAL replication at their snapshot.
 /// Changes to this policy do not recopy tables that have already handed over.
+#derive(Eq, Debug)
 pub(all) enum TableSyncCopy {
   IncludeAllTables
   SkipAllTables
   IncludeTables(ReadOnlyArray[UInt32])
   SkipTables(ReadOnlyArray[UInt32])
-} derive(Eq, Debug)
+}
 
 ///|
 fn TableSyncCopy::should_copy_table(self : TableSyncCopy, oid : UInt32) -> Bool {

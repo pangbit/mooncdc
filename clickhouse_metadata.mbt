@@ -1,4 +1,5 @@
 ///|
+#derive(ToJson, @json.FromJson)
 priv struct ChStoredTable {
   version : Int32
   endpoint : String
@@ -11,7 +12,7 @@ priv struct ChStoredTable {
   table_name : String?
   previous : Json?
   creating : Bool?
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
 fn ch_engine_name(engine : ClickHouseEngine) -> String {

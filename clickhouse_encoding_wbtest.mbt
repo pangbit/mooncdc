@@ -1,11 +1,12 @@
 ///|
+#derive(ToJson, @json.FromJson)
 priv struct ChVector {
   selector : Int32
   oid : UInt32
   input : String
   nullable : Bool
   result : Json?
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
 async test "ClickHouse pinned encoding differential" {

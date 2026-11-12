@@ -5,7 +5,20 @@ async fn main {
     name,
     seed="INSERT INTO example_cache VALUES (1,'a'),(2,'b')",
   )
-  defer @support.cleanup(name)
+  let cleanup_failed = Ref(false)
+  defer @async.protect_from_cancel(() => {
+    @async.with_timeout(10000, () => @support.cleanup(name)) catch {
+      error =>
+        if cleanup_failed.val {
+          println("Example cleanup failed after the body: \{error}")
+        } else {
+          raise error
+        }
+    }
+  })
+  errdefer {
+    cleanup_failed.val = true
+  }
   let dir = @fs.tmpdir(prefix="mooncdc-cache-")
   defer @fs.rmdir(dir, recursive=true)
   let cache : Map[String, String] = {

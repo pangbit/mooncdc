@@ -238,13 +238,17 @@ async test "live external checkpoint failure leaves ack conservative and support
           "CREATE TABLE cdc_stored_ack(id int PRIMARY KEY); CREATE PUBLICATION cdc_stored_ack FOR TABLE cdc_stored_ack",
         ),
       )
-      defer {
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
         drop_slot(sql, "cdc_stored_ack")
         ignore(
           sql.query(
             "DROP PUBLICATION cdc_stored_ack; DROP TABLE cdc_stored_ack",
           ),
         )
+      })
+      errdefer {
+        cleanup_failed.val = true
       }
       let dir = @fs.tmpdir(prefix="mooncdc-ack-store-")
       defer @fs.rmdir(dir, recursive=true)

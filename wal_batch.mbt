@@ -17,6 +17,7 @@ priv enum DecodedWalEvent {
 /// transaction, but only end_lsn=Some marks receipt of its validated Commit.
 /// A destination may own fragments before that boundary; no fragment alone
 /// authorizes a checkpoint. Replay uses the original transaction/event IDs.
+#derive(Debug)
 pub struct WalBatch {
   id : String
   xid : UInt32
@@ -28,7 +29,7 @@ pub struct WalBatch {
   priv sequence : Int32
   priv ids : ReadOnlyArray[String?]
   priv decoded_schemas : Map[Int32, ReadOnlyArray[ReplicatedSchema]]?
-} derive(Debug)
+}
 
 ///|
 pub extend WalBatch with Debug::{to_repr}

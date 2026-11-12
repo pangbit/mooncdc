@@ -11,10 +11,11 @@
 
 
 遵循[MoonBit 发布指南](https://docs.moonbitlang.com/en/latest/toolchain/moon/package-manage-tour.html)。
-CI 不执行发布。0.1.3 为工具链兼容补丁，要求 `moonc v0.10.18+6c83a7f62`，
-配套 `moon` / `moonrun 0.1.20261028 (e1e1f15)`。对未变的产品输入，复用
-`070df56` 的[六项成功适配 CI](https://github.com/pangbit/mooncdc/actions/runs/41149520495)。
-跟踪发布源码和标签的 CI，核对精确注册库归档及文档构建，并运行一次干净的精确版本消费者。
+CI 不执行发布。当前开发代码要求 `moonc v0.10.20+65efd5b93`，
+配套 `moon` / `moonrun 0.1.20261104 (940aa18)`。
+`070df56` 的[六项成功适配 CI](https://github.com/pangbit/mooncdc/actions/runs/41149520495)
+属于 0.1.3 的十月历史证据，不能验收本次十一月适配。
+跟踪当前源码、工具链和标签的 CI，核对精确注册库归档及文档构建，并运行一次干净的精确版本消费者。
 不在其他主机重复功能矩阵。
 
 1. 审阅[测试](TESTING.zh-CN.md)中的单元、PostgreSQL 18/17、TLS、示例和恢复门槛。

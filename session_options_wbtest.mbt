@@ -22,7 +22,13 @@ async test "live session workloads override server defaults and preserve snapsho
     defer admin.close()
     let name = "session_" + pipeline_nonce()
     ignore(admin.query("CREATE DATABASE \{name}"))
-    defer ignore(admin.query("DROP DATABASE \{name}"))
+    let cleanup_failed = Ref(false)
+    defer finish_test_cleanup(cleanup_failed, () => {
+      ignore(admin.query("DROP DATABASE \{name}"))
+    })
+    errdefer {
+      cleanup_failed.val = true
+    }
     ignore(
       admin.query(
         "ALTER DATABASE \{name} SET statement_timeout='50ms'; ALTER DATABASE \{name} SET lock_timeout='50ms'; ALTER DATABASE \{name} SET idle_in_transaction_session_timeout='50ms'",
@@ -91,11 +97,17 @@ async test "live session workloads override server defaults and preserve snapsho
     )
     let mut rows = 0
     let slot = name + "_snapshot"
-    defer ignore(
-      sql.query(
-        "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name='\{slot}'",
-      ),
-    )
+    let cleanup_failed = Ref(false)
+    defer finish_test_cleanup(cleanup_failed, () => {
+      ignore(
+        sql.query(
+          "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name='\{slot}'",
+        ),
+      )
+    })
+    errdefer {
+      cleanup_failed.val = true
+    }
     ignore(
       copy_snapshot(config, slot~, publication="items", event => {
         match event {
@@ -118,7 +130,11 @@ async test "live session workloads override server defaults and preserve snapsho
     // Stateful sessions inherit the bounded profile before acquiring a lease.
     let store = PostgresStateStore::new(config, store_id="session-test")
     store.acquire("owner")
-    defer store.release("owner")
+    let cleanup_failed = Ref(false)
+    defer finish_test_cleanup(cleanup_failed, () => store.release("owner"))
+    errdefer {
+      cleanup_failed.val = true
+    }
     assert_eq(
       sql.query(
         "SELECT application_name FROM pg_stat_activity WHERE datname=current_database() AND application_name='mooncdc_state'",

@@ -1,19 +1,21 @@
 ///|
 /// Persisted retry policy; TimedRetry uses Unix milliseconds.
+#derive(Eq, Debug, ToJson, @json.FromJson)
 pub(all) enum TableRetryPolicy {
   NoRetry
   ManualRetry
   TimedRetry(UInt64)
-} derive(Eq, Debug, ToJson, @json.FromJson)
+}
 
 ///|
 /// A destination may classify a failure explicitly. Copy failures use per-table
 /// retry; main apply replays from its checkpoint. Copy-side flush errors are fatal.
+#derive(Debug)
 pub(all) suberror TableReplicationError {
   Retryable(String)
   Manual(String)
   Permanent(String)
-} derive(Debug)
+}
 
 ///|
 priv suberror PipelineCritical {

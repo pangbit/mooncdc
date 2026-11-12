@@ -9,11 +9,12 @@ pub(open) trait SchemaStore {
 }
 
 ///|
+#derive(ToJson, @json.FromJson)
 priv struct StoredSchema {
   commit_lsn : String
   message_lsn : String
   payload : Json
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
 /// Canonical versioned representation for external SchemaStore implementations.
@@ -40,11 +41,12 @@ pub fn SchemaSnapshot::from_json(json : Json) -> SchemaSnapshot raise {
 }
 
 ///|
+#derive(ToJson, @json.FromJson)
 priv struct SchemaFile {
   version : Int32
   identity : String
   schemas : Array[StoredSchema]
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
 priv enum SchemaStorage {

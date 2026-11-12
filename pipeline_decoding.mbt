@@ -1,11 +1,12 @@
 ///|
 // Compact handover payload. The full snapshot belongs to SchemaStore.
+#derive(ToJson, @json.FromJson)
 priv struct StoredDecoding {
   commit_lsn : String
   message_lsn : String
   replicated : Array[Bool]
   identity : Array[Bool]
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
 fn StoredDecoding::capture(schema : ReplicatedSchema) -> StoredDecoding {

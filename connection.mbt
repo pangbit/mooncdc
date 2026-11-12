@@ -1,10 +1,11 @@
 ///|
 /// TLS always verifies the server certificate and hostname when enabled.
+#derive(Debug)
 pub(all) enum Security {
   LocalPlaintext
   VerifyFull
   VerifyCAFile(String)
-} derive(Debug)
+}
 
 ///|
 /// Connection settings. Passwords are deliberately excluded from Debug output.
@@ -22,11 +23,12 @@ pub(all) struct ConnectionConfig {
 
 ///|
 /// TCP probe settings in seconds, matching the pinned ETL replication defaults.
+#derive(Eq, Debug)
 pub(all) struct TcpKeepaliveConfig {
   idle_secs : Int32
   interval_secs : Int32
   retries : Int32
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend TcpKeepaliveConfig with Eq::{equal, not_equal}

@@ -6,6 +6,14 @@
 English is the authoritative version.
 
 
+## Unreleased
+
+- Select `moonc v0.10.20+65efd5b93` and `moon` / `moonrun 0.1.20261104 (940aa18)`.
+- Migrate derived declarations and regenerate package interfaces with the selected SDK.
+- Bound asynchronous test/example cleanup, preserve original failures and restore
+  the package-consumer negative-control fixture under cancellation.
+- Keep dependency versions unchanged and check formatting across all packages.
+
 ## 0.1.3
 
 - Require the reviewed MoonBit toolchain: `moonc v0.10.18+6c83a7f62` with

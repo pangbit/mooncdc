@@ -10,10 +10,11 @@ import {
 ----
 
 ///|
+#derive(Eq, Debug)
 enum PackagePhase {
   Full
   Consumers
-} derive(Eq, Debug)
+}
 
 ///|
 fn manifest_version(manifest : String) -> String raise {
@@ -677,7 +678,20 @@ async fn main {
   {
     let path = dir + "/module/cell_float.c"
     let bytes = @fs.read_file(path)
-    defer @fs.write_file(path, bytes)
+    let restore_failed = Ref(false)
+    defer @async.protect_from_cancel(() => {
+      @async.with_timeout(10000, () => @fs.write_file(path, bytes)) catch {
+        error =>
+          if restore_failed.val {
+            println("Native stub restoration failed after the check: \{error}")
+          } else {
+            raise error
+          }
+      }
+    })
+    errdefer {
+      restore_failed.val = true
+    }
     @fs.remove(path)
     let missing = run(
       "consumer-missing-stub",

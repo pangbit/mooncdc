@@ -1,19 +1,21 @@
 ///|
+#derive(ToJson)
 priv struct BudgetVector {
   capacity : String
   ratio : Float
   slots : String
   maximum : String
-} derive(ToJson)
+}
 
 ///|
+#derive(ToJson)
 priv struct PressureVector {
   used : String
   total : String
   active : Bool
   activate : Float
   resume_threshold : Float
-} derive(ToJson)
+}
 
 ///|
 async test "pinned ETL memory budget and backpressure differential" {

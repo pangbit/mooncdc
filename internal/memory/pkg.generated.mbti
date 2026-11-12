@@ -57,28 +57,31 @@ pub fn Monitor::transitions(Self) -> (UInt64, UInt64)
 pub async fn Monitor::wait_for_capacity(Self) -> Unit
 pub async fn Monitor::wait_for_pressure(Self) -> Unit
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Refresh {
   snapshot : Snapshot
   fresh : Bool
-} derive(Eq, @debug.Debug)
+}
 pub fn Refresh::equal(Self, Self) -> Bool
 pub fn Refresh::not_equal(Self, Self) -> Bool
 pub fn Refresh::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Snapshot {
   used : UInt64
   total : UInt64
   source : Source
-} derive(Eq, @debug.Debug)
+}
 pub fn Snapshot::equal(Self, Self) -> Bool
 pub fn Snapshot::not_equal(Self, Self) -> Bool
 pub fn Snapshot::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Source {
   System
   ProcessCgroup
   RootCgroup
-} derive(Eq, @debug.Debug)
+}
 pub fn Source::equal(Self, Self) -> Bool
 pub fn Source::not_equal(Self, Self) -> Bool
 pub fn Source::to_repr(Self) -> @debug.Repr

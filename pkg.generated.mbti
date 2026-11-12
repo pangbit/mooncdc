@@ -36,6 +36,7 @@ pub async fn[T] with_state_schema_store(&StateStore, identity~ : String, async (
 pub async fn[T] with_state_store(&StateStore, async (StateSession) -> T) -> T
 
 // Errors
+#derive(@debug.Debug)
 pub(all) suberror CdcError {
   Protocol(String)
   Conversion(String)
@@ -46,29 +47,32 @@ pub(all) suberror CdcError {
   UnsafeResume(String)
   CheckpointError(String)
   Closed
-} derive(@debug.Debug)
+}
 pub fn CdcError::to_repr(Self) -> @debug.Repr
 
+#derive(@debug.Debug)
 pub(all) suberror TableReplicationError {
   Retryable(String)
   Manual(String)
   Permanent(String)
-} derive(@debug.Debug)
+}
 pub fn TableReplicationError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) enum ActivityKind {
   InitialTableCopy
   WalApply(wal_sender_timeout_ms~ : UInt64)
-} derive(Eq, @debug.Debug)
+}
 pub fn ActivityKind::equal(Self, Self) -> Bool
 pub fn ActivityKind::not_equal(Self, Self) -> Bool
 pub fn ActivityKind::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub struct ActivitySnapshot {
   kind : ActivityKind
   inactive_ms : UInt64
-} derive(Eq, @debug.Debug)
+}
 pub fn ActivitySnapshot::equal(Self, Self) -> Bool
 pub fn ActivitySnapshot::not_equal(Self, Self) -> Bool
 pub fn ActivitySnapshot::to_repr(Self) -> @debug.Repr
@@ -90,6 +94,7 @@ pub struct BatchConfig {
 }
 pub fn BatchConfig::new(memory_budget_ratio? : Float, max_bytes? : UInt64, max_fill_ms? : Int32) -> Self
 
+#derive(@debug.Debug)
 pub(all) enum Cell {
   SqlNull
   ToastUnchanged
@@ -108,15 +113,16 @@ pub(all) enum Cell {
   Timestamp(PgTimestamp)
   TimestampTz(PgTimestamp)
   Uuid(Bytes)
-  Json(Json)
+  Json(@json.Json)
   Bytes(Bytes)
   Array(ReadOnlyArray[Cell])
-} derive(@debug.Debug)
+}
 pub fn Cell::equal(Self, Self) -> Bool
 pub fn Cell::not_equal(Self, Self) -> Bool
 pub fn Cell::to_repr(Self) -> @debug.Repr
 pub impl Eq for Cell
 
+#derive(Eq, @debug.Debug, @json.ToJson)
 pub(all) enum Change {
   RelationChanged(Relation)
   TypeChanged(TypeInfo)
@@ -126,10 +132,10 @@ pub(all) enum Change {
   Truncate(ReadOnlyArray[Relation], cascade~ : Bool, restart_identity~ : Bool)
   Origin(Lsn, String)
   Message(LogicalMessage)
-} derive(Eq, ToJson, @debug.Debug)
+}
 pub fn Change::equal(Self, Self) -> Bool
 pub fn Change::not_equal(Self, Self) -> Bool
-pub fn Change::to_json(Self) -> Json
+pub fn Change::to_json(Self) -> @json.Json
 pub fn Change::to_repr(Self) -> @debug.Repr
 
 pub struct ClickHouseDestination {
@@ -151,39 +157,43 @@ pub async fn ClickHouseDestination::write_transaction(Self, Transaction) -> Writ
 pub async fn ClickHouseDestination::write_wal_batch(Self, WalBatch) -> WriteStatus
 pub impl Destination for ClickHouseDestination
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ClickHouseEngine {
   ReplacingMergeTree
   MergeTree
-} derive(Eq, @debug.Debug)
+}
 pub fn ClickHouseEngine::equal(Self, Self) -> Bool
 pub fn ClickHouseEngine::not_equal(Self, Self) -> Bool
 pub fn ClickHouseEngine::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug, @json.ToJson)
 pub struct Column {
   name : String
   type_oid : UInt32
   type_modifier : Int32
   key : Bool
-} derive(Eq, ToJson, @debug.Debug)
+}
 pub fn Column::equal(Self, Self) -> Bool
 pub fn Column::not_equal(Self, Self) -> Bool
-pub fn Column::to_json(Self) -> Json
+pub fn Column::to_json(Self) -> @json.Json
 pub fn Column::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ColumnAlteration {
   Rename
   DataType
   Nullability
   DefaultExpression
-} derive(Eq, @debug.Debug)
+}
 pub fn ColumnAlteration::equal(Self, Self) -> Bool
 pub fn ColumnAlteration::not_equal(Self, Self) -> Bool
 pub fn ColumnAlteration::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ColumnPresenceReason {
   TableSchema
   Publication
-} derive(Eq, @debug.Debug)
+}
 pub fn ColumnPresenceReason::equal(Self, Self) -> Bool
 pub fn ColumnPresenceReason::not_equal(Self, Self) -> Bool
 pub fn ColumnPresenceReason::to_repr(Self) -> @debug.Repr
@@ -210,6 +220,7 @@ pub struct DestinationEvents {
 pub fn DestinationEvents::event_id(Self, Int32) -> String?
 pub fn DestinationEvents::replicated_schemas(Self, Int32) -> ReadOnlyArray[ReplicatedSchema]
 
+#derive(@debug.Debug, @json.ToJson)
 pub struct Diagnostics {
   reconnects : Int32
   received : Lsn
@@ -218,8 +229,8 @@ pub struct Diagnostics {
   outstanding_transactions : Int32
   queued_transactions : Int32
   wal_lag_bytes : UInt64
-} derive(ToJson, @debug.Debug)
-pub fn Diagnostics::to_json(Self) -> Json
+}
+pub fn Diagnostics::to_json(Self) -> @json.Json
 pub fn Diagnostics::to_repr(Self) -> @debug.Repr
 
 pub struct FileStateStore {
@@ -232,39 +243,43 @@ pub async fn FileStateStore::release(Self, String) -> Unit
 pub async fn FileStateStore::save(Self, String, StateRecord, Bytes) -> Unit
 pub impl StateStore for FileStateStore
 
+#derive(Eq, @debug.Debug)
 pub(all) enum IdentityKind {
   Missing
   PrimaryKey
   FullRow
   AlternativeKey
-} derive(Eq, @debug.Debug)
+}
 pub fn IdentityKind::equal(Self, Self) -> Bool
 pub fn IdentityKind::not_equal(Self, Self) -> Bool
 pub fn IdentityKind::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum InvalidatedSlotBehavior {
   RejectInvalidatedSlot
   RecreateInvalidatedSlot
-} derive(Eq, @debug.Debug)
+}
 pub fn InvalidatedSlotBehavior::equal(Self, Self) -> Bool
 pub fn InvalidatedSlotBehavior::not_equal(Self, Self) -> Bool
 pub fn InvalidatedSlotBehavior::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug, @json.ToJson)
 pub struct LogicalMessage {
   transactional : Bool
   lsn : Lsn
   prefix : String
   content : Bytes
-} derive(Eq, ToJson, @debug.Debug)
+}
 pub fn LogicalMessage::equal(Self, Self) -> Bool
 pub fn LogicalMessage::not_equal(Self, Self) -> Bool
 pub fn LogicalMessage::schema_snapshot(Self, commit_lsn~ : Lsn, publication~ : String) -> SchemaSnapshot? raise
-pub fn LogicalMessage::to_json(Self) -> Json
+pub fn LogicalMessage::to_json(Self) -> @json.Json
 pub fn LogicalMessage::to_repr(Self) -> @debug.Repr
 
+#derive(Compare, Eq, @debug.Debug, @json.ToJson)
 pub struct Lsn {
   value : UInt64
-} derive(Compare, Eq, ToJson, @debug.Debug)
+}
 pub fn Lsn::compare(Self, Self) -> Int32
 pub fn Lsn::equal(Self, Self) -> Bool
 pub fn Lsn::not_equal(Self, Self) -> Bool
@@ -273,7 +288,7 @@ pub fn Lsn::op_gt(Self, Self) -> Bool
 pub fn Lsn::op_le(Self, Self) -> Bool
 pub fn Lsn::op_lt(Self, Self) -> Bool
 pub fn Lsn::parse(String) -> Self raise
-pub fn Lsn::to_json(Self) -> Json
+pub fn Lsn::to_json(Self) -> @json.Json
 pub fn Lsn::to_repr(Self) -> @debug.Repr
 pub fn Lsn::to_string(Self) -> String
 
@@ -284,73 +299,81 @@ pub struct MemoryBackpressureConfig {
 }
 pub fn MemoryBackpressureConfig::new(activate_threshold? : Float, resume_threshold? : Float, refresh_interval_ms? : Int32) -> Self
 
+#derive(Eq, @debug.Debug, @json.ToJson)
 pub(all) enum OldTuple {
   Key(ReadOnlyArray[Value])
   Full(ReadOnlyArray[Value])
-} derive(Eq, ToJson, @debug.Debug)
+}
 pub fn OldTuple::equal(Self, Self) -> Bool
 pub fn OldTuple::not_equal(Self, Self) -> Bool
-pub fn OldTuple::to_json(Self) -> Json
+pub fn OldTuple::to_json(Self) -> @json.Json
 pub fn OldTuple::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum PgDate {
   Finite(year~ : Int32, month~ : Int32, day~ : Int32)
   PosInfinity
   NegInfinity
-} derive(Eq, @debug.Debug)
+}
 pub fn PgDate::equal(Self, Self) -> Bool
 pub fn PgDate::not_equal(Self, Self) -> Bool
 pub fn PgDate::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum PgOutputProtocol {
   V1
   V2Streaming
-} derive(Eq, @debug.Debug)
+}
 pub fn PgOutputProtocol::equal(Self, Self) -> Bool
 pub fn PgOutputProtocol::not_equal(Self, Self) -> Bool
 pub fn PgOutputProtocol::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub struct PgTime {
   seconds : Int32
   nanoseconds : Int32
-} derive(Eq, @debug.Debug)
+}
 pub fn PgTime::equal(Self, Self) -> Bool
 pub fn PgTime::not_equal(Self, Self) -> Bool
 pub fn PgTime::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum PgTimestamp {
   Finite(date~ : PgDate, time~ : PgTime)
   PosInfinity
   NegInfinity
-} derive(Eq, @debug.Debug)
+}
 pub fn PgTimestamp::equal(Self, Self) -> Bool
 pub fn PgTimestamp::not_equal(Self, Self) -> Bool
 pub fn PgTimestamp::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub struct PipelineHealth {
   lifecycle : PipelineLifecycle
   live : Bool
   ready : Bool
   status : String
-} derive(Eq, @debug.Debug)
+}
 pub fn PipelineHealth::equal(Self, Self) -> Bool
 pub fn PipelineHealth::not_equal(Self, Self) -> Bool
 pub fn PipelineHealth::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum PipelineLifecycle {
   Initializing
   Running
   Stopping
-} derive(Eq, @debug.Debug)
+}
 pub fn PipelineLifecycle::equal(Self, Self) -> Bool
 pub fn PipelineLifecycle::not_equal(Self, Self) -> Bool
 pub fn PipelineLifecycle::to_repr(Self) -> @debug.Repr
 
+#derive(@debug.Debug)
 pub struct PipelineStatus {
   slot : String
   destination_id : String
   tables : ReadOnlyArray[TableSyncStatus]
-} derive(@debug.Debug)
+}
 pub fn PipelineStatus::to_repr(Self) -> @debug.Repr
 
 pub struct PostgresStateStore {
@@ -363,23 +386,25 @@ pub async fn PostgresStateStore::release(Self, String) -> Unit
 pub async fn PostgresStateStore::save(Self, String, StateRecord, Bytes) -> Unit
 pub impl StateStore for PostgresStateStore
 
+#derive(Eq, @debug.Debug, @json.ToJson)
 pub struct Relation {
   oid : UInt32
   namespace_ : String
   name : String
   replica_identity : Byte
   columns : ReadOnlyArray[Column]
-} derive(Eq, ToJson, @debug.Debug)
+}
 pub fn Relation::equal(Self, Self) -> Bool
 pub fn Relation::not_equal(Self, Self) -> Bool
-pub fn Relation::to_json(Self) -> Json
+pub fn Relation::to_json(Self) -> @json.Json
 pub fn Relation::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub struct ReplicatedSchema {
   schema : SchemaSnapshot
   replicated : ReadOnlyArray[Bool]
   identity : ReadOnlyArray[Bool]
-} derive(Eq, @debug.Debug)
+}
 pub fn ReplicatedSchema::all_primary_keys_replicated(Self) -> Bool
 pub fn ReplicatedSchema::columns(Self) -> ReadOnlyArray[SchemaColumn]
 pub fn ReplicatedSchema::decode_row(Self, ReadOnlyArray[Value]) -> ReadOnlyArray[Cell] raise
@@ -391,6 +416,7 @@ pub fn ReplicatedSchema::plan_change(Self, Self, map_name? : (String) -> String)
 pub fn ReplicatedSchema::to_repr(Self) -> @debug.Repr
 pub fn ReplicatedSchema::with_schema(Self, SchemaSnapshot) -> Self raise
 
+#derive(Eq, @debug.Debug, @json.ToJson)
 pub struct SchemaColumn {
   name : String
   type_oid : UInt32
@@ -399,16 +425,17 @@ pub struct SchemaColumn {
   nullable : Bool
   primary_key_ordinal : Int32?
   default_expression : String?
-} derive(Eq, ToJson, @debug.Debug)
+}
 pub fn SchemaColumn::equal(Self, Self) -> Bool
 pub fn SchemaColumn::not_equal(Self, Self) -> Bool
-pub fn SchemaColumn::to_json(Self) -> Json
+pub fn SchemaColumn::to_json(Self) -> @json.Json
 pub fn SchemaColumn::to_repr(Self) -> @debug.Repr
 
+#derive(Compare, Eq, @debug.Debug)
 pub struct SchemaId {
   commit_lsn : Lsn
   message_lsn : Lsn
-} derive(Compare, Eq, @debug.Debug)
+}
 pub fn SchemaId::before_lsn(Lsn) -> Self raise
 pub fn SchemaId::compare(Self, Self) -> Int32
 pub fn SchemaId::equal(Self, Self) -> Bool
@@ -419,24 +446,27 @@ pub fn SchemaId::op_le(Self, Self) -> Bool
 pub fn SchemaId::op_lt(Self, Self) -> Bool
 pub fn SchemaId::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum SchemaOperation {
   DropColumn(SchemaColumn, reason~ : ColumnPresenceReason)
   AddColumn(SchemaColumn, reason~ : ColumnPresenceReason)
   AlterColumn(before~ : SchemaColumn, after~ : SchemaColumn, kind~ : ColumnAlteration)
-} derive(Eq, @debug.Debug)
+}
 pub fn SchemaOperation::equal(Self, Self) -> Bool
 pub fn SchemaOperation::not_equal(Self, Self) -> Bool
 pub fn SchemaOperation::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub struct SchemaPlan {
   operations : ReadOnlyArray[SchemaOperation]
   primary_key_changed : Bool
   has_rename_cycles : Bool
-} derive(Eq, @debug.Debug)
+}
 pub fn SchemaPlan::equal(Self, Self) -> Bool
 pub fn SchemaPlan::not_equal(Self, Self) -> Bool
 pub fn SchemaPlan::to_repr(Self) -> @debug.Repr
 
+#derive(@debug.Debug)
 pub struct SchemaSnapshot {
   id : SchemaId
   oid : UInt32
@@ -445,29 +475,31 @@ pub struct SchemaSnapshot {
   replica_identity : Byte
   columns : ReadOnlyArray[SchemaColumn]
   // private fields
-} derive(@debug.Debug)
+}
 pub fn SchemaSnapshot::equal(Self, Self) -> Bool
-pub fn SchemaSnapshot::from_json(Json) -> Self raise
+pub fn SchemaSnapshot::from_json(@json.Json) -> Self raise
 pub fn SchemaSnapshot::not_equal(Self, Self) -> Bool
 pub fn SchemaSnapshot::project(Self, Relation) -> ReplicatedSchema raise
 pub fn SchemaSnapshot::relation(Self, ReadOnlyArray[String]) -> Relation raise
-pub fn SchemaSnapshot::to_json(Self) -> Json
+pub fn SchemaSnapshot::to_json(Self) -> @json.Json
 pub fn SchemaSnapshot::to_repr(Self) -> @debug.Repr
 pub impl Eq for SchemaSnapshot
-pub impl ToJson for SchemaSnapshot
+pub impl @json.ToJson for SchemaSnapshot
 
+#derive(@debug.Debug)
 pub(all) enum Security {
   LocalPlaintext
   VerifyFull
   VerifyCAFile(String)
-} derive(@debug.Debug)
+}
 pub fn Security::to_repr(Self) -> @debug.Repr
 
+#derive(@debug.Debug)
 pub(all) enum SnapshotEvent {
   TableBegin(Relation)
   TableRows(Relation, ReadOnlyArray[ReadOnlyArray[Value]])
   TableEnd(Relation)
-} derive(@debug.Debug)
+}
 pub fn SnapshotEvent::to_repr(Self) -> @debug.Repr
 
 pub struct SnapshotPosition {
@@ -483,12 +515,13 @@ pub(all) enum Start {
   Resume
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum StateRecord {
   Pipeline
   ReplicationCheckpoint
   Schemas
   TableMetadata(UInt32)
-} derive(Eq, @debug.Debug)
+}
 pub fn StateRecord::equal(Self, Self) -> Bool
 pub fn StateRecord::not_equal(Self, Self) -> Bool
 pub fn StateRecord::to_repr(Self) -> @debug.Repr
@@ -497,8 +530,8 @@ pub struct StateSession {
   // private fields
 }
 pub fn StateSession::check(Self) -> Unit raise
-pub async fn StateSession::get_metadata(Self, UInt32) -> Json?
-pub async fn StateSession::put_metadata(Self, UInt32, Json) -> Unit
+pub async fn StateSession::get_metadata(Self, UInt32) -> @json.Json?
+pub async fn StateSession::put_metadata(Self, UInt32, @json.Json) -> Unit
 
 pub struct Subscription {
   // private fields
@@ -509,64 +542,71 @@ pub fn Subscription::close(Self) -> Unit
 pub fn Subscription::diagnostics(Self) -> Diagnostics
 pub async fn Subscription::next(Self) -> Transaction
 
+#derive(Eq, @debug.Debug, @json.ToJson)
 pub struct TableCopyBatchId {
   attempt : String
   relation_id : UInt32
   sequence : UInt64
-} derive(Eq, ToJson, @debug.Debug)
+}
 pub fn TableCopyBatchId::equal(Self, Self) -> Bool
 pub fn TableCopyBatchId::not_equal(Self, Self) -> Bool
-pub fn TableCopyBatchId::to_json(Self) -> Json
+pub fn TableCopyBatchId::to_json(Self) -> @json.Json
 pub fn TableCopyBatchId::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug, @json.FromJson, @json.ToJson)
 pub(all) enum TableRetryPolicy {
   NoRetry
   ManualRetry
   TimedRetry(UInt64)
-} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+}
 pub fn TableRetryPolicy::equal(Self, Self) -> Bool
-pub fn TableRetryPolicy::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn TableRetryPolicy::from_json(@json.Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
 pub fn TableRetryPolicy::not_equal(Self, Self) -> Bool
-pub fn TableRetryPolicy::to_json(Self) -> Json
+pub fn TableRetryPolicy::to_json(Self) -> @json.Json
 pub fn TableRetryPolicy::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum TableSyncCopy {
   IncludeAllTables
   SkipAllTables
   IncludeTables(ReadOnlyArray[UInt32])
   SkipTables(ReadOnlyArray[UInt32])
-} derive(Eq, @debug.Debug)
+}
 pub fn TableSyncCopy::equal(Self, Self) -> Bool
 pub fn TableSyncCopy::not_equal(Self, Self) -> Bool
 pub fn TableSyncCopy::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum TableSyncPhase {
   Pending
   Copying
   Catchup(Lsn)
   Ready(Lsn)
   Errored(reason~ : String, retry~ : TableRetryPolicy, attempts~ : Int32)
-} derive(Eq, @debug.Debug)
+}
 pub fn TableSyncPhase::equal(Self, Self) -> Bool
 pub fn TableSyncPhase::not_equal(Self, Self) -> Bool
 pub fn TableSyncPhase::to_repr(Self) -> @debug.Repr
 
+#derive(@debug.Debug)
 pub struct TableSyncStatus {
   oid : UInt32
   phase : TableSyncPhase
-} derive(@debug.Debug)
+}
 pub fn TableSyncStatus::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct TcpKeepaliveConfig {
   idle_secs : Int32
   interval_secs : Int32
   retries : Int32
-} derive(Eq, @debug.Debug)
+}
 pub fn TcpKeepaliveConfig::equal(Self, Self) -> Bool
 pub fn TcpKeepaliveConfig::new(idle_secs? : Int32, interval_secs? : Int32, retries? : Int32) -> Self
 pub fn TcpKeepaliveConfig::not_equal(Self, Self) -> Bool
 pub fn TcpKeepaliveConfig::to_repr(Self) -> @debug.Repr
 
+#derive(@debug.Debug)
 pub struct Transaction {
   id : String
   xid : UInt32
@@ -575,36 +615,39 @@ pub struct Transaction {
   commit_time_us : Int64
   changes : ReadOnlyArray[Change]
   // private fields
-} derive(@debug.Debug)
+}
 pub fn Transaction::destination_events(Self) -> DestinationEvents
 pub fn Transaction::event_id(Self, Int32) -> String?
 pub fn Transaction::replicated_schemas(Self, Int32) -> ReadOnlyArray[ReplicatedSchema]
-pub fn Transaction::to_json(Self) -> Json
+pub fn Transaction::to_json(Self) -> @json.Json
 pub fn Transaction::to_repr(Self) -> @debug.Repr
-pub impl ToJson for Transaction
+pub impl @json.ToJson for Transaction
 
+#derive(Eq, @debug.Debug, @json.ToJson)
 pub struct TypeInfo {
   oid : UInt32
   namespace_ : String
   name : String
-} derive(Eq, ToJson, @debug.Debug)
+}
 pub fn TypeInfo::equal(Self, Self) -> Bool
 pub fn TypeInfo::not_equal(Self, Self) -> Bool
-pub fn TypeInfo::to_json(Self) -> Json
+pub fn TypeInfo::to_json(Self) -> @json.Json
 pub fn TypeInfo::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug, @json.ToJson)
 pub(all) enum Value {
   Null
   Text(String)
   Binary(Bytes)
   UnchangedToast
-} derive(Eq, ToJson, @debug.Debug)
+}
 pub fn Value::decode_text(Self, UInt32, array_element_oid? : UInt32) -> Cell raise
 pub fn Value::equal(Self, Self) -> Bool
 pub fn Value::not_equal(Self, Self) -> Bool
-pub fn Value::to_json(Self) -> Json
+pub fn Value::to_json(Self) -> @json.Json
 pub fn Value::to_repr(Self) -> @debug.Repr
 
+#derive(@debug.Debug)
 pub struct WalBatch {
   id : String
   xid : UInt32
@@ -613,16 +656,17 @@ pub struct WalBatch {
   changes : ReadOnlyArray[Change]
   end_lsn : Lsn?
   // private fields
-} derive(@debug.Debug)
+}
 pub fn WalBatch::destination_events(Self) -> DestinationEvents
 pub fn WalBatch::event_id(Self, Int32) -> String?
 pub fn WalBatch::replicated_schemas(Self, Int32) -> ReadOnlyArray[ReplicatedSchema]
 pub fn WalBatch::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum WriteStatus {
   Accepted
   Durable
-} derive(Eq, @debug.Debug)
+}
 pub fn WriteStatus::equal(Self, Self) -> Bool
 pub fn WriteStatus::not_equal(Self, Self) -> Bool
 pub fn WriteStatus::to_repr(Self) -> @debug.Repr

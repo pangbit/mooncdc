@@ -11,11 +11,17 @@ async test "ClickHouse pipeline live upstream DDL and publication projection" {
       sql.query("SELECT oid FROM pg_namespace WHERE nspname='etl'").is_empty(),
     )
     ignore(sql.query("CREATE SCHEMA etl"))
-    defer ignore(
-      sql.query(
-        "DROP EVENT TRIGGER IF EXISTS supabase_etl_ddl_message_trigger; DROP SCHEMA etl CASCADE",
-      ),
-    )
+    let cleanup_failed = Ref(false)
+    defer finish_test_cleanup(cleanup_failed, () => {
+      ignore(
+        sql.query(
+          "DROP EVENT TRIGGER IF EXISTS supabase_etl_ddl_message_trigger; DROP SCHEMA etl CASCADE",
+        ),
+      )
+    })
+    errdefer {
+      cleanup_failed.val = true
+    }
     ignore(
       sql.query(
         @fs.read_file("integration/reference/etl/schema-change-messages.sql").text(),
@@ -33,25 +39,41 @@ async test "ClickHouse pipeline live upstream DDL and publication projection" {
     )
     let db = "mooncdc_ddl_pipeline_" + pipeline_nonce()
     ignore(http.query("CREATE DATABASE " + ch_quote(db, '"')))
-    defer (ignore(http.query("DROP DATABASE " + ch_quote(db, '"'))) catch {
-      _ => ()
+    let cleanup_failed = Ref(false)
+    defer finish_test_cleanup(cleanup_failed, () => {
+      ignore(http.query("DROP DATABASE " + ch_quote(db, '"'))) catch {
+        _ => ()
+      }
     })
+    errdefer {
+      cleanup_failed.val = true
+    }
     for engine in [ClickHouseEngine::ReplacingMergeTree, MergeTree] {
       ignore(
         sql.query(
           "CREATE SCHEMA chddl; CREATE TABLE chddl.items(id int PRIMARY KEY, label varchar(20), value text NOT NULL); INSERT INTO chddl.items VALUES(1,'old','value'); CREATE PUBLICATION chddl FOR TABLE chddl.items",
         ),
       )
-      defer ignore(
-        sql.query("DROP PUBLICATION chddl; DROP SCHEMA chddl CASCADE"),
-      )
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        ignore(sql.query("DROP PUBLICATION chddl; DROP SCHEMA chddl CASCADE"))
+      })
+      errdefer {
+        cleanup_failed.val = true
+      }
       let dir = @fs.tmpdir(prefix="mooncdc-ddl-pipeline-")
       defer @fs.rmdir(dir, recursive=true)
       @fs.mkdir(dir + "/state")
       let state = FileStateStore::new(dir + "/state")
-      defer (if state_store_status(state) is Some(status) {
-        drop_slot(sql, status.slot)
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        if state_store_status(state) is Some(status) {
+          drop_slot(sql, status.slot)
+        }
       })
+      errdefer {
+        cleanup_failed.val = true
+      }
       with_file_schema_store(
         dir + "/schema",
         identity=db + ch_engine_name(engine),

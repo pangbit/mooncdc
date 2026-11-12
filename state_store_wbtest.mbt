@@ -91,7 +91,13 @@ async test "live PostgreSQL state store exclusive ownership and lost session nev
     let sql = connect(config, 16777216, false)
     defer sql.close()
     ignore(sql.query("CREATE SCHEMA cdc_state_store"))
-    defer ignore(sql.query("DROP SCHEMA cdc_state_store CASCADE"))
+    let cleanup_failed = Ref(false)
+    defer finish_test_cleanup(cleanup_failed, () => {
+      ignore(sql.query("DROP SCHEMA cdc_state_store CASCADE"))
+    })
+    errdefer {
+      cleanup_failed.val = true
+    }
     let first = PostgresStateStore::new(
       config,
       store_id="quoted ' \\ key",

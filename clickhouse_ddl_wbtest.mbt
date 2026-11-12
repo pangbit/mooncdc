@@ -205,9 +205,15 @@ async test "ClickHouse live DDL historical defaults and endpoint recovery" {
     )
     let db = "mooncdc_ddl_" + pipeline_nonce()
     ignore(http.query("CREATE DATABASE " + ch_quote(db, '"')))
-    defer (ignore(http.query("DROP DATABASE " + ch_quote(db, '"'))) catch {
-      _ => ()
+    let cleanup_failed = Ref(false)
+    defer finish_test_cleanup(cleanup_failed, () => {
+      ignore(http.query("DROP DATABASE " + ch_quote(db, '"'))) catch {
+        _ => ()
+      }
     })
+    errdefer {
+      cleanup_failed.val = true
+    }
     with_file_schema_store(dir + "/schema", identity=db, schemas => {
       for engine in [ClickHouseEngine::ReplacingMergeTree, MergeTree] {
         let state_dir = dir + "/" + ch_engine_name(engine)
@@ -229,7 +235,11 @@ async test "ClickHouse live DDL historical defaults and endpoint recovery" {
           )
           target.bind_state(session)
           target.startup()
-          defer target.shutdown()
+          let cleanup_failed = Ref(false)
+          defer finish_test_cleanup(cleanup_failed, () => target.shutdown())
+          errdefer {
+            cleanup_failed.val = true
+          }
           let columns = ch_test_columns()
           let before = ch_test_schema(columns, 100)
           let relation = before.schema.relation(["id", "value"])

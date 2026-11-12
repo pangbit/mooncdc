@@ -13,9 +13,13 @@ historical results and [reference tests](REFERENCE_TESTS.md) for upstream checks
 
 ## Toolchain and offline local gates
 
-The development and CI toolchain is `moonc v0.10.18+6c83a7f62` with
-`moon 0.1.20261028 (e1e1f15)`. Dependencies are pinned in `moon.mod`.
+The development and CI toolchain is `moonc v0.10.20+65efd5b93` with
+`moon 0.1.20261104 (940aa18)`. Dependencies are pinned in `moon.mod`.
 Historical release results retain the toolchain recorded with each run.
+The November adaptation uses `#derive` and protects asynchronous fixture cleanup
+with a separate 10-second deadline. A failing body keeps its original error;
+cleanup failure after a successful body still fails the test. The local cleanup
+tests cover cancellation, error preservation and continuing after a cleanup timeout.
 Provision dependencies separately with `moon update` when network use is allowed;
 the following commands use the existing cache and never publish a package.
 
@@ -30,8 +34,8 @@ moon test tools/publish-check.mbtx --target native --frozen
 moon test tools/cli-active-promotion-test.mbtx --target native --frozen
 moon test tools/active-store-promotion-test.mbtx --target native --frozen
 python3 -B tools/package-footprint-sample_test.py
-moon info --target native --frozen && moon fmt . tools/*.mbtx
-moon fmt --check . tools/*.mbtx
+moon info --target native --frozen && moon fmt && moon fmt tools/*.mbtx
+moon fmt --check && moon fmt --check tools/*.mbtx
 moon package --list --frozen
 moon package --frozen
 ```

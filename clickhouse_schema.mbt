@@ -1,10 +1,11 @@
 ///|
 /// ReplacingMergeTree exposes current state through a FINAL view; MergeTree
 /// retains insert/update/delete history. TRUNCATE clears either engine.
+#derive(Eq, Debug)
 pub(all) enum ClickHouseEngine {
   ReplacingMergeTree
   MergeTree
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend ClickHouseEngine with Eq::{equal, not_equal}

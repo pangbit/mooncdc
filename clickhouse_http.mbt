@@ -12,12 +12,13 @@ priv struct ChHttp {
 }
 
 ///|
+#derive(Eq)
 priv enum ChOperation {
   Connectivity
   SchemaQuery
   Ddl
   InsertRequest
-} derive(Eq)
+}
 
 ///|
 fn ChHttp::new(

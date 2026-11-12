@@ -107,7 +107,11 @@ async test "ClickHouse process crash boundary worker" {
       )
       target.bind_state(session)
       target.startup()
-      defer target.shutdown()
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => target.shutdown())
+      errdefer {
+        cleanup_failed.val = true
+      }
       let table = target.qualified("public_ddl")
       if phase == "init" {
         schemas.put(before.schema)

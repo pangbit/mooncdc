@@ -1,19 +1,21 @@
 ///|
 /// Durable covers this write and all earlier Accepted writes on this destination.
 /// Accepted transfers ownership to the destination but never authorizes an ack.
+#derive(Eq, Debug)
 pub(all) enum WriteStatus {
   Accepted
   Durable
-} derive(Eq, Debug)
+}
 
 ///|
 /// Identity within a fresh snapshot attempt; retries must use the same batch ID.
 /// A new snapshot generates a new attempt and resets each destination table first.
+#derive(Eq, Debug, ToJson)
 pub struct TableCopyBatchId {
   attempt : String
   relation_id : UInt32
   sequence : UInt64
-} derive(Eq, Debug, ToJson)
+}
 
 ///|
 /// Ordered destination contract. Implementations must tolerate replay and make

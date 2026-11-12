@@ -1,10 +1,11 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum StateRecord {
   Pipeline
   ReplicationCheckpoint
   Schemas
   TableMetadata(UInt32)
-} derive(Eq, Debug)
+}
 
 ///|
 /// One store instance/namespace owns one pipeline. acquire must exclude every

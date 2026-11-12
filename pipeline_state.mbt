@@ -1,20 +1,23 @@
 ///|
+#derive(ToJson, @json.FromJson)
 priv enum StoredPhase {
   Pending
   Copying
   Catchup(String)
   Ready(String)
   Errored(String, TableRetryPolicy, Int32)
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
+#derive(ToJson, @json.FromJson)
 priv struct StoredTable {
   oid : UInt32
   phase : StoredPhase
   decoding : StoredDecoding?
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
+#derive(ToJson, @json.FromJson)
 priv struct PipelineState {
   version : Int32
   source : Source
@@ -25,7 +28,7 @@ priv struct PipelineState {
   write_horizon : String?
   promotion : TimelinePromotion?
   tables : Array[StoredTable]
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
 priv struct PipelineStore {
@@ -199,26 +202,29 @@ async fn PipelineStore::set_phase(
 ///|
 /// Persisted table progress. Copying includes private-slot replay; Catchup/Ready
 /// retain the durable handover cutoff (initial snapshot or last private commit end).
+#derive(Eq, Debug)
 pub(all) enum TableSyncPhase {
   Pending
   Copying
   Catchup(Lsn)
   Ready(Lsn)
   Errored(reason~ : String, retry~ : TableRetryPolicy, attempts~ : Int32)
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Debug)
 pub struct TableSyncStatus {
   oid : UInt32
   phase : TableSyncPhase
-} derive(Debug)
+}
 
 ///|
+#derive(Debug)
 pub struct PipelineStatus {
   slot : String
   destination_id : String
   tables : ReadOnlyArray[TableSyncStatus]
-} derive(Debug)
+}
 
 ///|
 /// Read an atomic state snapshot without changing a running pipeline.

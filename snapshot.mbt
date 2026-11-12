@@ -9,11 +9,12 @@ pub struct SnapshotPosition {
 ///|
 /// TableBegin and TableEnd are delivered even for empty tables. Snapshot rows use
 /// text transfer; SQL NULL remains Null. Callbacks run sequentially with backpressure.
+#derive(Debug)
 pub(all) enum SnapshotEvent {
   TableBegin(Relation)
   TableRows(Relation, ReadOnlyArray[ReadOnlyArray[Value]])
   TableEnd(Relation)
-} derive(Debug)
+}
 
 ///|
 fn sql_identifier(value : String) -> String raise {

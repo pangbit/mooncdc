@@ -184,7 +184,13 @@ async test "live invalidated pipeline slot rejects by default and explicitly rec
           slot_failover=policy is IncludeAllTables,
         )
         let old = read_pipeline_state(path)
-        defer drop_slot(sql, old.source.slot)
+        let cleanup_failed = Ref(false)
+        defer finish_test_cleanup(cleanup_failed, () => {
+          drop_slot(sql, old.source.slot)
+        })
+        errdefer {
+          cleanup_failed.val = true
+        }
         let checkpoint = @fs.read_file(path + ".checkpoint").binary()
         let state = @fs.read_file(path).binary()
         let target_bytes = @fs.read_file(dir + "/target").binary()
@@ -397,7 +403,11 @@ async test "live slot recreation resumes every durable boundary with legacy file
             ),
           )
           let old = Lsn::parse(cell(created, 0, 1))
-          defer drop_slot(sql, slot)
+          let cleanup_failed = Ref(false)
+          defer finish_test_cleanup(cleanup_failed, () => drop_slot(sql, slot))
+          errdefer {
+            cleanup_failed.val = true
+          }
           let oid = @string.parse_uint(
             cell(
               sql.query("SELECT 'slot_recreate.a'::regclass::oid::text"),
@@ -558,9 +568,15 @@ async test "live running pipeline drains old destination before recreating an in
       let dir = @fs.tmpdir(prefix="mooncdc-recreate-running-")
       defer @fs.rmdir(dir, recursive=true)
       let path = dir + "/state"
-      defer (if @fs.exists(path) {
-        drop_slot(sql, read_pipeline_state(path).source.slot)
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        if @fs.exists(path) {
+          drop_slot(sql, read_pipeline_state(path).source.slot)
+        }
       })
+      errdefer {
+        cleanup_failed.val = true
+      }
       let target = PipelineProbe::new(
         dir + "/target",
         sql,

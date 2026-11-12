@@ -114,11 +114,12 @@ test "ClickHouse old keys TOAST and identity safety" {
 }
 
 ///|
+#derive(ToJson, @json.FromJson)
 priv struct ChDefaultVector {
   oid : UInt32
   default_input : String
   result : Json?
-} derive(ToJson, @json.FromJson)
+}
 
 ///|
 test "ClickHouse defaults preserve literal boundaries" {
@@ -170,25 +171,41 @@ async test "ClickHouse pipeline live snapshot DML and state restart" {
     let http = ChHttp::new(endpoint, "cdc", "mooncdc-test-only", 10000)
     let db = "mooncdc_pipeline_" + pipeline_nonce()
     ignore(http.query("CREATE DATABASE " + ch_quote(db, '"')))
-    defer (ignore(http.query("DROP DATABASE " + ch_quote(db, '"'))) catch {
-      _ => ()
+    let cleanup_failed = Ref(false)
+    defer finish_test_cleanup(cleanup_failed, () => {
+      ignore(http.query("DROP DATABASE " + ch_quote(db, '"'))) catch {
+        _ => ()
+      }
     })
+    errdefer {
+      cleanup_failed.val = true
+    }
     ignore(
       sql.query(
         "CREATE SCHEMA cdc_ch; CREATE TABLE cdc_ch.items(id int PRIMARY KEY, payload text NOT NULL, label text DEFAULT 'initial', nums int[]); ALTER TABLE cdc_ch.items REPLICA IDENTITY FULL; INSERT INTO cdc_ch.items VALUES(1,repeat('x',20000),'initial',ARRAY[1,NULL]); CREATE PUBLICATION cdc_ch FOR TABLE cdc_ch.items",
       ),
     )
-    defer ignore(
-      sql.query("DROP PUBLICATION cdc_ch; DROP SCHEMA cdc_ch CASCADE"),
-    )
+    let cleanup_failed = Ref(false)
+    defer finish_test_cleanup(cleanup_failed, () => {
+      ignore(sql.query("DROP PUBLICATION cdc_ch; DROP SCHEMA cdc_ch CASCADE"))
+    })
+    errdefer {
+      cleanup_failed.val = true
+    }
     for engine in [ClickHouseEngine::ReplacingMergeTree, MergeTree] {
       let dir = @fs.tmpdir(prefix="mooncdc-clickhouse-")
       defer @fs.rmdir(dir, recursive=true)
       @fs.mkdir(dir + "/state")
       let state = FileStateStore::new(dir + "/state")
-      defer (if state_store_status(state) is Some(status) {
-        drop_slot(sql, status.slot)
+      let cleanup_failed = Ref(false)
+      defer finish_test_cleanup(cleanup_failed, () => {
+        if state_store_status(state) is Some(status) {
+          drop_slot(sql, status.slot)
+        }
       })
+      errdefer {
+        cleanup_failed.val = true
+      }
       // Reset source between engines; each uses a fresh main slot and state.
       ignore(
         sql.query(
