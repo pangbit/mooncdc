@@ -13,23 +13,23 @@ MoonBit 编写的 PostgreSQL → ClickHouse CDC 库与独立同步工具。库�
 [当前交付范围](docs/RELEASE_SCOPE.zh-CN.md)。底层订阅使用原生 `pgoutput` 协议 v1，按完整的
 已提交事务交付数据，提供显式确认、持久检查点和有限次数断线重连。
 
-**0.1.3：Native 后端的 PostgreSQL → ClickHouse 库与 CLI。**
-当前开发代码要求 `moonc v0.10.20+65efd5b93`，配套
+**0.1.4：Native 后端的 PostgreSQL → ClickHouse 库与 CLI。**
+本版要求 `moonc v0.10.20+65efd5b93`，配套
 `moon` / `moonrun 0.1.20261104 (940aa18)`；功能范围和依赖版本不变，
-此前发布归档不包含本次十一月适配。见[变更记录](CHANGELOG.zh-CN.md)；验收方法及绑定源码的证据见[测试说明](docs/TESTING.zh-CN.md)。
+截至 0.1.3 的归档不包含本次十一月适配，其他 SDK 组合尚未验证。见[变更记录](CHANGELOG.zh-CN.md)；验收方法及绑定源码的证据见[测试说明](docs/TESTING.zh-CN.md)。
 采用至少一次投递，业务端必须处理重放。
 
-2026-10-20 的固定核心提交已通过 Linux PG17/18 库4格和 CLI8格验收。
-编译窗口的256 tasks 与数据库矩阵不同：本次矩阵内核峰值264，诊断临时采用
-512上限、384停止水位，结束已恢复256。这是测试夹具预算，不是产品最低需求，
-也不代表512已获永久授权或最终发布提交的远端CI已通过；版本绑定见测试说明。
+`d983f3f` 的[源码 CI](https://github.com/pangbit/mooncdc/actions/runs/43151173549)
+六项任务全部通过，包含 PG17/18 集成、macOS/Linux debug 与 release，以及独立归档的
+库／CLI 消费者。最终版本元数据、注册表发布及精确版本消费者是分别核验的发布门槛，
+版本绑定见[发布流程](docs/RELEASING.zh-CN.md)。
 
 <a id="installation-and-usage"></a>
 
 ## 安装与使用
 
-先用 `moon view pangbit/mooncdc@0.1.3` 查询版本是否可用，再通过
-`moon add pangbit/mooncdc@0.1.3` 安装，并核对实际解析版本。
+先用 `moon view pangbit/mooncdc@0.1.4` 查询版本是否可用，再通过
+`moon add pangbit/mooncdc@0.1.4` 安装，并核对实际解析版本。
 仓库中的可运行程序见[示例](examples/README.zh-CN.md)，源码包及注册库消费者检查见
 [发布流程](docs/RELEASING.zh-CN.md)。
 

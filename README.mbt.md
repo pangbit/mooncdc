@@ -13,27 +13,26 @@ The low-level subscription uses native `pgoutput` protocol v1, delivers complete
 committed transactions, and provides explicit acknowledgement, durable checkpoints
 and bounded reconnection.
 
-**0.1.3: a native PostgreSQL → ClickHouse library and CLI.**
-This development checkout requires `moonc v0.10.20+65efd5b93` and
+**0.1.4: a native PostgreSQL → ClickHouse library and CLI.**
+This version requires `moonc v0.10.20+65efd5b93` and
 `moon` / `moonrun 0.1.20261104 (940aa18)`. It preserves the feature scope and
-dependency versions; previously published archives do not include this November
-adaptation. See the [changelog](CHANGELOG.md) and
+dependency versions; archives through 0.1.3 do not include this November
+adaptation. Other SDK combinations remain unverified. See the [changelog](CHANGELOG.md) and
 [testing](docs/TESTING.md) for validation methods and source-bound evidence.
 Delivery is at least once; applications must handle replay.
 
-The fixed product inputs passed 4 Linux PG17/18 library cells and 8 CLI
-cells on 2026-10-20. The compiler window's 256-task budget is distinct from the
-database matrix: the diagnostic observed a kernel peak of 264 under a temporary
-512 ceiling and 384 stop watermark, then restored 256. These are fixture budgets,
-not product requirements, permanent permission for 512 tasks, or evidence that a
-final release commit passed remote CI. See the version binding in testing.
+The [source CI at `d983f3f`](https://github.com/pangbit/mooncdc/actions/runs/43151173549)
+passed all six jobs, including PG17/18 integration, macOS/Linux debug and release,
+and independent archive consumers for the library and CLI. Final version metadata,
+registry publication and exact-version consumer results are separate release gates.
+See [releasing](docs/RELEASING.md) for version binding.
 
 <a id="安装与使用"></a>
 
 ## Installation and usage
 
-Query availability with `moon view pangbit/mooncdc@0.1.3`, then install
-with `moon add pangbit/mooncdc@0.1.3` and verify the resolved version.
+Query availability with `moon view pangbit/mooncdc@0.1.4`, then install
+with `moon add pangbit/mooncdc@0.1.4` and verify the resolved version.
 See [examples](examples/README.md) for runnable repository programs and
 [releasing](docs/RELEASING.md) for source-package and registry consumer checks.
 

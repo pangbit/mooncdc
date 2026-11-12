@@ -8,12 +8,19 @@
 英文版本为权威版本。
 
 
-## 尚未发布
+## 0.1.4 — 2026-11-12
 
 - 选择 `moonc v0.10.20+65efd5b93` 和 `moon` / `moonrun 0.1.20261104 (940aa18)`。
 - 迁移派生声明，并用所选 SDK 重新生成包接口。
 - 为测试、示例的异步清理设置期限，保留原错误；包消费者负对照的夹具恢复也支持取消。
 - 保持依赖版本不变，并检查全部包的格式。
+- 动态分配隔离 WAL 测试端口，并在测试写入前核对数据库名和集群身份。
+
+`d983f3f` 的[源码 CI](https://github.com/pangbit/mooncdc/actions/runs/43151173549)
+六项任务全部通过，覆盖 macOS/Linux native debug 与 release、PG17/18 集成，
+以及独立源码包的库／CLI 消费者。本版调整所需 SDK，不扩展 PostgreSQL → ClickHouse
+业务范围，也不删除公共库声明；其他 SDK 组合尚未验证。
+请用 `moon view pangbit/mooncdc@0.1.4` 确认发布状态；版本说明本身不构成注册表发布回执。
 
 <a id="013"></a>
 

@@ -6,13 +6,23 @@
 English is the authoritative version.
 
 
-## Unreleased
+## 0.1.4 — 2026-11-12
 
 - Select `moonc v0.10.20+65efd5b93` and `moon` / `moonrun 0.1.20261104 (940aa18)`.
 - Migrate derived declarations and regenerate package interfaces with the selected SDK.
 - Bound asynchronous test/example cleanup, preserve original failures and restore
   the package-consumer negative-control fixture under cancellation.
 - Keep dependency versions unchanged and check formatting across all packages.
+- Allocate isolated WAL-test ports dynamically and verify the fixture's database
+  and cluster identity before performing test writes.
+
+The [source CI at `d983f3f`](https://github.com/pangbit/mooncdc/actions/runs/43151173549)
+passed all six jobs, including macOS/Linux native debug and release tests,
+PG17/18 integration and independent source-package library/CLI consumers.
+This version changes the required SDK without expanding the PostgreSQL → ClickHouse
+scope or removing public library declarations. Other SDK combinations remain
+unverified. Confirm publication with `moon view pangbit/mooncdc@0.1.4`;
+these version notes do not establish a registry publication receipt.
 
 ## 0.1.3
 

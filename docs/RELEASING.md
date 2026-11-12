@@ -9,11 +9,11 @@ English is the authoritative version.
 
 
 Follow [MoonBit's publishing guide](https://docs.moonbitlang.com/en/latest/toolchain/moon/package-manage-tour.html).
-CI does not publish packages. This development checkout requires
+CI does not publish packages. Version 0.1.4 requires
 `moonc v0.10.20+65efd5b93` and `moon` / `moonrun 0.1.20261104 (940aa18)`.
-The [six successful October toolchain jobs](https://github.com/pangbit/mooncdc/actions/runs/41149520495)
-at `070df56` are historical evidence for 0.1.3, not acceptance of this November
-adaptation. Track the current release source, toolchain and tag CI,
+The [six successful November source jobs](https://github.com/pangbit/mooncdc/actions/runs/43151173549)
+at `d983f3f` cover the SDK adaptation and isolated WAL fixture repair.
+Track the final release source, toolchain and candidate CI,
 inspect the exact registry archive and documentation build, and run one clean
 exact-version consumer. Do not duplicate the functional matrix on another host.
 
@@ -81,7 +81,7 @@ and recheck the exact version immediately before an authorized upload. Keep the
 current name, version, repository ownership and licenses until explicitly changed.
 
 After publication, create a consumer outside this repository and its workspace,
-with a normal exact dependency `"pangbit/mooncdc@0.1.3"` in `moon.mod` and the
+with a normal exact dependency `"pangbit/mooncdc@0.1.4"` in `moon.mod` and the
 root package import `"pangbit/mooncdc"` in `moon.pkg`. Use the public README/API
 consumer examples, run strict native check/test and debug/release build/run,
 and retain the resolved version, registry archive checksum and actual exit codes.
