@@ -1,0 +1,81 @@
+----
+import {
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/shell",
+  "moonbitlang/core/env",
+  "moonbitlang/core/string",
+}
+----
+
+///|
+fn slot_port(output : String) -> String raise {
+  guard output.trim().split(":").collect() is ["127.0.0.1", port] else {
+    fail("expected one loopback Docker port mapping")
+  }
+  let port = @string.parse_int(port)
+  guard port > 0 && port <= 65535 else { fail("invalid Docker port") }
+  port.to_string()
+}
+
+///|
+test "slot fixture accepts dynamically assigned loopback ports" {
+  assert_eq(slot_port("127.0.0.1:49152\n"), "49152")
+  assert_eq(slot_port("127.0.0.1:65535\n"), "65535")
+}
+
+///|
+test "slot fixture rejects missing ambiguous and nonloopback ports" {
+  for
+    output in [
+      "", "0.0.0.0:49152", "127.0.0.1:0", "127.0.0.1:65536", "127.0.0.1:not-a-port",
+      "127.0.0.1:49152\n127.0.0.1:49153\n",
+    ] {
+    assert_true((Some(slot_port(output)) catch { _ => None }) is None)
+  }
+}
+
+///|
+async fn main {
+  let args = @env.args()
+  guard args.length() == 2 && (args[1] == "pg18" || args[1] == "pg17") else {
+    fail("usage: moon run tools/slot-safety-test.mbtx <pg18|pg17>")
+  }
+  let prefix = [
+    "compose", "-p", "mooncdc-slot-test", "-f", "integration/slot-safety.compose.yaml",
+  ]
+  let mapping = @shell.Cmd("docker", prefix + ["port", args[1], "5432"]).output()
+  mapping.check()
+  let port = slot_port(mapping.stdout())
+  // Bind the destructive test to this disposable cluster, not a port number.
+  let identity = @shell.Cmd(
+    "docker",
+    prefix +
+    [
+      "exec",
+      "-T",
+      args[1],
+      "psql",
+      "-U",
+      "cdc",
+      "-d",
+      "mooncdc_slot_safety",
+      "-Atq",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      "SELECT system_identifier::text FROM pg_control_system()",
+    ],
+  ).output()
+  identity.check()
+  let system_id = identity.stdout().trim().to_owned()
+  assert_true(!system_id.is_empty())
+  println("SLOT FIXTURE: \{args[1]} 127.0.0.1:\{port} system_id=\{system_id}")
+  @shell.Cmd(
+    "moon",
+    ["test", "--target", "native", "--filter", "slot safety live*"],
+    env={
+      "MOONCDC_SLOT_TEST_PORT": port,
+      "MOONCDC_SLOT_TEST_SYSTEM_ID": system_id,
+    },
+  ).run()
+}

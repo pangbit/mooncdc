@@ -104,6 +104,7 @@ jobs:
           moon test tools/replicator-config-test.mbtx --target native
           moon test tools/cli-active-promotion-test.mbtx --target native
           moon test tools/active-store-promotion-test.mbtx --target native
+          moon test tools/slot-safety-test.mbtx --target native
           python3 -B tools/package-footprint-sample_test.py
       - name: Build release CLI
         timeout-minutes: 15
@@ -123,10 +124,8 @@ jobs:
         include:
           - service: pg18
             port: 55418
-            slot_port: 55428
           - service: pg17
             port: 55417
-            slot_port: 55427
     steps:
       - uses: actions/checkout@v5
       - name: Configure accepted Linux build stack
@@ -201,9 +200,7 @@ jobs:
       - name: Start isolated WAL invalidation fixture
         run: docker compose -p mooncdc-slot-test -f integration/slot-safety.compose.yaml up -d --wait ${{ matrix.service }}
       - name: Check slot safety and quiet publication WAL
-        run: moon test --target native --filter 'slot safety live*'
-        env:
-          MOONCDC_SLOT_TEST_PORT: ${{ matrix.slot_port }}
+        run: moon run tools/slot-safety-test.mbtx ${{ matrix.service }}
       - if: always()
         run: docker compose -p mooncdc-slot-test -f integration/slot-safety.compose.yaml logs
       - if: always()

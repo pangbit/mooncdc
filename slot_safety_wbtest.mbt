@@ -49,7 +49,7 @@ async test "slot safety live advancement invalidation and quiet publication WAL"
   if @env.get_env_var("MOONCDC_SLOT_TEST_PORT") is Some(port) {
     // This scenario deliberately releases WAL. Never point it at the ordinary
     // fixture or a shared database; use integration/slot-safety.compose.yaml.
-    assert_true(port == "55428" || port == "55427")
+    let system_id = @env.get_env_var("MOONCDC_SLOT_TEST_SYSTEM_ID").unwrap()
     let config : ConnectionConfig = {
       hostaddr: None,
       keepalive: TcpKeepaliveConfig::new(),
@@ -66,6 +66,18 @@ async test "slot safety live advancement invalidation and quiet publication WAL"
       defer sql.close()
       let control = connect(config, 1048576, true)
       defer control.close()
+      assert_eq(
+        cell(sql.query("SELECT current_database()"), 0, 0),
+        "mooncdc_slot_safety",
+      )
+      assert_eq(
+        cell(
+          sql.query("SELECT system_identifier::text FROM pg_control_system()"),
+          0,
+          0,
+        ),
+        system_id,
+      )
       assert_eq(cell(sql.query("SHOW max_slot_wal_keep_size"), 0, 0), "0")
       assert_eq(cell(sql.query("SHOW wal_sender_timeout"), 0, 0), "5s")
       assert_eq(cell(sql.query("SHOW wal_segment_size"), 0, 0), "16MB")
